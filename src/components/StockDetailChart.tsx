@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { Wave, FibTarget } from "@/utils/elliottWaveAnalysis";
@@ -80,17 +79,15 @@ interface WaveLineProps {
 }
 
 const WaveLine: React.FC<WaveLineProps> = ({ wave, data, color }) => {
-  if (!wave || !data || !wave.startIndex || wave.startIndex >= data.length) return null;
+  if (!wave || !data || !wave.startTimestamp) return null;
   
-  const startIdx = wave.startIndex;
-  const endIdx = wave.endIndex ?? data.length - 1;
+  // Find data points based on timestamps
+  const startPoint = data.find(d => d.timestamp === wave.startTimestamp);
+  const endPoint = wave.endTimestamp 
+    ? data.find(d => d.timestamp === wave.endTimestamp)
+    : data[data.length - 1];
   
-  if (startIdx === endIdx) return null;
-  
-  const startTimestamp = data[startIdx].timestamp;
-  const endTimestamp = data[endIdx].timestamp;
-  const startPrice = wave.startPrice;
-  const endPrice = wave.endPrice ?? data[data.length - 1].close;
+  if (!startPoint || !endPoint) return null;
   
   return (
     <Line
@@ -102,8 +99,8 @@ const WaveLine: React.FC<WaveLineProps> = ({ wave, data, color }) => {
       isAnimationActive={false}
       connectNulls
       data={[
-        { timestamp: startTimestamp, price: startPrice },
-        { timestamp: endTimestamp, price: endPrice }
+        { timestamp: startPoint.timestamp * 1000, price: wave.startPrice },
+        { timestamp: endPoint.timestamp * 1000, price: wave.endPrice ?? endPoint.close }
       ]}
     />
   );
@@ -238,7 +235,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           {fibTargets.map((target, index) => {
             if (!currentWave) return null;
             
-            const startTimestamp = data[currentWave.startIndex].timestamp * 1000;
+            const startPoint = data.find(d => d.timestamp === currentWave.startTimestamp);
+            if (!startPoint) return null;
+            
             const endTimestamp = data[data.length - 1].timestamp * 1000;
             
             return (
