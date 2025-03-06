@@ -1,4 +1,3 @@
-
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 
 // Define the Wave interface
@@ -10,6 +9,16 @@ export interface Wave {
   endPrice?: number;         // Price at end of wave (undefined if wave is in progress)
   type: 'impulse' | 'corrective';  // Wave type
   isComplete: boolean;       // Whether the wave is complete
+}
+
+// Define the WaveAnalysisResult interface that was missing
+export interface WaveAnalysisResult {
+  waves: Wave[];
+  currentWave: Wave;
+  fibTargets: FibTarget[];
+  trend?: 'bullish' | 'bearish' | 'neutral';
+  impulsePattern?: boolean;
+  correctivePattern?: boolean;
 }
 
 // Define the Fibonacci target interface
@@ -71,11 +80,7 @@ export const calculateFibonacciLevels = (
 };
 
 // Analyze the price data to identify Elliott Waves
-export const analyzeElliottWaves = (data: StockHistoricalData[]): {
-  waves: Wave[],
-  currentWave: Wave,
-  fibTargets: FibTarget[]
-} => {
+export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisResult => {
   if (!data || data.length < 20) {
     return { waves: [], currentWave: {} as Wave, fibTargets: [] };
   }
