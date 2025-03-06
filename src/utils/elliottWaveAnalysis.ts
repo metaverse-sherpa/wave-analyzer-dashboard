@@ -1,20 +1,16 @@
 
-import { StockHistoricalData } from "@/services/yahooFinanceService";
-
+// Interfaces for Elliott Wave Analysis
 export interface Wave {
   number: number | string; // 1, 2, 3, 4, 5, A, B, C
-  startIndex: number;
-  endIndex: number | null; // null means ongoing wave
-  startPrice: number;
-  endPrice: number | null; // null means ongoing wave
   startTimestamp: number;
-  endTimestamp: number | null; // null means ongoing wave
-  isImpulse: boolean; // true for impulse waves (1, 3, 5), false for corrective waves (2, 4, A, B, C)
+  endTimestamp?: number; // Undefined for the current wave
+  startPrice: number;
+  endPrice?: number; // Undefined for the current wave
+  isImpulse: boolean; // true for impulse waves (1, 3, 5), false for corrective (2, 4, A, B, C)
 }
 
 export interface FibTarget {
   label: string;
-  level: number; // e.g., 0.382, 0.618, 1.618
   price: number;
   isExtension: boolean;
 }
@@ -22,381 +18,258 @@ export interface FibTarget {
 export interface WaveAnalysisResult {
   waves: Wave[];
   currentWave: Wave;
-  fibTargets: FibTarget[];
-  impulsePattern: boolean; // true if this looks like a 5-wave impulse
-  correctivePattern: boolean; // true if this looks like a 3-wave correction
   trend: 'bullish' | 'bearish' | 'neutral';
+  impulsePattern: boolean;
+  correctivePattern: boolean;
+  fibTargets: FibTarget[];
 }
 
-// Constants for wave analysis
-const MIN_SWING_PERCENT = 3; // Minimum price change to qualify as a swing
-const MIN_WAVE_BARS = 5; // Minimum number of bars/candles to qualify as a wave
-const FIB_LEVELS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0, 2.618];
-
-// Perform Elliott Wave analysis on historical data
-export const analyzeElliottWaves = (
-  historicalData: StockHistoricalData[]
-): WaveAnalysisResult => {
-  // In a real implementation, this would use advanced technical analysis
-  // For this demo, we'll use a simplified approach
-  
-  if (historicalData.length < 20) {
+// Elliott Wave Analysis Functions
+export const analyzeElliottWaves = (historicalData: any[]): WaveAnalysisResult => {
+  if (!historicalData || historicalData.length === 0) {
     return createEmptyAnalysis();
   }
   
-  // Find potential swing highs and lows
-  const swings = findSwings(historicalData);
+  // Sort data by timestamp
+  const sortedData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp);
   
-  // Identify waves based on swings
-  const waves = identifyWaves(swings, historicalData);
+  // Find significant pivots to identify wave patterns
+  const pivots = findSignificantPivots(sortedData);
   
-  // Determine current wave
-  const currentWave = determineCurrentWave(waves, historicalData);
+  // Identify wave patterns from pivots
+  const waves = identifyWaves(pivots, sortedData);
   
-  // Calculate Fibonacci targets for the current wave
-  const fibTargets = calculateFibTargets(currentWave, waves, historicalData);
+  // Determine the current wave
+  const currentWave = waves[waves.length - 1];
   
-  // Determine overall pattern and trend
-  const { impulsePattern, correctivePattern, trend } = determinePattern(waves, historicalData);
+  // Determine overall trend
+  const trend = determineTrend(waves, sortedData);
+  
+  // Calculate Fibonacci targets
+  const fibTargets = calculateFibonacciTargets(currentWave, waves);
+  
+  // Determine if we have impulse or corrective patterns
+  const impulsePattern = identifyImpulsePattern(waves);
+  const correctivePattern = identifyCorrectivePattern(waves);
   
   return {
     waves,
     currentWave,
-    fibTargets,
+    trend,
     impulsePattern,
     correctivePattern,
-    trend,
+    fibTargets
   };
 };
 
-// Find swing highs and lows in the data
-const findSwings = (data: StockHistoricalData[]): { highs: number[], lows: number[] } => {
-  const highs: number[] = [];
-  const lows: number[] = [];
-  
-  // Simple implementation to find local highs and lows
-  // In a real system, we'd use more advanced algorithms
-  for (let i = 2; i < data.length - 2; i++) {
-    const current = data[i];
-    const prev1 = data[i - 1];
-    const prev2 = data[i - 2];
-    const next1 = data[i + 1];
-    const next2 = data[i + 2];
-    
-    // Check for swing high
-    if (current.high > prev1.high && current.high > prev2.high && 
-        current.high > next1.high && current.high > next2.high) {
-      highs.push(i);
-    }
-    
-    // Check for swing low
-    if (current.low < prev1.low && current.low < prev2.low && 
-        current.low < next1.low && current.low < next2.low) {
-      lows.push(i);
-    }
-  }
-  
-  return { highs, lows };
+// Helper function to create an empty analysis
+const createEmptyAnalysis = (): WaveAnalysisResult => {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    waves: [],
+    currentWave: {
+      number: 1,
+      startTimestamp: now,
+      startPrice: 0,
+      isImpulse: true
+    },
+    trend: 'neutral',
+    impulsePattern: false,
+    correctivePattern: false,
+    fibTargets: []
+  };
 };
 
-// Identify potential Elliott Waves
-const identifyWaves = (
-  swings: { highs: number[], lows: number[] },
-  data: StockHistoricalData[]
-): Wave[] => {
-  // Simplified wave identification - in a real implementation, this would be much more sophisticated
+// Find significant pivot points in the price data
+const findSignificantPivots = (data: any[]): number[] => {
+  // For this demo, we'll use a simplified approach to find pivots
+  // In a real implementation, this would be more sophisticated
+  
+  const pivots: number[] = [];
+  const lookbackPeriod = Math.max(10, Math.floor(data.length * 0.05)); // 5% of data points
+  
+  // Always include the first point
+  pivots.push(0);
+  
+  // Find local highs and lows
+  for (let i = lookbackPeriod; i < data.length - lookbackPeriod; i++) {
+    let isHigh = true;
+    let isLow = true;
+    
+    for (let j = i - lookbackPeriod; j <= i + lookbackPeriod; j++) {
+      if (data[j].high > data[i].high) {
+        isHigh = false;
+      }
+      if (data[j].low < data[i].low) {
+        isLow = false;
+      }
+    }
+    
+    if (isHigh || isLow) {
+      pivots.push(i);
+    }
+  }
+  
+  // Always include the last point
+  if (pivots[pivots.length - 1] !== data.length - 1) {
+    pivots.push(data.length - 1);
+  }
+  
+  // If we don't have enough pivots, create some based on time intervals
+  if (pivots.length < 5) {
+    pivots.length = 0;
+    const step = Math.floor(data.length / 5);
+    for (let i = 0; i < data.length; i += step) {
+      pivots.push(Math.min(i, data.length - 1));
+    }
+    if (pivots[pivots.length - 1] !== data.length - 1) {
+      pivots.push(data.length - 1);
+    }
+  }
+  
+  return pivots.sort((a, b) => a - b);
+};
+
+// Identify Elliott Waves from pivot points
+const identifyWaves = (pivots: number[], data: any[]): Wave[] => {
+  // For this demo, we'll use a simplified approach to identify waves
+  // In a real implementation, this would follow stricter Elliott Wave rules
+  
   const waves: Wave[] = [];
-  const { highs, lows } = swings;
+  const seed = data[0].timestamp;
   
-  if (highs.length < 3 || lows.length < 2) {
-    // Not enough swing points to identify waves
-    return simulateWaves(data);
-  }
+  // Use the seed to determine wave pattern (simplified for demo)
+  const patternSeed = seed % 3;
   
-  // Identify impulse and corrective waves based on overall price direction
-  const overallTrend = data[data.length - 1].close > data[0].close ? 'up' : 'down';
+  // 0: Classic 5-wave impulse + 3-wave correction
+  // 1: Partial 5-wave impulse (in progress)
+  // 2: Completed impulse + partial correction (in progress)
   
-  // Merge and sort all swing points
-  const allSwings = [...highs.map(idx => ({ idx, type: 'high' })), 
-                     ...lows.map(idx => ({ idx, type: 'low' }))];
-  allSwings.sort((a, b) => a.idx - b.idx);
-  
-  // Minimum number of waves to identify
-  const targetWaveCount = 5; // aim for 5-wave pattern if possible
-  
-  // Calculate the total number of swings we have
-  const totalSwings = allSwings.length;
-  
-  // If we don't have enough swings, use simulated waves
-  if (totalSwings < 4) {
-    return simulateWaves(data);
-  }
-  
-  // Try to identify a 5-wave pattern
   let waveCount = 0;
-  let waveNumber = 1;
-  let isImpulse = true;
-  let lastIdx = 0;
+  let waveLabels: (number | string)[] = [];
   
-  for (let i = 0; i < Math.min(totalSwings, targetWaveCount + 1); i++) {
-    if (i === 0) {
-      // First point is the start of wave 1
-      const startIdx = Math.max(0, allSwings[i].idx - 5); // Start a bit before the first swing
-      lastIdx = allSwings[i].idx;
-      
-      waves.push({
-        number: waveNumber,
-        startIndex: startIdx,
-        endIndex: lastIdx,
-        startPrice: data[startIdx].close,
-        endPrice: data[lastIdx].close,
-        startTimestamp: data[startIdx].timestamp,
-        endTimestamp: data[lastIdx].timestamp,
-        isImpulse: true
-      });
-      
-      waveCount++;
-      waveNumber++;
-      isImpulse = !isImpulse;
-    } else {
-      const currentIdx = allSwings[i].idx;
-      
-      // Skip if this swing is too close to the last one
-      if (currentIdx - lastIdx < MIN_WAVE_BARS) continue;
-      
-      // Create the wave
-      waves.push({
-        number: waveNumber > 5 ? String.fromCharCode(64 + (waveNumber - 5)) : waveNumber,
-        startIndex: lastIdx,
-        endIndex: currentIdx,
-        startPrice: data[lastIdx].close,
-        endPrice: data[currentIdx].close,
-        startTimestamp: data[lastIdx].timestamp,
-        endTimestamp: data[currentIdx].timestamp,
-        isImpulse: isImpulse
-      });
-      
-      lastIdx = currentIdx;
-      waveCount++;
-      waveNumber++;
-      isImpulse = !isImpulse && waveNumber <= 5;
-      
-      // Stop if we've identified all waves
-      if (waveNumber > 8) break;
-    }
+  if (patternSeed === 0) {
+    waveLabels = [1, 2, 3, 4, 5, 'A', 'B', 'C'];
+    waveCount = Math.min(8, pivots.length - 1);
+  } else if (patternSeed === 1) {
+    waveLabels = [1, 2, 3, 4, 5];
+    waveCount = Math.min(5, pivots.length - 1);
+  } else {
+    waveLabels = [1, 2, 3, 4, 5, 'A', 'B'];
+    waveCount = Math.min(7, pivots.length - 1);
   }
   
-  // Make sure the last wave extends to the current bar
-  if (waves.length > 0) {
-    const lastWave = waves[waves.length - 1];
-    lastWave.endIndex = data.length - 1;
-    lastWave.endPrice = data[data.length - 1].close;
-    lastWave.endTimestamp = data[data.length - 1].timestamp;
-  }
-  
-  return waves.length > 0 ? waves : simulateWaves(data);
-};
-
-// Simulate waves when we can't properly identify them
-const simulateWaves = (data: StockHistoricalData[]): Wave[] => {
-  const waves: Wave[] = [];
-  const dataLength = data.length;
-  
-  // Not enough data for proper analysis, create a simulated 5-wave pattern
-  const segmentSize = Math.floor(dataLength / 8); // divide into 8 segments
-  
-  let waveNumber = 1;
-  let isImpulse = true;
-  
-  for (let i = 0; i < 5; i++) {
-    const startIndex = i * segmentSize;
-    const endIndex = (i + 1) * segmentSize;
+  for (let i = 0; i < waveCount; i++) {
+    const startIndex = pivots[i];
+    const endIndex = pivots[i + 1];
     
-    waves.push({
-      number: waveNumber,
-      startIndex,
-      endIndex,
-      startPrice: data[startIndex].close,
-      endPrice: data[endIndex < dataLength ? endIndex : dataLength - 1].close,
+    // Ignore waves that are too short
+    if (endIndex - startIndex < 3) continue;
+    
+    const wave: Wave = {
+      number: waveLabels[i],
       startTimestamp: data[startIndex].timestamp,
-      endTimestamp: data[endIndex < dataLength ? endIndex : dataLength - 1].timestamp,
-      isImpulse: isImpulse
-    });
+      endTimestamp: i < waveCount - 1 ? data[endIndex].timestamp : undefined,
+      startPrice: data[startIndex].close,
+      endPrice: i < waveCount - 1 ? data[endIndex].close : undefined,
+      isImpulse: typeof waveLabels[i] === 'number' && [1, 3, 5].includes(waveLabels[i] as number)
+    };
     
-    waveNumber++;
-    isImpulse = !isImpulse;
-  }
-  
-  // Add ABC correction if we have enough data
-  if (dataLength > 6 * segmentSize) {
-    let waveNumber: string = 'A';
-    isImpulse = false;
-    
-    for (let i = 5; i < 8 && (i + 1) * segmentSize < dataLength; i++) {
-      const startIndex = i * segmentSize;
-      const endIndex = (i + 1) * segmentSize;
-      
-      waves.push({
-        number: waveNumber,
-        startIndex,
-        endIndex,
-        startPrice: data[startIndex].close,
-        endPrice: data[endIndex < dataLength ? endIndex : dataLength - 1].close,
-        startTimestamp: data[startIndex].timestamp,
-        endTimestamp: data[endIndex < dataLength ? endIndex : dataLength - 1].timestamp,
-        isImpulse: false
-      });
-      
-      waveNumber = String.fromCharCode(waveNumber.charCodeAt(0) + 1);
-    }
-  }
-  
-  // Make sure the last wave extends to the current bar
-  if (waves.length > 0) {
-    const lastWave = waves[waves.length - 1];
-    lastWave.endIndex = dataLength - 1;
-    lastWave.endPrice = data[dataLength - 1].close;
-    lastWave.endTimestamp = data[dataLength - 1].timestamp;
+    waves.push(wave);
   }
   
   return waves;
 };
 
-// Determine the current wave
-const determineCurrentWave = (waves: Wave[], data: StockHistoricalData[]): Wave => {
-  if (waves.length === 0) {
-    // No waves found, consider everything as one wave
-    return {
-      number: 1,
-      startIndex: 0,
-      endIndex: null,
-      startPrice: data[0].close,
-      endPrice: null,
-      startTimestamp: data[0].timestamp,
-      endTimestamp: null,
-      isImpulse: true
-    };
-  }
+// Determine the overall trend
+const determineTrend = (waves: Wave[], data: any[]): 'bullish' | 'bearish' | 'neutral' => {
+  if (waves.length === 0) return 'neutral';
   
-  // The last wave is the current one
-  const lastWave = waves[waves.length - 1];
+  // Look at the most recent data to determine the trend
+  const recentDataCount = Math.min(20, Math.floor(data.length * 0.2)); // 20% of data points
+  const recentData = data.slice(-recentDataCount);
   
-  // Make it an ongoing wave
-  return {
-    ...lastWave,
-    endIndex: null,
-    endPrice: null,
-    endTimestamp: null
-  };
+  const first = recentData[0].close;
+  const last = recentData[recentData.length - 1].close;
+  const percentChange = ((last - first) / first) * 100;
+  
+  if (percentChange > 3) return 'bullish';
+  if (percentChange < -3) return 'bearish';
+  return 'neutral';
 };
 
-// Calculate Fibonacci targets for the current wave
-const calculateFibTargets = (
-  currentWave: Wave,
-  waves: Wave[],
-  data: StockHistoricalData[]
-): FibTarget[] => {
-  const fibTargets: FibTarget[] = [];
+// Calculate Fibonacci targets based on the current wave
+const calculateFibonacciTargets = (currentWave: Wave, waves: Wave[]): FibTarget[] => {
+  const targets: FibTarget[] = [];
   
-  if (!currentWave || waves.length === 0) return fibTargets;
+  // Find the previous completed wave for reference
+  let referenceWave: Wave | null = null;
+  for (let i = waves.length - 2; i >= 0; i--) {
+    if (waves[i].endPrice) {
+      referenceWave = waves[i];
+      break;
+    }
+  }
   
-  const currentPrice = data[data.length - 1].close;
+  if (!referenceWave) {
+    if (waves.length > 1) {
+      referenceWave = waves[waves.length - 2];
+    } else {
+      referenceWave = currentWave;
+    }
+  }
+  
   const startPrice = currentWave.startPrice;
   
-  // Determine if it's an up or down move
-  const isUp = currentPrice > startPrice;
-  
-  // Calculate the base move
-  const baseMove = Math.abs(currentPrice - startPrice);
-  
-  // Generate Fibonacci targets
-  FIB_LEVELS.forEach(level => {
-    let targetPrice: number;
-    let isExtension = level > 1.0;
+  // If we're in an impulse wave (1, 3, 5)
+  if (currentWave.isImpulse) {
+    // Retracement levels for impulse waves are typically projections
+    const moveDistance = referenceWave.endPrice 
+      ? Math.abs(referenceWave.endPrice - referenceWave.startPrice) 
+      : Math.abs(startPrice * 0.1); // Default to 10% if no reference
     
-    if (isUp) {
-      targetPrice = startPrice + (baseMove * level);
-    } else {
-      targetPrice = startPrice - (baseMove * level);
-    }
+    // Fibonacci extension levels
+    targets.push({ label: '1.0', price: startPrice + moveDistance, isExtension: false });
+    targets.push({ label: '1.618', price: startPrice + moveDistance * 1.618, isExtension: true });
+    targets.push({ label: '2.0', price: startPrice + moveDistance * 2, isExtension: true });
+    targets.push({ label: '2.618', price: startPrice + moveDistance * 2.618, isExtension: true });
+    targets.push({ label: '3.0', price: startPrice + moveDistance * 3, isExtension: true });
+  } 
+  // If we're in a corrective wave (2, 4, A, B, C)
+  else {
+    // Previous impulse wave height for retracement
+    const prevHeight = referenceWave.endPrice 
+      ? Math.abs(referenceWave.endPrice - referenceWave.startPrice) 
+      : Math.abs(startPrice * 0.1); // Default to 10% if no reference
     
-    fibTargets.push({
-      label: level === 1.0 ? '100%' : `${(level * 100).toFixed(1)}%`,
-      level,
-      price: targetPrice,
-      isExtension
-    });
-  });
-  
-  return fibTargets;
-};
-
-// Determine pattern and trend
-const determinePattern = (
-  waves: Wave[],
-  data: StockHistoricalData[]
-): { impulsePattern: boolean, correctivePattern: boolean, trend: 'bullish' | 'bearish' | 'neutral' } => {
-  if (waves.length < 3) {
-    return {
-      impulsePattern: false,
-      correctivePattern: false,
-      trend: 'neutral'
-    };
+    const direction = referenceWave.endPrice && referenceWave.endPrice > referenceWave.startPrice ? -1 : 1;
+    
+    // Common Fibonacci retracement levels
+    targets.push({ label: '0.236', price: startPrice + direction * prevHeight * 0.236, isExtension: false });
+    targets.push({ label: '0.382', price: startPrice + direction * prevHeight * 0.382, isExtension: false });
+    targets.push({ label: '0.5', price: startPrice + direction * prevHeight * 0.5, isExtension: false });
+    targets.push({ label: '0.618', price: startPrice + direction * prevHeight * 0.618, isExtension: false });
+    targets.push({ label: '0.786', price: startPrice + direction * prevHeight * 0.786, isExtension: false });
+    targets.push({ label: '1.0', price: startPrice + direction * prevHeight, isExtension: false });
   }
   
-  // Check if we have a 5-wave impulse pattern
-  const hasImpulse = waves.length >= 5 && 
-    typeof waves[0].number === 'number' && waves[0].number === 1 &&
-    typeof waves[4].number === 'number' && waves[4].number === 5;
-  
-  // Check if we have a 3-wave corrective pattern
-  const hasCorrective = waves.length >= 3 && 
-    waves[waves.length - 3].number === 'A' &&
-    waves[waves.length - 2].number === 'B' &&
-    waves[waves.length - 1].number === 'C';
-  
-  // Determine trend based on recent price action
-  const recentBars = Math.min(20, data.length);
-  const recentData = data.slice(-recentBars);
-  
-  let upBars = 0;
-  let downBars = 0;
-  
-  for (const bar of recentData) {
-    if (bar.close > bar.open) upBars++;
-    else if (bar.close < bar.open) downBars++;
-  }
-  
-  let trend: 'bullish' | 'bearish' | 'neutral';
-  
-  if (upBars > downBars * 1.5) trend = 'bullish';
-  else if (downBars > upBars * 1.5) trend = 'bearish';
-  else trend = 'neutral';
-  
-  return {
-    impulsePattern: hasImpulse,
-    correctivePattern: hasCorrective,
-    trend
-  };
+  return targets;
 };
 
-// Create an empty analysis result for when we don't have enough data
-const createEmptyAnalysis = (): WaveAnalysisResult => {
-  return {
-    waves: [],
-    currentWave: {
-      number: 1,
-      startIndex: 0,
-      endIndex: null,
-      startPrice: 0,
-      endPrice: null,
-      startTimestamp: 0,
-      endTimestamp: null,
-      isImpulse: true
-    },
-    fibTargets: [],
-    impulsePattern: false,
-    correctivePattern: false,
-    trend: 'neutral'
-  };
+// Identify if we have a valid impulse pattern (5 waves)
+const identifyImpulsePattern = (waves: Wave[]): boolean => {
+  if (waves.length < 5) return false;
+  
+  // Check if we have waves 1-5
+  const impulseCounts = waves.filter(w => typeof w.number === 'number' && [1, 2, 3, 4, 5].includes(w.number as number)).length;
+  return impulseCounts >= 5;
+};
+
+// Identify if we have a valid corrective pattern (ABC)
+const identifyCorrectivePattern = (waves: Wave[]): boolean => {
+  if (waves.length < 3) return false;
+  
+  // Check if we have waves A, B, C
+  const correctiveCounts = waves.filter(w => ['A', 'B', 'C'].includes(w.number as string)).length;
+  return correctiveCounts >= 3;
 };

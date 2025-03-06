@@ -1,99 +1,100 @@
 
 import { WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
+import { toast } from "@/lib/toast";
 
-// In a real implementation, this would connect to a database
-// For this demo, we'll use localStorage for persistence
+// Cache duration in milliseconds (6 hours)
+const CACHE_DURATION = 6 * 60 * 60 * 1000;
 
-const DB_PREFIX = 'elliott_wave_app_';
+// Storage key prefix
+const STORAGE_KEY_PREFIX = 'wave_analysis_';
 
-export interface StoredWaveAnalysis {
-  symbol: string;
-  timeframe: string;
-  analysis: WaveAnalysisResult;
-  timestamp: number;
-}
-
-// Store wave analysis
+// Store wave analysis in local storage
 export const storeWaveAnalysis = (
-  symbol: string,
-  timeframe: string,
+  symbol: string, 
+  timeframe: string, 
   analysis: WaveAnalysisResult
 ): void => {
   try {
-    const key = `${DB_PREFIX}wave_${symbol}_${timeframe}`;
-    const data: StoredWaveAnalysis = {
-      symbol,
-      timeframe,
+    const key = `${STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
+    const data = {
       analysis,
       timestamp: Date.now(),
     };
-    
     localStorage.setItem(key, JSON.stringify(data));
   } catch (error) {
-    console.error('Failed to store wave analysis:', error);
+    console.error('Error storing wave analysis:', error);
+    toast.error('Failed to store analysis data locally');
   }
 };
 
-// Retrieve wave analysis
+// Retrieve wave analysis from local storage
 export const retrieveWaveAnalysis = (
-  symbol: string,
+  symbol: string, 
   timeframe: string
-): StoredWaveAnalysis | null => {
+): { analysis: WaveAnalysisResult; timestamp: number } | null => {
   try {
-    const key = `${DB_PREFIX}wave_${symbol}_${timeframe}`;
+    const key = `${STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
     const data = localStorage.getItem(key);
     
-    if (!data) return null;
+    if (data) {
+      return JSON.parse(data);
+    }
     
-    return JSON.parse(data) as StoredWaveAnalysis;
+    return null;
   } catch (error) {
-    console.error('Failed to retrieve wave analysis:', error);
+    console.error('Error retrieving wave analysis:', error);
+    toast.error('Failed to retrieve analysis data');
     return null;
   }
 };
 
-// Check if an analysis is expired (older than 24 hours)
+// Check if analysis is expired
 export const isAnalysisExpired = (timestamp: number): boolean => {
   const now = Date.now();
-  const age = now - timestamp;
-  const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
-  
-  return age > MAX_AGE;
+  return (now - timestamp) > CACHE_DURATION;
 };
 
-// Clear all stored analyses
+// Clear all analyses from local storage
 export const clearAllAnalyses = (): void => {
   try {
-    const keys = Object.keys(localStorage);
-    
-    for (const key of keys) {
-      if (key.startsWith(DB_PREFIX)) {
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(STORAGE_KEY_PREFIX)) {
         localStorage.removeItem(key);
       }
-    }
+    });
   } catch (error) {
-    console.error('Failed to clear analyses:', error);
+    console.error('Error clearing analyses:', error);
+    toast.error('Failed to clear cached analyses');
   }
 };
 
 // Get all stored analyses
-export const getAllAnalyses = (): StoredWaveAnalysis[] => {
+export const getAllAnalyses = (): { symbol: string; timeframe: string; analysis: WaveAnalysisResult; timestamp: number }[] => {
   try {
-    const keys = Object.keys(localStorage);
-    const analyses: StoredWaveAnalysis[] = [];
+    const analyses: { symbol: string; timeframe: string; analysis: WaveAnalysisResult; timestamp: number }[] = [];
     
-    for (const key of keys) {
-      if (key.startsWith(`${DB_PREFIX}wave_`)) {
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(STORAGE_KEY_PREFIX)) {
+        const [, symbolAndTimeframe] = key.split(STORAGE_KEY_PREFIX);
+        const [symbol, timeframe] = symbolAndTimeframe.split('_');
         const data = localStorage.getItem(key);
+        
         if (data) {
-          analyses.push(JSON.parse(data) as StoredWaveAnalysis);
+          const parsedData = JSON.parse(data);
+          analyses.push({
+            symbol,
+            timeframe,
+            analysis: parsedData.analysis,
+            timestamp: parsedData.timestamp,
+          });
         }
       }
-    }
+    });
     
     return analyses;
   } catch (error) {
-    console.error('Failed to get all analyses:', error);
+    console.error('Error getting all analyses:', error);
+    toast.error('Failed to retrieve stored analyses');
     return [];
   }
 };

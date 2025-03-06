@@ -1,18 +1,18 @@
+
 import { toast } from "@/lib/toast";
 
 // Types for our Yahoo Finance API
 export interface StockData {
   symbol: string;
   shortName: string;
-  longName: string;
   regularMarketPrice: number;
   regularMarketChange: number;
   regularMarketChangePercent: number;
   regularMarketVolume: number;
-  marketCap: number;
-  fiftyTwoWeekHigh: number;
-  fiftyTwoWeekLow: number;
   averageVolume: number;
+  marketCap: number;
+  fiftyTwoWeekLow: number;
+  fiftyTwoWeekHigh: number;
   trailingPE?: number;
   forwardPE?: number;
   dividendYield?: number;
@@ -25,169 +25,214 @@ export interface StockHistoricalData {
   low: number;
   close: number;
   volume: number;
-  adjustedClose: number;
 }
 
-export interface StockHistoricalResponse {
-  symbol: string;
-  historicalData: StockHistoricalData[];
-}
+// Cache for API responses
+const apiCache: Record<string, { data: any; timestamp: number }> = {};
 
-// Cache management
-const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
-const stockDataCache: { [key: string]: { data: any; timestamp: number } } = {};
+// Cache duration in milliseconds (15 minutes)
+const CACHE_DURATION = 15 * 60 * 1000;
 
-const isDataCached = (cacheKey: string): boolean => {
-  const cachedItem = stockDataCache[cacheKey];
-  if (!cachedItem) return false;
+// Clear all cached data
+export const invalidateCache = (): void => {
+  Object.keys(apiCache).forEach(key => {
+    delete apiCache[key];
+  });
+};
+
+// Mock data for top stocks
+const topStockSymbols = [
+  'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'LLY', 
+  'JPM', 'V', 'AVGO', 'XOM', 'PG', 'MA', 'COST', 'HD', 'CVX', 'MRK', 
+  'ABBV', 'KO', 'PEP', 'ADBE', 'WMT', 'BAC', 'CRM', 'TMO', 'CSCO', 'ACN', 
+  'MCD', 'ABT', 'NFLX', 'LIN', 'DHR', 'AMD', 'CMCSA', 'VZ', 'INTC', 'DIS', 
+  'PM', 'TXN', 'WFC', 'BMY', 'UPS', 'COP', 'NEE', 'RTX', 'ORCL', 'HON',
+  'QCOM', 'LOW', 'UNP', 'IBM', 'GE', 'CAT', 'BA', 'SBUX', 'PFE', 'INTU',
+  'DE', 'SPGI', 'AXP', 'AMAT', 'GS', 'MS', 'BLK', 'JNJ', 'GILD', 'C',
+  'CVS', 'AMT', 'TJX', 'SYK', 'MDT', 'ADP', 'MDLZ', 'ISRG', 'ADI', 'CI',
+  'BKNG', 'VRTX', 'MMC', 'PYPL', 'SLB', 'EOG', 'PLD', 'T', 'ETN', 'AMGN',
+  'ZTS', 'SCHW', 'CB', 'PGR', 'SO', 'MO', 'REGN', 'DUK', 'BDX', 'CME'
+];
+
+// Function to fetch top stocks
+export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> => {
+  const cacheKey = `topStocks_${limit}`;
   
-  const now = Date.now();
-  return now - cachedItem.timestamp < CACHE_DURATION;
-};
-
-const getCachedData = (cacheKey: string): any => {
-  return stockDataCache[cacheKey]?.data;
-};
-
-const setCachedData = (cacheKey: string, data: any): void => {
-  stockDataCache[cacheKey] = {
-    data,
-    timestamp: Date.now(),
-  };
-};
-
-// Base Yahoo Finance API URL
-const YAHOO_FINANCE_API = 'https://query1.finance.yahoo.com';
-
-// Helper for error handling
-const handleApiError = (error: any, customMessage: string): never => {
-  console.error(customMessage, error);
-  toast.error(customMessage);
-  throw new Error(customMessage);
-};
-
-// Fetch the top stocks by marketcap
-export const fetchTopStocks = async (limit: number = 100): Promise<StockData[]> => {
-  const cacheKey = `topStocks-${limit}`;
-  
-  if (isDataCached(cacheKey)) {
-    return getCachedData(cacheKey);
+  // Check if we have cached data
+  if (apiCache[cacheKey] && Date.now() - apiCache[cacheKey].timestamp < CACHE_DURATION) {
+    return apiCache[cacheKey].data;
   }
   
   try {
-    // In a real implementation, you'd fetch from Yahoo Finance API
-    // For now, we'll use a mock approach with common stocks
-    const popularTickers = [
-      'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NVDA', 'JPM', 'V', 'NFLX',
-      'DIS', 'PYPL', 'ADBE', 'CRM', 'INTC', 'AMD', 'CSCO', 'PEP', 'KO', 'WMT',
-      'PG', 'JNJ', 'UNH', 'BAC', 'HD', 'MA', 'XOM', 'CVX', 'PFE', 'MRK',
-      'VZ', 'T', 'CMCSA', 'ORCL', 'IBM', 'QCOM', 'TXN', 'UBER', 'ZM', 'SHOP',
-      'SQ', 'SPOT', 'TWLO', 'BABA', 'TSM', 'ASML', 'NKE', 'MCD', 'SBUX', 'LMT',
-      'BA', 'CAT', 'MMM', 'GE', 'HON', 'RTX', 'GS', 'MS', 'C', 'WFC',
-      'AXP', 'BLK', 'SCHW', 'CME', 'ICE', 'CB', 'MET', 'PRU', 'TRV', 'ALL',
-      'PNC', 'USB', 'TFC', 'SPGI', 'MCO', 'MSCI', 'TROW', 'BX', 'KKR', 'APO',
-      'BRK-B', 'BRK-A', 'COST', 'TGT', 'LOW', 'CVS', 'WBA', 'AMGN', 'GILD', 'REGN',
-      'BIIB', 'LLY', 'TMO', 'DHR', 'ABT', 'MDT', 'ISRG', 'BMY', 'SYK', 'ZTS'
-    ];
+    // In a real implementation, this would call the Yahoo Finance API
+    // For this demo, we'll return mock data
     
-    const tickersQuery = popularTickers.slice(0, limit).join(',');
-    const url = `${YAHOO_FINANCE_API}/v7/finance/quote?symbols=${tickersQuery}`;
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch stock data: ${response.status}`);
-    }
+    const stocks: StockData[] = topStockSymbols.slice(0, limit).map((symbol, index) => {
+      // Create semi-random data based on the symbol
+      const seed = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const priceBase = 50 + (seed % 450);
+      const price = priceBase + Math.sin(Date.now() / 1000000 + index) * 50;
+      const change = (Math.sin(Date.now() / 1000000 + index + 1) * 10);
+      
+      return {
+        symbol,
+        shortName: `${symbol} Inc.`,
+        regularMarketPrice: price,
+        regularMarketChange: change,
+        regularMarketChangePercent: (change / price) * 100,
+        regularMarketVolume: 1000000 + (seed % 10000000),
+        averageVolume: 1200000 + (seed % 15000000),
+        marketCap: price * (10000000 + (seed % 1000000000)),
+        fiftyTwoWeekLow: price * 0.7,
+        fiftyTwoWeekHigh: price * 1.3,
+        trailingPE: (10 + (seed % 40)),
+        forwardPE: (8 + (seed % 30)),
+        dividendYield: (seed % 10) > 7 ? (0.5 + (seed % 35) / 100) : undefined,
+      };
+    });
     
-    const data = await response.json();
-    const results = data.quoteResponse.result;
-    
-    const stocks: StockData[] = results.map((stock: any) => ({
-      symbol: stock.symbol,
-      shortName: stock.shortName || stock.symbol,
-      longName: stock.longName || stock.shortName || stock.symbol,
-      regularMarketPrice: stock.regularMarketPrice || 0,
-      regularMarketChange: stock.regularMarketChange || 0,
-      regularMarketChangePercent: stock.regularMarketChangePercent || 0,
-      regularMarketVolume: stock.regularMarketVolume || 0,
-      marketCap: stock.marketCap || 0,
-      fiftyTwoWeekHigh: stock.fiftyTwoWeekHigh || 0,
-      fiftyTwoWeekLow: stock.fiftyTwoWeekLow || 0,
-      averageVolume: stock.averageDailyVolume10Day || 0,
-      trailingPE: stock.trailingPE,
-      forwardPE: stock.forwardPE,
-      dividendYield: stock.dividendYield,
-    }));
-    
-    // Sort by market cap
-    stocks.sort((a, b) => b.marketCap - a.marketCap);
-    
-    setCachedData(cacheKey, stocks);
-    return stocks;
-  } catch (error) {
-    return handleApiError(error, 'Failed to fetch top stocks');
-  }
-};
-
-// Fetch historical data for a stock
-export const fetchHistoricalData = async (
-  symbol: string,
-  period: string = '2y',
-  interval: string = '1d'
-): Promise<StockHistoricalResponse> => {
-  const cacheKey = `historicalData-${symbol}-${period}-${interval}`;
-  
-  if (isDataCached(cacheKey)) {
-    return getCachedData(cacheKey);
-  }
-  
-  try {
-    const url = `${YAHOO_FINANCE_API}/v8/finance/chart/${symbol}?range=${period}&interval=${interval}&includePrePost=false`;
-    
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch historical data: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    const result = data.chart.result[0];
-    
-    const timestamps = result.timestamp;
-    const quotes = result.indicators.quote[0];
-    const adjClose = result.indicators.adjclose?.[0]?.adjclose || [];
-    
-    const historicalData: StockHistoricalData[] = timestamps.map((timestamp: number, index: number) => ({
-      timestamp,
-      open: quotes.open[index] || 0,
-      high: quotes.high[index] || 0,
-      low: quotes.low[index] || 0,
-      close: quotes.close[index] || 0,
-      volume: quotes.volume[index] || 0,
-      adjustedClose: adjClose[index] || quotes.close[index] || 0,
-    }));
-    
-    const stockHistoricalResponse: StockHistoricalResponse = {
-      symbol,
-      historicalData,
+    // Cache the response
+    apiCache[cacheKey] = {
+      data: stocks,
+      timestamp: Date.now()
     };
     
-    setCachedData(cacheKey, stockHistoricalResponse);
-    return stockHistoricalResponse;
+    return stocks;
   } catch (error) {
-    return handleApiError(error, `Failed to fetch historical data for ${symbol}`);
+    console.error('Error fetching top stocks:', error);
+    toast.error('Failed to fetch stock data');
+    return [];
   }
 };
 
-// Invalidate cache for specific key or pattern
-export const invalidateCache = (pattern?: RegExp): void => {
-  if (pattern) {
-    Object.keys(stockDataCache).forEach(key => {
-      if (pattern.test(key)) {
-        delete stockDataCache[key];
+// Function to fetch historical data
+export const fetchHistoricalData = async (
+  symbol: string,
+  range: string = '1y',
+  interval: string = '1d'
+): Promise<{ symbol: string; historicalData: StockHistoricalData[] }> => {
+  const cacheKey = `historical_${symbol}_${range}_${interval}`;
+  
+  // Check if we have cached data
+  if (apiCache[cacheKey] && Date.now() - apiCache[cacheKey].timestamp < CACHE_DURATION) {
+    return apiCache[cacheKey].data;
+  }
+  
+  try {
+    // In a real implementation, this would call the Yahoo Finance API
+    // For this demo, we'll return mock data
+    
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Create semi-random data based on the symbol
+    const seed = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    let priceBase = 50 + (seed % 450);
+    const volatility = 0.02 + (seed % 10) / 100;
+    
+    // Determine data points based on range
+    let days = 0;
+    switch (range) {
+      case '1m': days = 30; break;
+      case '3m': days = 90; break;
+      case '6m': days = 180; break;
+      case '1y': days = 365; break;
+      case '2y': days = 730; break;
+      case '5y': days = 1825; break;
+      default: days = 365;
+    }
+    
+    // Generate data points
+    const historicalData: StockHistoricalData[] = [];
+    let currentDate = new Date();
+    currentDate.setHours(0, 0, 0, 0);
+    
+    // Generate a trend bias for this stock
+    const trendBias = seed % 3 - 1; // -1 (downtrend), 0 (sideways), 1 (uptrend)
+    
+    // Move back to start date
+    currentDate.setDate(currentDate.getDate() - days);
+    
+    // Create wave patterns
+    const waves = [
+      { length: Math.floor(days * 0.15), bias: 0.8 },   // Wave 1 - Up
+      { length: Math.floor(days * 0.08), bias: -0.5 },  // Wave 2 - Down
+      { length: Math.floor(days * 0.25), bias: 1.5 },   // Wave 3 - Strong up
+      { length: Math.floor(days * 0.12), bias: -0.4 },  // Wave 4 - Down
+      { length: Math.floor(days * 0.20), bias: 0.7 },   // Wave 5 - Up
+      { length: Math.floor(days * 0.10), bias: -0.9 },  // Wave A - Down
+      { length: Math.floor(days * 0.06), bias: 0.6 },   // Wave B - Up
+      { length: Math.floor(days * 0.14), bias: -1.1 },  // Wave C - Down
+    ];
+    
+    let waveIndex = 0;
+    let waveDay = 0;
+    
+    for (let i = 0; i < days; i++) {
+      // Check if we need to move to next wave
+      if (waveDay >= waves[waveIndex].length) {
+        waveIndex = (waveIndex + 1) % waves.length;
+        waveDay = 0;
       }
-    });
-  } else {
-    Object.keys(stockDataCache).forEach(key => {
-      delete stockDataCache[key];
-    });
+      
+      const waveBias = waves[waveIndex].bias;
+      
+      // Create daily price action with random noise + trend + wave
+      const dayVolatility = volatility * (0.5 + Math.random());
+      const trendEffect = (trendBias * 0.001) * i;
+      const waveEffect = waveBias * 0.002;
+      
+      const dailyChange = priceBase * (
+        (Math.random() * 2 - 1) * dayVolatility + // Random noise
+        trendEffect + // Long term trend
+        waveEffect // Wave pattern
+      );
+      
+      const open = priceBase;
+      const close = priceBase + dailyChange;
+      const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+      const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+      const volume = Math.floor(500000 + Math.random() * 5000000);
+      
+      // Skip weekends (simple approach)
+      const dayOfWeek = currentDate.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        historicalData.push({
+          timestamp: Math.floor(currentDate.getTime() / 1000),
+          open,
+          high,
+          low,
+          close,
+          volume
+        });
+        
+        // Update price base for next day
+        priceBase = close;
+        waveDay++;
+      }
+      
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    const result = {
+      symbol,
+      historicalData
+    };
+    
+    // Cache the response
+    apiCache[cacheKey] = {
+      data: result,
+      timestamp: Date.now()
+    };
+    
+    return result;
+  } catch (error) {
+    console.error(`Error fetching historical data for ${symbol}:`, error);
+    toast.error(`Failed to fetch historical data for ${symbol}`);
+    return { symbol, historicalData: [] };
   }
 };
