@@ -1,3 +1,4 @@
+
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 
 // Define the Wave interface
@@ -12,12 +13,12 @@ export interface Wave {
   isImpulse?: boolean;        // Whether this is an impulse wave
 }
 
-// Define the WaveAnalysisResult interface that was missing
+// Define the WaveAnalysisResult interface
 export interface WaveAnalysisResult {
   waves: Wave[];
   currentWave: Wave;
   fibTargets: FibTarget[];
-  trend?: 'bullish' | 'bearish' | 'neutral';
+  trend: 'bullish' | 'bearish' | 'neutral';
   impulsePattern?: boolean;
   correctivePattern?: boolean;
 }
@@ -26,6 +27,8 @@ export interface WaveAnalysisResult {
 export interface FibTarget {
   level: number;
   price: number;
+  label: string;
+  isExtension: boolean;
 }
 
 // Function to calculate Fibonacci retracement levels
@@ -37,6 +40,8 @@ const calculateFibRetracement = (startPrice: number, endPrice: number): FibTarge
   return levels.map(level => ({
     level,
     price: endPrice - diff * level,
+    label: `${(level * 100).toFixed(1)}%`,
+    isExtension: false
   }));
 };
 
@@ -54,12 +59,18 @@ const identifyWaveType = (wave: Wave, previousWave?: Wave): 'impulse' | 'correct
 // Analyze the price data to identify Elliott Waves
 export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisResult => {
   if (!data || data.length < 20) {
-    return { waves: [], currentWave: {} as Wave, fibTargets: [] };
+    return { 
+      waves: [], 
+      currentWave: {} as Wave, 
+      fibTargets: [],
+      trend: 'neutral'
+    };
   }
 
   const waves: Wave[] = [];
   let currentWave: Partial<Wave> = {};
   let fibTargets: FibTarget[] = [];
+  let trend: 'bullish' | 'bearish' | 'neutral' = 'neutral';
 
   // Initial wave setup
   currentWave = {
@@ -97,6 +108,12 @@ export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisRe
       // Calculate Fibonacci retracement levels after wave 1
       if (nextWaveNumber === 3 && currentWave.endPrice) {
         fibTargets = calculateFibRetracement(currentWave.startPrice!, currentWave.endPrice);
+        
+        // Add extensions
+        fibTargets.push(
+          { level: 1.236, price: currentWave.startPrice! + (currentWave.endPrice - currentWave.startPrice!) * 1.236, label: "123.6%", isExtension: true },
+          { level: 1.618, price: currentWave.startPrice! + (currentWave.endPrice - currentWave.startPrice!) * 1.618, label: "161.8%", isExtension: true }
+        );
       }
     }
   }
@@ -107,5 +124,25 @@ export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisRe
     currentWave.endTimestamp = data[data.length - 1].timestamp;
   }
 
-  return { waves: waves as Wave[], currentWave: currentWave as Wave, fibTargets };
+  // Determine trend
+  if (waves.length > 0) {
+    const firstWave = waves[0];
+    const lastWave = waves[waves.length - 1];
+    if (lastWave.endPrice && firstWave.startPrice) {
+      if (lastWave.endPrice > firstWave.startPrice) {
+        trend = 'bullish';
+      } else if (lastWave.endPrice < firstWave.startPrice) {
+        trend = 'bearish';
+      }
+    }
+  }
+
+  return { 
+    waves: waves as Wave[], 
+    currentWave: currentWave as Wave, 
+    fibTargets,
+    trend,
+    impulsePattern: waves.length > 3,
+    correctivePattern: waves.length > 1 && waves.length <= 3
+  };
 };

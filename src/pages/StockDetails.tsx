@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
@@ -190,7 +191,7 @@ const StockDetails: React.FC = () => {
                             ${analysis.trend === 'bullish' ? 'text-bullish' : 
                               analysis.trend === 'bearish' ? 'text-bearish' : 'text-neutral'}
                           `}>
-                            {analysis.trend.charAt(0).toUpperCase() + analysis.trend.slice(1)}
+                            {analysis.trend ? analysis.trend.charAt(0).toUpperCase() + analysis.trend.slice(1) : 'Neutral'}
                           </span>
                         </div>
                       </div>
