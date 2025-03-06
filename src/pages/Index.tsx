@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import StockCard from '@/components/StockCard';
 import DashboardHeader from '@/components/DashboardHeader';
 import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
-import { toast } from '@/components/ui/sonner';
+import { toast } from '@/lib/toast';
 import { Loader2 } from 'lucide-react';
 
 const Index = () => {

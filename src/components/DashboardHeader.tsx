@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Search, RefreshCw, Database, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { invalidateCache } from "@/services/yahooFinanceService";
 import { clearAllAnalyses } from "@/services/databaseService";
-import { toast } from "@/components/ui/sonner";
+import { toast } from "@/lib/toast";
 
 interface DashboardHeaderProps {
   onSearch: (query: string) => void;
