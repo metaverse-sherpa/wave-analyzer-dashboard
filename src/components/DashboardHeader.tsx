@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Search, RefreshCw, Database, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import {
 import { invalidateCache } from "@/services/yahooFinanceService";
 import { clearAllAnalyses } from "@/services/databaseService";
 import { toast } from "@/lib/toast";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface DashboardHeaderProps {
   onSearch: (query: string) => void;
@@ -110,6 +112,8 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         <Button variant="outline" size="icon">
           <Database className="h-4 w-4" />
         </Button>
+        
+        <ThemeToggle />
       </div>
     </div>
   );
