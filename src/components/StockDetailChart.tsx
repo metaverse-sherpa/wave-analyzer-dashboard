@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { Wave, FibTarget } from "@/utils/elliottWaveAnalysis";
@@ -7,11 +8,15 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid,
-  Line,
-  ReferenceLine,
-  Label
+  CartesianGrid
 } from 'recharts';
+
+// Import extracted components
+import CustomCandle from './chart/CustomCandle';
+import WaveLine from './chart/WaveLine';
+import FibonacciTargets from './chart/FibonacciTargets';
+import { waveColors, tooltipFormatter } from './chart/chartConstants';
+import { formatChartData, calculatePriceRange } from './chart/chartUtils';
 
 interface StockDetailChartProps {
   symbol: string;
@@ -21,92 +26,6 @@ interface StockDetailChartProps {
   fibTargets: FibTarget[];
 }
 
-// Custom candle component for the candlestick chart
-interface CustomCandleProps {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  open: number;
-  close: number;
-  high: number;
-  low: number;
-}
-
-const CustomCandle: React.FC<CustomCandleProps> = ({ x, y, width, height, open, close, high, low }) => {
-  const isUp = close >= open;
-  
-  return (
-    <g>
-      {/* Candle body */}
-      <rect
-        x={x - width / 2}
-        y={isUp ? y : y + height}
-        width={width}
-        height={Math.abs(height) || 1}
-        fill={isUp ? 'var(--bullish)' : 'var(--bearish)'}
-        stroke={isUp ? 'var(--bullish)' : 'var(--bearish)'}
-      />
-      
-      {/* Upper wick */}
-      <line
-        x1={x}
-        y1={isUp ? y : y + height}
-        x2={x}
-        y2={y - high}
-        stroke={isUp ? 'var(--bullish)' : 'var(--bearish)'}
-        strokeWidth={1}
-      />
-      
-      {/* Lower wick */}
-      <line
-        x1={x}
-        y1={isUp ? y + height : y}
-        x2={x}
-        y2={y + low}
-        stroke={isUp ? 'var(--bullish)' : 'var(--bearish)'}
-        strokeWidth={1}
-      />
-    </g>
-  );
-};
-
-// Custom Wave line component
-interface WaveLineProps {
-  wave: Wave;
-  data: StockHistoricalData[];
-  color: string;
-}
-
-const WaveLine: React.FC<WaveLineProps> = ({ wave, data, color }) => {
-  if (!wave || !data || !wave.startTimestamp) return null;
-  
-  // Find data points based on timestamps
-  const startPoint = data.find(d => d.timestamp === wave.startTimestamp);
-  const endPoint = wave.endTimestamp 
-    ? data.find(d => d.timestamp === wave.endTimestamp)
-    : data[data.length - 1];
-  
-  if (!startPoint || !endPoint) return null;
-  
-  return (
-    <Line
-      type="linear"
-      dataKey="price"
-      stroke={color}
-      strokeWidth={2}
-      dot={false}
-      isAnimationActive={false}
-      connectNulls
-      data={[
-        { timestamp: startPoint.timestamp * 1000, price: wave.startPrice },
-        { timestamp: endPoint.timestamp * 1000, price: wave.endPrice ?? endPoint.close }
-      ]}
-    />
-  );
-};
-
-// Main chart component
 const StockDetailChart: React.FC<StockDetailChartProps> = ({
   symbol,
   data,
@@ -128,53 +47,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     );
   }
   
-  // Format data for the chart
-  const chartData = data.map(d => ({
-    timestamp: d.timestamp * 1000, // Convert to milliseconds for date display
-    open: d.open,
-    high: d.high,
-    low: d.low,
-    close: d.close,
-    volume: d.volume,
-    date: new Date(d.timestamp * 1000).toLocaleDateString()
-  }));
-  
-  // Find min and max prices for y-axis
-  const prices = data.flatMap(d => [d.high, d.low]);
-  const fibPrices = fibTargets.map(target => target.price);
-  const allPrices = [...prices, ...fibPrices];
-  
-  const minPrice = Math.min(...allPrices) * 0.98;
-  const maxPrice = Math.max(...allPrices) * 1.02;
-  
-  // Custom tooltip formatter
-  const tooltipFormatter = (value: any, name: string) => {
-    if (name === 'close') {
-      return [`$${value.toFixed(2)}`, 'Close'];
-    }
-    if (name === 'open') {
-      return [`$${value.toFixed(2)}`, 'Open'];
-    }
-    if (name === 'high') {
-      return [`$${value.toFixed(2)}`, 'High'];
-    }
-    if (name === 'low') {
-      return [`$${value.toFixed(2)}`, 'Low'];
-    }
-    return [value, name];
-  };
-  
-  // Wave colors
-  const waveColors = {
-    1: '#3B82F6', // blue
-    2: '#EF4444', // red
-    3: '#22C55E', // green
-    4: '#F97316', // orange
-    5: '#8B5CF6', // purple
-    A: '#EC4899', // pink
-    B: '#FBBF24', // yellow
-    C: '#6366F1', // indigo
-  };
+  // Format data and calculate price range using utility functions
+  const chartData = formatChartData(data);
+  const { minPrice, maxPrice } = calculatePriceRange(data, fibTargets);
   
   return (
     <div className="w-full h-[500px] bg-chart-background rounded-lg p-4">
@@ -231,32 +106,12 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             );
           })}
           
-          {/* Render Fibonacci targets for current wave */}
-          {fibTargets.map((target, index) => {
-            if (!currentWave) return null;
-            
-            const startPoint = data.find(d => d.timestamp === currentWave.startTimestamp);
-            if (!startPoint) return null;
-            
-            const endTimestamp = data[data.length - 1].timestamp * 1000;
-            
-            return (
-              <ReferenceLine
-                key={`fib-${index}`}
-                y={target.price}
-                stroke={target.isExtension ? "#F59E0B" : "#60A5FA"}
-                strokeDasharray={target.isExtension ? "3 3" : undefined}
-                strokeWidth={1}
-              >
-                <Label
-                  value={`${target.label} (${target.price.toFixed(2)})`}
-                  position="right"
-                  fill={target.isExtension ? "#F59E0B" : "#60A5FA"}
-                  fontSize={10}
-                />
-              </ReferenceLine>
-            );
-          })}
+          {/* Render Fibonacci targets */}
+          <FibonacciTargets 
+            fibTargets={fibTargets} 
+            currentWave={currentWave} 
+            data={data}
+          />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
