@@ -16,6 +16,7 @@ export interface StockData {
   trailingPE?: number;
   forwardPE?: number;
   dividendYield?: number;
+  wave: number;
 }
 
 export interface StockHistoricalData {
@@ -106,7 +107,8 @@ export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> =
       fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh || 0,
       trailingPE: quote.trailingPE,
       forwardPE: quote.forwardPE,
-      dividendYield: quote.trailingAnnualDividendYield
+      dividendYield: quote.trailingAnnualDividendYield,
+      wave: Math.floor(Math.random() * 5) + 1 // Replace with actual wave calculation
     }));
 
     // Cache the response

@@ -120,6 +120,12 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
               {isPositive ? <ArrowUpRight className="w-3 h-3 mr-1" /> : <ArrowDownRight className="w-3 h-3 mr-1" />}
               <span>{formattedChange} ({formattedPercent})</span>
             </div>
+            <div className={cn(
+              "text-xs mt-1",
+              `wave-${stock.wave}`
+            )}>
+              Wave {stock.wave}
+            </div>
           </div>
         </div>
         

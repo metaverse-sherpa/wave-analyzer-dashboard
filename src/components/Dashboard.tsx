@@ -5,6 +5,7 @@ import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import StockCard from './StockCard';
 import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const Dashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -13,12 +14,7 @@ const Dashboard: React.FC = () => {
   const [filteredStocks, setFilteredStocks] = useState<StockData[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
-
-  // Calculate pagination values
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredStocks.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredStocks.length / itemsPerPage);
+  const [selectedWave, setSelectedWave] = useState<number | 'all'>(5);
 
   // Update the itemsPerPageOptions array to ensure unique keys
   const itemsPerPageOptions = [
@@ -56,6 +52,18 @@ const Dashboard: React.FC = () => {
     }
   }, [debouncedQuery, stocks]);
 
+  // Filter stocks based on selected wave
+  const filteredStocksByWave = filteredStocks.filter(stock => {
+    if (selectedWave === 'all') return true;
+    return stock.wave === selectedWave;
+  });
+
+  // Keep only these declarations that use filteredStocksByWave:
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredStocksByWave.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredStocksByWave.length / itemsPerPage);
+
   const handlePageChange = (newPage: number) => {
     setCurrentPage(newPage);
   };
@@ -87,6 +95,26 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Wave:</span>
+          <Select
+            value={selectedWave.toString()}
+            onValueChange={(value) => setSelectedWave(value === 'all' ? 'all' : Number(value))}
+          >
+            <SelectTrigger className="w-[100px]">
+              <SelectValue placeholder="Wave" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="1">Wave 1</SelectItem>
+              <SelectItem value="2">Wave 2</SelectItem>
+              <SelectItem value="3">Wave 3</SelectItem>
+              <SelectItem value="4">Wave 4</SelectItem>
+              <SelectItem value="5">Wave 5</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Items per page:</span>
           <select
             value={itemsPerPage}
@@ -115,8 +143,8 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      {/* Update pagination controls to only show when not showing all items */}
-      {itemsPerPage < filteredStocks.length && (
+      {/* Update pagination controls to use filteredStocksByWave */}
+      {itemsPerPage < filteredStocksByWave.length && (
         <div className="flex justify-center items-center gap-4 mt-6">
           <Button
             variant="outline"
