@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, RefreshCw, Database, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +29,10 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   
+  useEffect(() => {
+    onSearch(searchQuery);
+  }, [searchQuery, onSearch]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     onSearch(searchQuery);
@@ -95,7 +98,10 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               placeholder="Search symbols..."
               className="w-full pl-9"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                console.log('Search query:', e.target.value);
+                setSearchQuery(e.target.value);
+              }}
             />
           </div>
         </form>

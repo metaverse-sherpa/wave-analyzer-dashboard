@@ -2,8 +2,18 @@ import express from 'express';
 import yahooFinance from 'yahoo-finance2';
 import cors from 'cors';
 
-// Suppress cookie and survey notices
-yahooFinance.suppressNotices(['yahooSurvey']);
+// Modify console methods to suppress Yahoo Finance messages
+const originalConsole = { ...console };
+console.log = (...args) => {
+  if (!args[0]?.includes?.('yahoo-finance2')) {
+    originalConsole.log(...args);
+  }
+};
+console.warn = (...args) => {
+  if (!args[0]?.includes?.('yahoo-finance2')) {
+    originalConsole.warn(...args);
+  }
+};
 
 const app = express();
 app.use(cors());

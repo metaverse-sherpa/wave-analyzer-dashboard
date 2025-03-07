@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useDebounce } from 'use-debounce';
-import { Input } from '@/components/ui/input';
-import { X } from 'lucide-react';
+import { Input } from "@/components/ui/input";
+import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from "@/components/ui/button";
 import StockCard from './StockCard';
-import { fetchTopStocks } from '@/services/yahooFinanceService';
+import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
 
 const Dashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery] = useDebounce(searchQuery, 300);
   const [stocks, setStocks] = useState<StockData[]>([]);
   const [filteredStocks, setFilteredStocks] = useState<StockData[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('Search query changed:', e.target.value);
-    setSearchQuery(e.target.value);
-  };
+  // Calculate pagination values
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredStocks.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredStocks.length / itemsPerPage);
 
   // Fetch stocks on component mount
   useEffect(() => {
@@ -35,33 +39,60 @@ const Dashboard: React.FC = () => {
         stock.shortName.toLowerCase().includes(lowerCaseQuery)
       );
       setFilteredStocks(filtered);
+      setCurrentPage(1); // Reset to first page when search changes
     } else {
       setFilteredStocks(stocks);
     }
   }, [debouncedQuery, stocks]);
 
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+  };
+
+  const handleItemsPerPageChange = (value: number) => {
+    setItemsPerPage(value);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
+
   return (
     <div className="container mx-auto px-4 py-6">
-      <div className="relative w-full max-w-md mb-6">
-        <Input
-          type="text"
-          placeholder="Search by symbol or company name..."
-          value={searchQuery}
-          onChange={handleSearchChange}
-          className="w-full pr-10"
-        />
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+      <div className="flex justify-between items-center mb-6">
+        <div className="relative w-full max-w-md">
+          <Input
+            type="text"
+            placeholder="Search by symbol or company name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pr-10"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Items per page:</span>
+          <select
+            value={itemsPerPage}
+            onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+            className="border rounded-md p-1 text-sm"
           >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={filteredStocks.length}>All</option>
+          </select>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {filteredStocks.map(stock => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+        {currentItems.map(stock => (
           <StockCard
             key={stock.symbol}
             stock={stock}
@@ -72,6 +103,33 @@ const Dashboard: React.FC = () => {
           />
         ))}
       </div>
+
+      {/* Pagination controls - only show if not showing all items */}
+      {itemsPerPage < filteredStocks.length && (
+        <div className="flex justify-center items-center gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handlePageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          
+          <span className="text-sm">
+            Page {currentPage} of {totalPages}
+          </span>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handlePageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
