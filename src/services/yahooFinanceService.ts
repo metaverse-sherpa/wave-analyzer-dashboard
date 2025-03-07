@@ -128,52 +128,89 @@ export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> =
 // Function to fetch historical data
 export const fetchHistoricalData = async (
   symbol: string,
-  range: string = '1y',
-  interval: string = '1d'
+  timeframe: string = '1d',
+  start_date?: string
 ): Promise<{ symbol: string; historicalData: StockHistoricalData[] }> => {
-  const cacheKey = `historical_${symbol}_${range}_${interval}`;
-  
-  // Check if we have cached data
-  if (apiCache[cacheKey] && Date.now() - apiCache[cacheKey].timestamp < CACHE_DURATION) {
-    return apiCache[cacheKey].data as { symbol: string; historicalData: StockHistoricalData[] };
+  // Validate symbol
+  if (!symbol) {
+    throw new Error('Symbol is required to fetch historical data');
   }
-  
+
+  // Calculate start_date if not provided
+  if (!start_date) {
+    const today = new Date();
+    let daysToSubtract = 365; // Default for "1d"
+
+    switch (timeframe) {
+      case '1w':
+        daysToSubtract = 365 * 2;
+        break;
+      case '1mo':
+        daysToSubtract = 365 * 3;
+        break;
+      // "1d" is already the default
+    }
+
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - daysToSubtract);
+    start_date = startDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+  }
+
+  // Ensure start_date is a valid date string
+  const startDateObj = new Date(start_date);
+  if (isNaN(startDateObj.getTime())) {
+    throw new Error(`Invalid start_date: ${start_date}`);
+  }
+
+  // Log the parameters being used
+  console.log(`Fetching historical data for symbol: ${symbol}, timeframe: ${timeframe}, start_date: ${start_date}`);
+
+  const cacheKey = `historical_${symbol}_${timeframe}_${start_date}`;
+
   try {
-    const response = await fetch(`${API_BASE_URL}/historical?symbol=${symbol}&range=${range}&interval=${interval}`);
-    
+    const response = await fetch(
+      `${API_BASE_URL}/historical?symbol=${symbol}&timeframe=${timeframe}&start_date=${start_date}`
+    );
+
     if (!response.ok) {
       throw new Error('Failed to fetch historical data');
     }
 
     const data = await response.json();
 
-    // Ensure data is an array
-    if (!Array.isArray(data)) {
-      throw new Error('Invalid historical data format');
+    // Log the raw data returned from the API
+    console.log(`Raw data for ${symbol}:`, data);
+
+    // Ensure we have the required fields
+    const historicalData: StockHistoricalData[] = data
+      .map(item => {
+        // Skip items with missing or invalid data
+        if (!item || typeof item.timestamp !== 'number' || isNaN(item.timestamp)) {
+          console.warn(`Invalid data for ${symbol}:`, item);
+          return null;
+        }
+        return {
+          timestamp: item.timestamp,
+          open: item.open,
+          high: item.high,
+          low: item.low,
+          close: item.close,
+          volume: item.volume
+        };
+      })
+      .filter(Boolean); // Filter out any null values
+
+    // Log the transformed historical data
+    console.log(`Transformed historical data for ${symbol}:`, historicalData);
+
+    if (historicalData.length === 0) {
+      console.warn(`No valid historical data found for ${symbol}`);
     }
 
-    // Transform the data
-    const historicalData: StockHistoricalData[] = data.map(item => ({
-      timestamp: Math.floor(new Date(item.date).getTime() / 1000),
-      open: item.open,
-      high: item.high,
-      low: item.low,
-      close: item.close,
-      volume: item.volume
-    }));
-
-    const result = {
+    return {
       symbol,
       historicalData
     };
-    
-    // Cache the response
-    apiCache[cacheKey] = {
-      data: result,
-      timestamp: Date.now()
-    };
-    
-    return result;
   } catch (error) {
     console.error(`Error fetching historical data for ${symbol}:`, error);
     toast.error(`Failed to fetch historical data for ${symbol}`);
@@ -181,16 +218,3 @@ export const fetchHistoricalData = async (
   }
 };
 
-// Helper function to get start date based on range
-function getStartDate(range: string): Date {
-  const now = new Date();
-  switch (range) {
-    case '1m': return new Date(now.setMonth(now.getMonth() - 1));
-    case '3m': return new Date(now.setMonth(now.getMonth() - 3));
-    case '6m': return new Date(now.setMonth(now.getMonth() - 6));
-    case '1y': return new Date(now.setFullYear(now.getFullYear() - 1));
-    case '2y': return new Date(now.setFullYear(now.getFullYear() - 2));
-    case '5y': return new Date(now.setFullYear(now.getFullYear() - 5));
-    default: return new Date(now.setFullYear(now.getFullYear() - 1));
-  }
-}

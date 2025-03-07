@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { StockData, fetchHistoricalData, StockHistoricalData } from "@/services/yahooFinanceService";
 import { analyzeElliottWaves, Wave } from "@/utils/elliottWaveAnalysis";
 import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired } from "@/services/databaseService";
+import { LightweightChart } from '@/components/LightweightChart';
 
 interface StockCardProps {
   stock: StockData;
@@ -30,12 +31,12 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
           // Use cached analysis
           setCurrentWave(cachedAnalysis.analysis.currentWave);
           
-          // Still need to fetch chart data for display
-          const historicalResponse = await fetchHistoricalData(stock.symbol, '1m', '1d');
+          // Fetch chart data for display
+          const historicalResponse = await fetchHistoricalData(stock.symbol, '1d');
           setChartData(historicalResponse.historicalData);
         } else {
           // Fetch new data and analyze
-          const historicalResponse = await fetchHistoricalData(stock.symbol, '2y', '1d');
+          const historicalResponse = await fetchHistoricalData(stock.symbol, '1d');
           if (historicalResponse.historicalData.length > 0) {
             setChartData(historicalResponse.historicalData.slice(-30)); // Only show last 30 days in mini chart
           } else {
@@ -133,33 +134,13 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
           <div className="mini-chart flex items-center justify-center">
             <Loader2 className="w-6 h-6 animate-spin opacity-70" />
           </div>
+        ) : chartData.length === 0 ? (
+          <div className="mini-chart flex items-center justify-center text-muted-foreground">
+            No chart data available
+          </div>
         ) : (
-          <div className="relative">
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={80}>
-                <LineChart data={chartData.map(d => ({ price: d.close, date: new Date(d.timestamp * 1000) }))}>
-                  <Line 
-                    type="monotone" 
-                    dataKey="price" 
-                    stroke={chartColor} 
-                    strokeWidth={1.5} 
-                    dot={false} 
-                    isAnimationActive={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="text-center text-muted-foreground text-sm">No chart data available</div>
-            )}
-            
-            {currentWave && (
-              <div className={cn(
-                "absolute top-0 right-0 wave-marker",
-                `wave-${currentWave.number}`
-              )}>
-                Wave {currentWave.number}
-              </div>
-            )}
+          <div className="h-24">
+            <LightweightChart data={chartData} />
           </div>
         )}
       </CardContent>
