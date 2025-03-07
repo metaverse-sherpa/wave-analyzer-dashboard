@@ -20,6 +20,17 @@ const Dashboard: React.FC = () => {
   const currentItems = filteredStocks.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredStocks.length / itemsPerPage);
 
+  // Update the itemsPerPageOptions array to ensure unique keys
+  const itemsPerPageOptions = [
+    { value: 20, label: '20' },
+    { value: 50, label: '50' },
+    { value: 100, label: '100' },
+    { value: filteredStocks.length, label: 'All' }
+  ].filter((option, index, self) => 
+    // Remove duplicates by checking if the value already exists
+    self.findIndex(o => o.value === option.value) === index
+  );
+
   // Fetch stocks on component mount
   useEffect(() => {
     const loadStocks = async () => {
@@ -80,13 +91,13 @@ const Dashboard: React.FC = () => {
           <select
             value={itemsPerPage}
             onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
-            className="border rounded-md p-1 text-sm"
+            className="border rounded-md p-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
           >
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-            <option value={filteredStocks.length}>All</option>
+            {itemsPerPageOptions.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -104,9 +115,9 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      {/* Pagination controls - only show if not showing all items */}
+      {/* Update pagination controls to only show when not showing all items */}
       {itemsPerPage < filteredStocks.length && (
-        <div className="flex justify-center items-center gap-4">
+        <div className="flex justify-center items-center gap-4 mt-6">
           <Button
             variant="outline"
             size="sm"

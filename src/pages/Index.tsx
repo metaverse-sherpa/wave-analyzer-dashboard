@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StockCard from '@/components/StockCard';
@@ -6,6 +5,7 @@ import DashboardHeader from '@/components/DashboardHeader';
 import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
 import { toast } from '@/lib/toast';
 import { Loader2 } from 'lucide-react';
+import Dashboard from '../components/Dashboard';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -83,40 +83,9 @@ const Index = () => {
   };
   
   return (
-    <div className="container mx-auto px-4 py-6">
-      <DashboardHeader 
-        onSearch={handleSearch}
-        onRefresh={handleRefresh}
-        onAssetTypeChange={handleAssetTypeChange}
-        assetType={assetType}
-      />
-      
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-20">
-          <Loader2 className="h-12 w-12 animate-spin text-primary opacity-50" />
-          <p className="mt-4 text-muted-foreground">Loading market data...</p>
-        </div>
-      ) : filteredStocks.length > 0 ? (
-        <div className="financial-grid">
-          {filteredStocks.map(stock => (
-            <StockCard 
-              key={stock.symbol} 
-              stock={stock} 
-              onClick={handleStockClick}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-20">
-          <p className="text-muted-foreground">No data found</p>
-          {searchQuery && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              No results for "{searchQuery}". Try a different search term.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
+    <main>
+      <Dashboard />
+    </main>
   );
 };
 
