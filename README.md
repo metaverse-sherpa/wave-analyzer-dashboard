@@ -1,4 +1,25 @@
-# Welcome to your Lovable project
+# Stock Dashboard
+
+A React-based stock dashboard application that provides real-time stock information and search functionality.
+
+## Features
+- Live search by stock symbol or company name
+- Stock card display with key metrics
+- Historical data visualization
+- Elliott Wave analysis
+
+## Technologies Used
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- Yahoo Finance API
+
+## Getting Started
+
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Start the development server: `npm run dev`
 
 ## Project info
 
@@ -49,16 +70,6 @@ npm run dev
 - Select the "Codespaces" tab.
 - Click on "New codespace" to launch a new Codespace environment.
 - Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with .
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
 
 ## How can I deploy this project?
 

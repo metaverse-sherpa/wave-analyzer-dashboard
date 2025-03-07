@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
@@ -11,9 +10,10 @@ import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired } from "@/se
 interface StockCardProps {
   stock: StockData;
   onClick: (stock: StockData) => void;
+  searchQuery?: string;
 }
 
-const StockCard: React.FC<StockCardProps> = ({ stock, onClick }) => {
+const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) => {
   const [chartData, setChartData] = useState<StockHistoricalData[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentWave, setCurrentWave] = useState<Wave | null>(null);
@@ -36,7 +36,11 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick }) => {
         } else {
           // Fetch new data and analyze
           const historicalResponse = await fetchHistoricalData(stock.symbol, '2y', '1d');
-          setChartData(historicalResponse.historicalData.slice(-30)); // Only show last 30 days in mini chart
+          if (historicalResponse.historicalData.length > 0) {
+            setChartData(historicalResponse.historicalData.slice(-30)); // Only show last 30 days in mini chart
+          } else {
+            console.warn(`No historical data found for ${stock.symbol}`);
+          }
           
           const analysis = analyzeElliottWaves(historicalResponse.historicalData);
           setCurrentWave(analysis.currentWave);
@@ -78,6 +82,19 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick }) => {
     onClick(stock);
   };
   
+  const highlightMatch = (text: string, query: string) => {
+    if (!query) return text;
+    
+    const regex = new RegExp(`(${query})`, 'gi');
+    return text.split(regex).map((part, index) =>
+      part.toLowerCase() === query.toLowerCase() ? (
+        <span key={index} className="bg-yellow-200">{part}</span>
+      ) : (
+        part
+      )
+    );
+  };
+  
   return (
     <Card 
       className="stock-card cursor-pointer transition-all duration-300 hover:scale-102"
@@ -86,8 +103,12 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick }) => {
       <CardContent className="p-4">
         <div className="flex justify-between items-start mb-2">
           <div>
-            <CardTitle className="text-lg font-semibold">{stock.symbol}</CardTitle>
-            <p className="text-xs text-muted-foreground truncate max-w-[150px]">{stock.shortName}</p>
+            <CardTitle className="text-lg font-semibold">
+              {highlightMatch(stock.symbol, searchQuery)}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground truncate max-w-[150px]">
+              {highlightMatch(stock.shortName, searchQuery)}
+            </p>
           </div>
           
           <div className="text-right">
@@ -108,18 +129,22 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick }) => {
           </div>
         ) : (
           <div className="relative">
-            <ResponsiveContainer width="100%" height={80}>
-              <LineChart data={chartData.map(d => ({ price: d.close, timestamp: d.timestamp }))}>
-                <Line 
-                  type="monotone" 
-                  dataKey="price" 
-                  stroke={chartColor} 
-                  strokeWidth={1.5} 
-                  dot={false} 
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={80}>
+                <LineChart data={chartData.map(d => ({ price: d.close, date: new Date(d.timestamp * 1000) }))}>
+                  <Line 
+                    type="monotone" 
+                    dataKey="price" 
+                    stroke={chartColor} 
+                    strokeWidth={1.5} 
+                    dot={false} 
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center text-muted-foreground text-sm">No chart data available</div>
+            )}
             
             {currentWave && (
               <div className={cn(

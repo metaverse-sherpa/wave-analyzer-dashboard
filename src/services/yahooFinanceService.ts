@@ -145,6 +145,11 @@ export const fetchHistoricalData = async (
 
     const data = await response.json();
 
+    // Ensure data is an array
+    if (!Array.isArray(data)) {
+      throw new Error('Invalid historical data format');
+    }
+
     // Transform the data
     const historicalData: StockHistoricalData[] = data.map(item => ({
       timestamp: Math.floor(new Date(item.date).getTime() / 1000),
