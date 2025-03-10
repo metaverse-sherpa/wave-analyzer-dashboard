@@ -178,8 +178,8 @@ export const fetchHistoricalData = async (
 
     const data = await response.json();
 
-    // Log the raw data returned from the API
-    console.log(`Raw data for ${symbol}:`, data);
+    // Comment out verbose logging
+    // console.log(`Raw data for ${symbol}:`, data);
 
     // Ensure we have the required fields
     const historicalData: StockHistoricalData[] = data
@@ -201,7 +201,7 @@ export const fetchHistoricalData = async (
       .filter(Boolean); // Filter out any null values
 
     // Log the transformed historical data
-    console.log(`Transformed historical data for ${symbol}:`, historicalData);
+    //console.log(`Transformed historical data for ${symbol}:`, historicalData);
 
     if (historicalData.length === 0) {
       console.warn(`No valid historical data found for ${symbol}`);

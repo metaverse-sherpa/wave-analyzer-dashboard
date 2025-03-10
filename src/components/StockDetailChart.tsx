@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { Wave, FibTarget } from "@/utils/elliottWaveAnalysis";
@@ -8,7 +7,9 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid
+  CartesianGrid,
+  Line,
+  ReferenceLine
 } from 'recharts';
 
 // Import extracted components
@@ -88,30 +89,50 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               x={entry.timestamp}
               y={entry.open}
               width={8}
-              height={entry.close - entry.open}
-              open={entry.open}
-              close={entry.close}
-              high={entry.high - entry.open}
-              low={entry.low - entry.open}
+              height={Math.abs(entry.close - entry.open)}
+              fill={entry.close > entry.open ? 'var(--bullish)' : 'var(--bearish)'}
+              stroke={entry.close > entry.open ? 'var(--bullish)' : 'var(--bearish)'}
+              highLowLines={{
+                high: entry.high,
+                low: entry.low,
+                stroke: entry.close > entry.open ? 'var(--bullish)' : 'var(--bearish)'
+              }}
             />
           ))}
           
-          {/* Render all completed waves */}
+          {/* Render Fibonacci targets */}
+          <FibonacciTargets fibTargets={fibTargets} />
+          
+          {/* Render Elliott Wave lines */}
+          {waves.map((wave, index) => (
+            <WaveLine 
+              key={`wave-${index}`}
+              wave={wave}
+              data={data}
+              color={waveColors[index % waveColors.length]}
+            />
+          ))}
+          
+          {/* Add wave number labels */}
           {waves.map((wave, index) => {
-            const waveNumber = typeof wave.number === 'number' ? wave.number : wave.number;
-            const color = waveColors[waveNumber as keyof typeof waveColors] || '#94a3b8';
+            const startPoint = data.find(d => d.timestamp === wave.startTimestamp);
+            if (!startPoint) return null;
             
             return (
-              <WaveLine key={`wave-${index}`} wave={wave} data={data} color={color} />
+              <ReferenceLine
+                key={`wave-label-${index}`}
+                x={startPoint.timestamp * 1000}
+                stroke={waveColors[index % waveColors.length]}
+                strokeDasharray="3 3"
+                label={{
+                  value: `${wave.number}`,
+                  position: 'insideTopRight',
+                  fill: waveColors[index % waveColors.length],
+                  fontSize: 12
+                }}
+              />
             );
           })}
-          
-          {/* Render Fibonacci targets */}
-          <FibonacciTargets 
-            fibTargets={fibTargets} 
-            currentWave={currentWave} 
-            data={data}
-          />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

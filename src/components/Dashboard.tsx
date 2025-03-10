@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import StockCard from './StockCard';
 import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useNavigate } from 'react-router-dom';
 
 const Dashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -15,6 +16,7 @@ const Dashboard: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [selectedWave, setSelectedWave] = useState<number | 'all'>(5);
+  const navigate = useNavigate();
 
   // Update the itemsPerPageOptions array to ensure unique keys
   const itemsPerPageOptions = [
@@ -136,7 +138,7 @@ const Dashboard: React.FC = () => {
             key={stock.symbol}
             stock={stock}
             onClick={(selectedStock) => {
-              // Handle stock selection
+              navigate(`/stocks/${selectedStock.symbol}`);
             }}
             searchQuery={searchQuery}
           />
@@ -173,4 +175,4 @@ const Dashboard: React.FC = () => {
   );
 };
 
-export default Dashboard; 
+export default Dashboard;

@@ -1,4 +1,3 @@
-
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 
 // Define the Wave interface
@@ -11,6 +10,7 @@ export interface Wave {
   type: 'impulse' | 'corrective';  // Wave type
   isComplete: boolean;        // Whether the wave is complete
   isImpulse?: boolean;        // Whether this is an impulse wave
+  degree?: string;            // Wave degree (Grand Super Cycle, Super Cycle, Cycle, Primary, etc.)
 }
 
 // Define the WaveAnalysisResult interface
@@ -31,6 +31,14 @@ export interface FibTarget {
   isExtension: boolean;
 }
 
+// Zigzag point for wave identification
+interface ZigzagPoint {
+  price: number;
+  timestamp: number;
+  index: number;
+  type: 'peak' | 'trough';
+}
+
 // Function to calculate Fibonacci retracement levels
 const calculateFibRetracement = (startPrice: number, endPrice: number): FibTarget[] => {
   const diff = endPrice - startPrice;
@@ -45,15 +53,174 @@ const calculateFibRetracement = (startPrice: number, endPrice: number): FibTarge
   }));
 };
 
-// Function to identify potential wave types (simplified)
-const identifyWaveType = (wave: Wave, previousWave?: Wave): 'impulse' | 'corrective' => {
-  if (!previousWave) {
-    return 'impulse';
+// Function to calculate Fibonacci extension levels
+const calculateFibExtension = (startPrice: number, endPrice: number): FibTarget[] => {
+  const diff = endPrice - startPrice;
+  const direction = endPrice > startPrice ? 1 : -1;
+  
+  const levels = [1.236, 1.618, 2.0, 2.618];
+  
+  return levels.map(level => ({
+    level,
+    price: endPrice + (diff * level * direction),
+    label: `${(level * 100).toFixed(1)}%`,
+    isExtension: true
+  }));
+};
+
+// Find zigzag points in the price series to identify potential waves
+const findZigzagPoints = (data: StockHistoricalData[], threshold: number = 0.03): ZigzagPoint[] => {
+  if (data.length < 3) return [];
+  
+  const points: ZigzagPoint[] = [];
+  let isUptrend = data[1].close > data[0].close;
+  let currentExtreme = isUptrend ? 
+    { price: data[0].low, timestamp: data[0].timestamp, index: 0, type: 'trough' as const } : 
+    { price: data[0].high, timestamp: data[0].timestamp, index: 0, type: 'peak' as const };
+  
+  points.push(currentExtreme);
+  
+  for (let i = 1; i < data.length; i++) {
+    if (isUptrend) {
+      // In uptrend, looking for new highs
+      if (data[i].high > currentExtreme.price) {
+        currentExtreme = { 
+          price: data[i].high, 
+          timestamp: data[i].timestamp, 
+          index: i, 
+          type: 'peak' 
+        };
+      } 
+      // Check for reversal to downtrend
+      else if (data[i].close < currentExtreme.price * (1 - threshold)) {
+        points.push(currentExtreme);
+        isUptrend = false;
+        currentExtreme = { 
+          price: data[i].low, 
+          timestamp: data[i].timestamp, 
+          index: i, 
+          type: 'trough' 
+        };
+      }
+    } else {
+      // In downtrend, looking for new lows
+      if (data[i].low < currentExtreme.price) {
+        currentExtreme = { 
+          price: data[i].low, 
+          timestamp: data[i].timestamp, 
+          index: i, 
+          type: 'trough' 
+        };
+      } 
+      // Check for reversal to uptrend
+      else if (data[i].close > currentExtreme.price * (1 + threshold)) {
+        points.push(currentExtreme);
+        isUptrend = true;
+        currentExtreme = { 
+          price: data[i].high, 
+          timestamp: data[i].timestamp, 
+          index: i, 
+          type: 'peak' 
+        };
+      }
+    }
   }
   
-  const isCorrective = Math.abs(wave.endPrice! - wave.startPrice) < Math.abs(previousWave.endPrice! - previousWave.startPrice);
+  // Add the final extreme point
+  points.push(currentExtreme);
   
-  return isCorrective ? 'corrective' : 'impulse';
+  return points;
+};
+
+// Analyze points to identify Elliott Waves
+const identifyWaves = (points: ZigzagPoint[], data: StockHistoricalData[]): Wave[] => {
+  if (points.length < 5) {
+    return [];  // Need at least 5 points to identify waves
+  }
+  
+  const waves: Wave[] = [];
+  
+  // Check if overall trend is bullish or bearish
+  const isBullish = points[points.length - 1].price > points[0].price;
+  
+  // Minimum 5-wave impulse pattern
+  if (isBullish) {
+    // Impulse wave in bullish trend (5 waves)
+    for (let i = 0; i < Math.min(5, points.length - 1); i++) {
+      const startPoint = points[i];
+      const endPoint = points[i + 1];
+      
+      const wave: Wave = {
+        number: i % 2 === 0 ? i/2 + 1 : i === 1 ? 2 : i === 3 ? 4 : "Error",
+        startTimestamp: startPoint.timestamp,
+        endTimestamp: endPoint.timestamp,
+        startPrice: startPoint.price,
+        endPrice: endPoint.price,
+        type: i % 2 === 0 ? 'impulse' : 'corrective',
+        isComplete: i < Math.min(4, points.length - 2),
+        isImpulse: i % 2 === 0
+      };
+      
+      waves.push(wave);
+    }
+  } else {
+    // Corrective wave in bearish trend (typically ABC)
+    const waveLabels = ['A', 'B', 'C', 'D', 'E']; // For corrective patterns
+    for (let i = 0; i < Math.min(5, points.length - 1); i++) {
+      const startPoint = points[i];
+      const endPoint = points[i + 1];
+      
+      const wave: Wave = {
+        number: waveLabels[i],
+        startTimestamp: startPoint.timestamp,
+        endTimestamp: endPoint.timestamp,
+        startPrice: startPoint.price,
+        endPrice: endPoint.price,
+        type: i % 2 === 0 ? 'impulse' : 'corrective',
+        isComplete: i < Math.min(4, points.length - 2),
+        isImpulse: i % 2 === 0
+      };
+      
+      waves.push(wave);
+    }
+  }
+  
+  // Apply Elliott Wave rules
+  if (waves.length >= 5) {
+    const wave1 = waves[0];
+    const wave2 = waves[1];
+    const wave3 = waves[2];
+    const wave4 = waves[3];
+    const wave5 = waves[4];
+    
+    // Rule 1: Wave 2 cannot retrace more than 100% of Wave 1
+    if (wave2.endPrice! <= wave1.startPrice) {
+      // Adjustment needed
+      waves[1].type = 'corrective';
+      waves[1].isImpulse = false;
+    }
+    
+    // Rule 2: Wave 3 cannot be the shortest among 1, 3, 5
+    const length1 = Math.abs(wave1.endPrice! - wave1.startPrice);
+    const length3 = Math.abs(wave3.endPrice! - wave3.startPrice);
+    const length5 = waves.length > 4 ? Math.abs(wave5.endPrice! - wave5.startPrice) : Infinity;
+    
+    if (length3 < length1 && length3 < length5) {
+      // This violates Elliott Wave rules, adjust wave labeling
+      // In a real implementation, this would be more sophisticated
+      waves[2].type = 'corrective';
+      waves[2].isImpulse = false;
+    }
+    
+    // Rule 3: Wave 4 cannot overlap Wave 1's territory in most cases
+    if (isBullish && wave4.endPrice! < wave1.endPrice!) {
+      // Violates non-overlap rule
+      waves[3].type = 'corrective';
+      waves[3].isImpulse = false;
+    }
+  }
+  
+  return waves;
 };
 
 // Analyze the price data to identify Elliott Waves
@@ -67,67 +234,44 @@ export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisRe
     };
   }
 
-  const waves: Wave[] = [];
-  let currentWave: Partial<Wave> = {};
+  // Find zigzag points in the price data
+  const zigzagPoints = findZigzagPoints(data);
+  
+  // Identify waves based on zigzag points
+  const waves = identifyWaves(zigzagPoints, data);
+  
+  // Determine current wave
+  let currentWave = waves.length > 0 ? waves[waves.length - 1] : ({} as Wave);
+  
+  // Calculate Fibonacci targets
   let fibTargets: FibTarget[] = [];
+  
+  if (waves.length >= 2) {
+    const lastCompleteWave = waves[waves.length - 2];
+    const previousWave = waves[waves.length - 3] || waves[0];
+    
+    // Calculate retracements based on the last complete wave
+    const retracements = calculateFibRetracement(
+      previousWave.startPrice, 
+      lastCompleteWave.endPrice!
+    );
+    
+    // Calculate extensions for potential next wave
+    const extensions = calculateFibExtension(
+      previousWave.startPrice, 
+      lastCompleteWave.endPrice!
+    );
+    
+    fibTargets = [...retracements, ...extensions];
+  }
+  
+  // Determine trend based on overall wave structure
   let trend: 'bullish' | 'bearish' | 'neutral' = 'neutral';
-
-  // Initial wave setup
-  currentWave = {
-    number: 1,
-    startTimestamp: data[0].timestamp,
-    startPrice: data[0].close,
-    type: 'impulse',
-    isComplete: false,
-  };
-
-  for (let i = 1; i < data.length; i++) {
-    const price = data[i].close;
-    const timestamp = data[i].timestamp;
-
-    // Check for a potential wave end (simplified condition)
-    if (
-      (currentWave.number === 1 && price > currentWave.startPrice! * 1.1) ||
-      (currentWave.number === 2 && price < currentWave.startPrice! * 0.9)
-    ) {
-      currentWave.endPrice = price;
-      currentWave.endTimestamp = timestamp;
-      currentWave.isComplete = true;
-      waves.push(currentWave as Wave);
-
-      // Start a new wave
-      const nextWaveNumber = currentWave.number === 1 ? 2 : 3;
-      currentWave = {
-        number: nextWaveNumber,
-        startTimestamp: timestamp,
-        startPrice: price,
-        type: 'corrective',
-        isComplete: false,
-      };
-
-      // Calculate Fibonacci retracement levels after wave 1
-      if (nextWaveNumber === 3 && currentWave.endPrice) {
-        fibTargets = calculateFibRetracement(currentWave.startPrice!, currentWave.endPrice);
-        
-        // Add extensions
-        fibTargets.push(
-          { level: 1.236, price: currentWave.startPrice! + (currentWave.endPrice - currentWave.startPrice!) * 1.236, label: "123.6%", isExtension: true },
-          { level: 1.618, price: currentWave.startPrice! + (currentWave.endPrice - currentWave.startPrice!) * 1.618, label: "161.8%", isExtension: true }
-        );
-      }
-    }
-  }
-
-  // If the current wave is still in progress, update its details
-  if (!currentWave.isComplete && currentWave.startPrice) {
-    currentWave.endPrice = data[data.length - 1].close;
-    currentWave.endTimestamp = data[data.length - 1].timestamp;
-  }
-
-  // Determine trend
+  
   if (waves.length > 0) {
     const firstWave = waves[0];
     const lastWave = waves[waves.length - 1];
+    
     if (lastWave.endPrice && firstWave.startPrice) {
       if (lastWave.endPrice > firstWave.startPrice) {
         trend = 'bullish';
@@ -136,13 +280,18 @@ export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisRe
       }
     }
   }
+  
+  // Determine if we have impulse or corrective patterns
+  const impulsePattern = waves.length >= 5;
+  const correctivePattern = waves.length > 0 && waves.length < 5 && 
+                           (waves[0].number === 'A' || waves[0].type === 'corrective');
 
   return { 
-    waves: waves as Wave[], 
-    currentWave: currentWave as Wave, 
+    waves, 
+    currentWave, 
     fibTargets,
     trend,
-    impulsePattern: waves.length > 3,
-    correctivePattern: waves.length > 1 && waves.length <= 3
+    impulsePattern,
+    correctivePattern
   };
 };

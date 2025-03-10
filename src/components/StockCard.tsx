@@ -98,8 +98,11 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
   
   return (
     <Card 
-      className="stock-card cursor-pointer transition-all duration-300 hover:scale-102"
-      onClick={handleCardClick}
+      className={cn("overflow-hidden hover:shadow-lg transition-shadow", 
+        loading ? "opacity-70" : "")} 
+      onClick={() => onClick(stock)}
+      role="button"
+      tabIndex={0}
     >
       <CardContent className="p-4">
         <div className="flex justify-between items-start mb-2">

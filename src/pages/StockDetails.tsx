@@ -76,11 +76,11 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           setAnalysis(cachedAnalysis.analysis);
           
           // Still need to fetch historical data for the chart
-          const historicalResponse = await fetchHistoricalData(symbol, '2y', '1d');
+          const historicalResponse = await fetchHistoricalData(symbol, '1d');
           setHistoricalData(historicalResponse.historicalData);
         } else {
           // Fetch new data and analyze
-          const historicalResponse = await fetchHistoricalData(symbol, '2y', '1d');
+          const historicalResponse = await fetchHistoricalData(symbol, '1d');
           setHistoricalData(historicalResponse.historicalData);
           
           const waveAnalysis = analyzeElliottWaves(historicalResponse.historicalData);
