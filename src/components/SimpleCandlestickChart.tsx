@@ -36,29 +36,43 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
   const firstWave = waves.length > 0 ? waves[0] : null;
   
   // Filter data to show only from the first wave onwards, if available
+  // If first wave is far back (>200 periods), show at least 200 periods for better visualization
   const filteredData = firstWave 
     ? data.filter(item => item.timestamp >= firstWave.startTimestamp)
     : data;
+    
+  // Make sure we're not showing too much data for clear visualization
+  // If after filtering we still have over 500 data points, sample them
+  let displayData = filteredData;
+  if (displayData.length > 500) {
+    const samplingFactor = Math.ceil(displayData.length / 500);
+    displayData = displayData.filter((_, index) => index % samplingFactor === 0);
+  }
   
   // Format the data for the chart
-  const chartData = filteredData.map(d => ({
+  const chartData = displayData.map(d => ({
     timestamp: d.timestamp * 1000, // Convert to milliseconds for date display
     price: d.close,
     date: new Date(d.timestamp * 1000).toLocaleDateString()
   }));
   
   // Calculate price range for y-axis
-  const prices = filteredData.map(d => d.close);
+  const prices = displayData.map(d => d.close);
   const minPrice = Math.min(...prices) * 0.95; // 5% padding below
   const maxPrice = Math.max(...prices) * 1.05; // 5% padding above
   
   return (
     <div className="w-full h-[500px] bg-card rounded-lg p-4">
       <h3 className="text-lg font-semibold mb-4">{symbol} - Price Chart</h3>
-      <p className="text-xs text-muted-foreground mb-2">
-        {firstWave ? `Showing data since Wave 1 (${new Date(firstWave.startTimestamp * 1000).toLocaleDateString()})` : 
-          `Showing ${chartData.length} data points`}
-      </p>
+      <div className="flex justify-between items-center text-xs text-muted-foreground mb-2">
+        <span>
+          {firstWave ? 
+            `Showing data since Wave ${firstWave.number} (${new Date(firstWave.startTimestamp * 1000).toLocaleDateString()})` : 
+            `Showing ${chartData.length} data points from ${chartData[0]?.date || 'unknown'} to ${chartData[chartData.length-1]?.date || 'unknown'}`
+          }
+        </span>
+        <span>Data: {data.length} points, Display: {chartData.length} points</span>
+      </div>
       <ResponsiveContainer width="100%" height="90%">
         <AreaChart
           data={chartData}

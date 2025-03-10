@@ -11,6 +11,7 @@ interface WaveAnalysisContextType {
   preloadAnalyses: (symbols: string[]) => Promise<void>;
 }
 
+// Create context with default values
 const WaveAnalysisContext = createContext<WaveAnalysisContextType>({
   analyses: {},
   getAnalysis: async () => null,
@@ -18,9 +19,13 @@ const WaveAnalysisContext = createContext<WaveAnalysisContextType>({
   preloadAnalyses: async () => {}
 });
 
-export const useWaveAnalysis = () => useContext(WaveAnalysisContext);
+// Export the hook as a named function to fix HMR issues
+export function useWaveAnalysis() {
+  return useContext(WaveAnalysisContext);
+}
 
-export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
+// Export the provider as a named function component
+export function WaveAnalysisProvider({ children }: {children: React.ReactNode}) {
   const [analyses, setAnalyses] = useState<Record<string, WaveAnalysisResult>>({});
   const [isLoading, setIsLoading] = useState(false);
   
@@ -118,4 +123,4 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
       {children}
     </WaveAnalysisContext.Provider>
   );
-};
+}

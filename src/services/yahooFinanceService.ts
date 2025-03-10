@@ -121,16 +121,16 @@ export const fetchHistoricalData = async (
   // Calculate start_date if not provided
   if (!start_date) {
     const today = new Date();
-    let daysToSubtract = 365; // Default for "1d"
-
+    let daysToSubtract = 730; // Default to 2 years (365*2) for "1d" timeframe
+    
     switch (timeframe) {
       case '1w':
-        daysToSubtract = 365 * 2;
+        daysToSubtract = 365 * 3; // 3 years for weekly data
         break;
       case '1mo':
-        daysToSubtract = 365 * 3;
+        daysToSubtract = 365 * 5; // 5 years for monthly data
         break;
-      // "1d" is already the default
+      // "1d" is already the default (2 years)
     }
 
     const startDate = new Date(today);

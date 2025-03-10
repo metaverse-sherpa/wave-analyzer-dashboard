@@ -39,30 +39,20 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/historical', async (req, res) => {
   try {
-    const { symbol, start_date, timeframe } = req.query;
-    if (typeof symbol !== 'string') {
-      throw new Error('Invalid query parameters. Missing symbol');
-    }
-
-    // Set default timeframe to "1d" if not provided or invalid
-    const validTimeframes = ['1d', '1wk', '1mo'];
-    const selectedTimeframe = (typeof timeframe === 'string' && validTimeframes.includes(timeframe)) 
-      ? timeframe 
-      : '1d';
-
-    // Calculate start date if not provided
+    const symbol = req.query.symbol as string;
+    const selectedTimeframe = req.query.timeframe as string || '1d';
     let startDate: Date;
-    if (start_date && typeof start_date === 'string') {
-      startDate = new Date(start_date);
+
+    if (req.query.start_date) {
+      startDate = new Date(req.query.start_date as string);
     } else {
       const today = new Date();
-      // Use a static object for timeframe to days mapping
       const timeframeDays = {
-        '1d': 365,
-        '1wk': 365 * 2,
-        '1mo': 365 * 3
+        '1d': 730, // 2 years for daily data (changed from 365)
+        '1wk': 365 * 3, // 3 years for weekly
+        '1mo': 365 * 5  // 5 years for monthly
       };
-      const daysBack = timeframeDays[selectedTimeframe] || 365; // Default to 365 if invalid timeframe
+      const daysBack = timeframeDays[selectedTimeframe] || 730; // Default to 2 years
       startDate = new Date(today.setDate(today.getDate() - daysBack));
     }
 
@@ -98,4 +88,4 @@ app.get('/api/historical', async (req, res) => {
 
 app.listen(3001, () => {
   console.log('Server running on http://localhost:3001');
-}); 
+});
