@@ -24,6 +24,7 @@ import { toast } from "@/lib/toast";
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
+import SimpleCandlestickChart from '@/components/SimpleCandlestickChart';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -52,6 +53,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [loading, setLoading] = useState(true);
   const { getAnalysis } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
+  const [useSimpleChart, setUseSimpleChart] = useState(false);
   
   useEffect(() => {
     const loadData = async () => {
@@ -166,6 +168,37 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             <div>Stock not found</div>
           )}
         </div>
+        
+        <div className="mb-4 flex justify-between items-center">
+          <h2 className="text-2xl font-bold">Chart</h2>
+          <Button 
+            variant="outline" 
+            onClick={() => setUseSimpleChart(prev => !prev)}
+          >
+            {useSimpleChart ? "Switch to Candlestick Chart" : "Switch to Simple Chart"}
+          </Button>
+        </div>
+        
+        <div className="mb-4 p-2 bg-gray-800 text-xs rounded">
+          <p>Data points: {historicalData.length}</p>
+          <p>Wave data points: {analysis?.waves?.length || 0}</p>
+        </div>
+
+        {useSimpleChart ? (
+          <SimpleCandlestickChart 
+            symbol={symbol || ''} 
+            data={historicalData} 
+            waves={analysis?.waves || []}
+          />
+        ) : (
+          <StockDetailChart
+            symbol={symbol || ''}
+            data={historicalData}
+            waves={analysis?.waves || []}
+            currentWave={analysis?.currentWave || {} as Wave}
+            fibTargets={analysis?.fibTargets || []}
+          />
+        )}
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
