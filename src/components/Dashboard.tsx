@@ -1,45 +1,67 @@
-import React, { useState, useEffect } from 'react';
-import { useDebounce } from 'use-debounce';
-import { Input } from "@/components/ui/input";
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button } from "@/components/ui/button";
-import StockCard from './StockCard';
-import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import StockCard from './StockCard';
+import { StockData, fetchTopStocks } from '@/services/yahooFinanceService';
+import { WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
+import { Input } from './ui/input';
+import { Button } from './ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { useDebounce } from '@/hooks/useDebounce';
+import { toast } from '@/lib/toast';
+import { X, ChevronLeft, ChevronRight } from 'lucide-react'; // Add these missing Lucide icon imports
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
 const Dashboard: React.FC = () => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedQuery] = useDebounce(searchQuery, 300);
-  const [stocks, setStocks] = useState<StockData[]>([]);
-  const [filteredStocks, setFilteredStocks] = useState<StockData[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(20);
-  const [selectedWave, setSelectedWave] = useState<number | 'all'>(5);
   const navigate = useNavigate();
-
-  // Update the itemsPerPageOptions array to ensure unique keys
+  const [stocks, setStocks] = useState<StockData[]>([]);
+  const [stockWaves, setStockWaves] = useState<Record<string, WaveAnalysisResult>>({});
+  const [filteredStocks, setFilteredStocks] = useState<StockData[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(12);
+  const [selectedWave, setSelectedWave] = useState<number | 'all'>('all');
+  
+  const debouncedQuery = useDebounce(searchQuery, 300);
+  
+  // Add these missing variables and functions
   const itemsPerPageOptions = [
-    { value: 20, label: '20' },
-    { value: 50, label: '50' },
-    { value: 100, label: '100' },
-    { value: filteredStocks.length, label: 'All' }
-  ].filter((option, index, self) => 
-    // Remove duplicates by checking if the value already exists
-    self.findIndex(o => o.value === option.value) === index
-  );
+    { value: 12, label: '12' },
+    { value: 24, label: '24' },
+    { value: 48, label: '48' },
+    { value: 96, label: '96' }
+  ];
+  
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
+  
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  };
 
-  // Fetch stocks on component mount
+  // Load stocks when component mounts
   useEffect(() => {
     const loadStocks = async () => {
-      const stocks = await fetchTopStocks();
-      setStocks(stocks);
-      setFilteredStocks(stocks);
+      try {
+        const stockData = await fetchTopStocks();
+        setStocks(stockData);
+        setFilteredStocks(stockData);
+      } catch (error) {
+        console.error('Error loading stocks:', error);
+        toast.error('Failed to load stocks');
+      } finally {
+        setLoading(false);
+      }
     };
+    
     loadStocks();
   }, []);
-
-  // Update filtered stocks when debounced query changes
+  
+  // Filter stocks based on search query
   useEffect(() => {
     if (debouncedQuery) {
       const lowerCaseQuery = debouncedQuery.toLowerCase();
@@ -54,26 +76,41 @@ const Dashboard: React.FC = () => {
     }
   }, [debouncedQuery, stocks]);
 
-  // Filter stocks based on selected wave
-  const filteredStocksByWave = filteredStocks.filter(stock => {
-    if (selectedWave === 'all') return true;
-    return stock.wave === selectedWave;
-  });
+  const { analyses } = useWaveAnalysis();
+  
+  // Filter stocks based on selected wave using the context's analyses
+  const filteredStocksByWave = useMemo(() => {
+    if (selectedWave === 'all') return filteredStocks;
+    
+    return filteredStocks.filter(stock => {
+      // Check in the context's analyses
+      const analysisKey = `${stock.symbol}_1d`;
+      const waveAnalysis = analyses[analysisKey] || stockWaves[stock.symbol];
+      if (!waveAnalysis || !waveAnalysis.currentWave) return false;
+      
+      // Compare as strings to handle both number and letter waves
+      return String(waveAnalysis.currentWave.number) === String(selectedWave);
+    });
+  }, [filteredStocks, selectedWave, analyses, stockWaves]);
 
-  // Keep only these declarations that use filteredStocksByWave:
+  // Handle StockCard click including wave analysis
+  const handleStockClick = (stock: StockData, waveAnalysis?: WaveAnalysisResult) => {
+    // Store the wave analysis if provided
+    if (waveAnalysis) {
+      setStockWaves(prev => ({
+        ...prev,
+        [stock.symbol]: waveAnalysis
+      }));
+    }
+    
+    navigate(`/stocks/${stock.symbol}`);
+  };
+  
+  // Pagination logic remains the same
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = filteredStocksByWave.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredStocksByWave.length / itemsPerPage);
-
-  const handlePageChange = (newPage: number) => {
-    setCurrentPage(newPage);
-  };
-
-  const handleItemsPerPageChange = (value: number) => {
-    setItemsPerPage(value);
-    setCurrentPage(1); // Reset to first page when changing items per page
-  };
 
   return (
     <div className="container mx-auto px-4 py-6">
@@ -97,21 +134,23 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Wave:</span>
           <Select
             value={selectedWave.toString()}
             onValueChange={(value) => setSelectedWave(value === 'all' ? 'all' : Number(value))}
           >
-            <SelectTrigger className="w-[100px]">
-              <SelectValue placeholder="Wave" />
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Filter by Wave" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="all">All Waves</SelectItem>
               <SelectItem value="1">Wave 1</SelectItem>
               <SelectItem value="2">Wave 2</SelectItem>
               <SelectItem value="3">Wave 3</SelectItem>
               <SelectItem value="4">Wave 4</SelectItem>
               <SelectItem value="5">Wave 5</SelectItem>
+              <SelectItem value="A">Wave A</SelectItem>
+              <SelectItem value="B">Wave B</SelectItem>
+              <SelectItem value="C">Wave C</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -137,15 +176,12 @@ const Dashboard: React.FC = () => {
           <StockCard
             key={stock.symbol}
             stock={stock}
-            onClick={(selectedStock) => {
-              navigate(`/stocks/${selectedStock.symbol}`);
-            }}
+            onClick={handleStockClick}
             searchQuery={searchQuery}
           />
         ))}
       </div>
 
-      {/* Update pagination controls to use filteredStocksByWave */}
       {itemsPerPage < filteredStocksByWave.length && (
         <div className="flex justify-center items-center gap-4 mt-6">
           <Button

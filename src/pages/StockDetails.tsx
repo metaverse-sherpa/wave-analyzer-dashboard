@@ -22,6 +22,7 @@ import {
 } from "@/services/databaseService";
 import { toast } from "@/lib/toast";
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -48,6 +49,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [historicalData, setHistoricalData] = useState<StockHistoricalData[]>([]);
   const [analysis, setAnalysis] = useState<WaveAnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const { getAnalysis } = useWaveAnalysis();
   
   useEffect(() => {
     const loadData = async () => {
@@ -68,27 +70,22 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           return;
         }
         
-        // Check for cached analysis
-        const cachedAnalysis = retrieveWaveAnalysis(symbol, '1d');
+        // Try to get analysis from context/cache
+        let waveAnalysis = await getAnalysis(symbol, '1d');
         
-        if (cachedAnalysis && !isAnalysisExpired(cachedAnalysis.timestamp)) {
-          // Use cached analysis
-          setAnalysis(cachedAnalysis.analysis);
-          
-          // Still need to fetch historical data for the chart
-          const historicalResponse = await fetchHistoricalData(symbol, '1d');
-          setHistoricalData(historicalResponse.historicalData);
-        } else {
-          // Fetch new data and analyze
-          const historicalResponse = await fetchHistoricalData(symbol, '1d');
-          setHistoricalData(historicalResponse.historicalData);
-          
-          const waveAnalysis = analyzeElliottWaves(historicalResponse.historicalData);
-          setAnalysis(waveAnalysis);
+        // Fetch historical data for the chart
+        const historicalResponse = await fetchHistoricalData(symbol, '1d');
+        setHistoricalData(historicalResponse.historicalData);
+        
+        if (!waveAnalysis) {
+          // Analyze the data
+          waveAnalysis = analyzeElliottWaves(historicalResponse.historicalData);
           
           // Store the analysis
           storeWaveAnalysis(symbol, '1d', waveAnalysis);
         }
+        
+        setAnalysis(waveAnalysis);
       } catch (error) {
         console.error(`Error loading data for ${symbol}:`, error);
         toast.error(`Failed to load data for ${symbol}`);
@@ -98,7 +95,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     };
     
     loadData();
-  }, [symbol, navigate]);
+  }, [symbol, navigate, getAnalysis]);
   
   const handleBackClick = () => {
     navigate('/');
