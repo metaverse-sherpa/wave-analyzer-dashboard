@@ -53,7 +53,6 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [loading, setLoading] = useState(true);
   const { getAnalysis } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
-  const [useSimpleChart, setUseSimpleChart] = useState(false);
   
   useEffect(() => {
     const loadData = async () => {
@@ -74,17 +73,23 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           return;
         }
         
-        // Fetch historical data from context
-        const historicalData = await getHistoricalData(symbol, '1d');
+        // Load both historical data and wave analysis in parallel
+        const [historicalData, waveAnalysis] = await Promise.all([
+          getHistoricalData(symbol, '1d'),
+          getAnalysis(symbol, '1d')
+        ]);
+        
+        // Set historical data
         setHistoricalData(historicalData);
         
-        // Get wave analysis from context or calculate if needed
-        const waveAnalysis = await getAnalysis(symbol, '1d');
-        
+        // Set wave analysis if available
         if (waveAnalysis) {
           setAnalysis(waveAnalysis);
         } else {
-          toast.error(`Failed to analyze waves for ${symbol}`);
+          // Only show error if we have historical data but no analysis
+          if (historicalData.length > 0) {
+            toast.error(`Could not analyze waves for ${symbol}`);
+          }
         }
       } catch (error) {
         console.error(`Error loading data for ${symbol}:`, error);
@@ -169,34 +174,18 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           )}
         </div>
         
-        <div className="mb-4 flex justify-between items-center">
-          <h2 className="text-2xl font-bold">Chart</h2>
-          <Button 
-            variant="outline" 
-            onClick={() => setUseSimpleChart(prev => !prev)}
-          >
-            {useSimpleChart ? "Switch to Candlestick Chart" : "Switch to Simple Chart"}
-          </Button>
-        </div>
-        
-        <div className="mb-4 p-2 bg-gray-800 text-xs rounded">
-          <p>Data points: {historicalData.length}</p>
-          <p>Wave data points: {analysis?.waves?.length || 0}</p>
-        </div>
-
-        {useSimpleChart || !historicalData.length ? (
+        {loading ? (
+          <div className="w-full h-[400px] bg-card rounded-lg p-4 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2 mx-auto"></div>
+              <p className="text-muted-foreground">Loading chart data...</p>
+            </div>
+          </div>
+        ) : (
           <SimpleCandlestickChart 
             symbol={symbol || ''} 
             data={historicalData} 
             waves={analysis?.waves || []}
-          />
-        ) : (
-          <StockDetailChart
-            symbol={symbol || ''}
-            data={historicalData}
-            waves={analysis?.waves || []}
-            currentWave={analysis?.currentWave || {} as Wave}
-            fibTargets={analysis?.fibTargets || []}
           />
         )}
         

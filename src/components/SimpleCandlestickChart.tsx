@@ -23,13 +23,11 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
   data,
   waves
 }) => {
-  const [useSimpleChart, setUseSimpleChart] = useState(true); // Set to true by default
-  
   // Return early if no data available
   if (!data || data.length === 0) {
     return (
       <div className="w-full h-64 flex items-center justify-center bg-card rounded-lg">
-        <p className="text-muted-foreground">No chart data available</p>
+        <p className="text-muted-foreground">No chart data available for {symbol}</p>
       </div>
     );
   }
@@ -56,11 +54,10 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
   
   return (
     <div className="w-full h-[500px] bg-card rounded-lg p-4">
-      <h3 className="text-lg font-semibold mb-4">{symbol} - Price Chart (Simple)</h3>
+      <h3 className="text-lg font-semibold mb-4">{symbol} - Price Chart</h3>
       <p className="text-xs text-muted-foreground mb-2">
-        Showing {chartData.length} data points from {chartData[0]?.date || 'unknown'} to {
-          chartData[chartData.length-1]?.date || 'unknown'
-        }
+        {firstWave ? `Showing data since Wave 1 (${new Date(firstWave.startTimestamp * 1000).toLocaleDateString()})` : 
+          `Showing ${chartData.length} data points`}
       </p>
       <ResponsiveContainer width="100%" height="90%">
         <AreaChart
