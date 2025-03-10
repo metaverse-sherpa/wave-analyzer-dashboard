@@ -1,4 +1,5 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
@@ -24,7 +25,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "outDir": "./dist",
+    "types": ["node", "vite/client"]
   },
-  "include": ["src"]
+  "include": ["src/**/*", "index.html"]
 }
