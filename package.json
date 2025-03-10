@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "vite dev",
     "dev:backend": "NODE_OPTIONS='--import \"data:text/javascript,import { register } from \\\"node:module\\\"; import { pathToFileURL } from \\\"node:url\\\"; register(\\\"ts-node/esm\\\", pathToFileURL(\\\"./\\\"));\"' NODE_NO_WARNINGS=1 ts-node --esm server/index.ts",
-    "build": "tsc yahooFinanceService.ts",
+    "build": "tsc",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview"
