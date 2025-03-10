@@ -184,7 +184,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           <p>Wave data points: {analysis?.waves?.length || 0}</p>
         </div>
 
-        {useSimpleChart ? (
+        {useSimpleChart || !historicalData.length ? (
           <SimpleCandlestickChart 
             symbol={symbol || ''} 
             data={historicalData} 
@@ -202,22 +202,6 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            {loading ? (
-              <Skeleton className="h-[500px] w-full rounded-lg" />
-            ) : analysis && historicalData.length > 0 ? (
-              <StockDetailChart
-                symbol={symbol}
-                data={historicalData}
-                waves={analysis.waves}
-                currentWave={analysis.currentWave}
-                fibTargets={analysis.fibTargets}
-              />
-            ) : (
-              <div className="bg-card rounded-lg p-6 flex items-center justify-center h-[500px]">
-                <p className="text-muted-foreground">No chart data available</p>
-              </div>
-            )}
-            
             <div className="mt-6 bg-card rounded-lg p-6">
               <h3 className="text-lg font-semibold mb-4">Elliott Wave Analysis</h3>
               

@@ -151,7 +151,6 @@ export const fetchHistoricalData = async (
 
   // Check if we have cached data and it's not expired
   if (apiCache[cacheKey] && Date.now() - apiCache[cacheKey].timestamp < HISTORICAL_CACHE_DURATION) {
-    console.log(`Using cached historical data for ${symbol}`);
     return apiCache[cacheKey].data as { symbol: string; historicalData: StockHistoricalData[] };
   }
 
@@ -171,7 +170,6 @@ export const fetchHistoricalData = async (
       .map(item => {
         // Skip items with missing or invalid data
         if (!item || typeof item.timestamp !== 'number' || isNaN(item.timestamp)) {
-          console.warn(`Invalid data for ${symbol}:`, item);
           return null;
         }
         return {
@@ -184,10 +182,6 @@ export const fetchHistoricalData = async (
         };
       })
       .filter(Boolean); // Filter out any null values
-
-    if (historicalData.length === 0) {
-      console.warn(`No valid historical data found for ${symbol}`);
-    }
 
     // Create the result object
     const result = {

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { Wave } from "@/utils/elliottWaveAnalysis";
 import {
@@ -23,7 +23,7 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
   data,
   waves
 }) => {
-  console.log('SimpleCandlestickChart rendering with data length:', data?.length);
+  const [useSimpleChart, setUseSimpleChart] = useState(true); // Set to true by default
   
   // Return early if no data available
   if (!data || data.length === 0) {

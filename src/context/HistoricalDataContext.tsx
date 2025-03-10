@@ -68,6 +68,12 @@ export const HistoricalDataProvider: React.FC<{children: React.ReactNode}> = ({ 
       const historicalResponse = await fetchHistoricalData(symbol, timeframe);
       const historicalData = historicalResponse.historicalData;
       
+      // After fetching fresh data
+      console.log(`Fetched historical data for ${symbol}: Length = ${historicalData.length}`);
+      if (historicalData.length === 0) {
+        console.error(`No historical data returned from API for ${symbol}`);
+      }
+      
       // Store in cache
       storeHistoricalData(symbol, timeframe, historicalData);
       

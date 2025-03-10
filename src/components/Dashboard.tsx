@@ -64,6 +64,7 @@ const Dashboard: React.FC = () => {
           preloadAnalyses(symbols),
           preloadHistoricalData(symbols)
         ]);
+
       } catch (error) {
         console.error('Error loading stocks:', error);
         toast.error('Failed to load stocks');
