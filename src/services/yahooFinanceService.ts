@@ -1,6 +1,5 @@
 import { toast } from "@/lib/toast";
 
-
 // Types for our Yahoo Finance API
 export interface StockData {
   symbol: string;
@@ -16,7 +15,6 @@ export interface StockData {
   trailingPE?: number;
   forwardPE?: number;
   dividendYield?: number;
-  wave: number;
 }
 
 export interface StockHistoricalData {
@@ -28,27 +26,12 @@ export interface StockHistoricalData {
   volume: number;
 }
 
-interface Quote {
-  symbol: string;
-  shortName: string;
-  regularMarketPrice: number;
-  regularMarketChange: number;
-  regularMarketChangePercent: number;
-  regularMarketVolume: number;
-  averageDailyVolume3Month: number;
-  marketCap: number;
-  fiftyTwoWeekLow: number;
-  fiftyTwoWeekHigh: number;
-  trailingPE?: number;
-  forwardPE?: number;
-  trailingAnnualDividendYield?: number;
-}
-
 // Cache for API responses
 const apiCache: Record<string, { data: unknown; timestamp: number }> = {};
 
-// Cache duration in milliseconds (15 minutes)
-const CACHE_DURATION = 15 * 60 * 1000;
+// Increase cache duration to 24 hours for price data
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes for regular stock data
+const HISTORICAL_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours for historical data
 
 // Clear all cached data
 export const invalidateCache = (): void => {
@@ -107,8 +90,7 @@ export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> =
       fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh || 0,
       trailingPE: quote.trailingPE,
       forwardPE: quote.forwardPE,
-      dividendYield: quote.trailingAnnualDividendYield,
-      wave: Math.floor(Math.random() * 5) + 1 // Replace with actual wave calculation
+      dividendYield: quote.trailingAnnualDividendYield
     }));
 
     // Cache the response
@@ -125,7 +107,7 @@ export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> =
   }
 };
 
-// Function to fetch historical data
+// Function to fetch historical data with improved caching
 export const fetchHistoricalData = async (
   symbol: string,
   timeframe: string = '1d',
@@ -163,9 +145,15 @@ export const fetchHistoricalData = async (
   }
 
   // Log the parameters being used
-  console.log(`Fetching historical data for symbol: ${symbol}, timeframe: ${timeframe}, start_date: ${start_date}`);
+  //console.log(`Fetching historical data for symbol: ${symbol}, timeframe: ${timeframe}, start_date: ${start_date}`);
 
   const cacheKey = `historical_${symbol}_${timeframe}_${start_date}`;
+
+  // Check if we have cached data and it's not expired
+  if (apiCache[cacheKey] && Date.now() - apiCache[cacheKey].timestamp < HISTORICAL_CACHE_DURATION) {
+    console.log(`Using cached historical data for ${symbol}`);
+    return apiCache[cacheKey].data as { symbol: string; historicalData: StockHistoricalData[] };
+  }
 
   try {
     const response = await fetch(
@@ -177,9 +165,6 @@ export const fetchHistoricalData = async (
     }
 
     const data = await response.json();
-
-    // Comment out verbose logging
-    // console.log(`Raw data for ${symbol}:`, data);
 
     // Ensure we have the required fields
     const historicalData: StockHistoricalData[] = data
@@ -200,17 +185,23 @@ export const fetchHistoricalData = async (
       })
       .filter(Boolean); // Filter out any null values
 
-    // Log the transformed historical data
-    //console.log(`Transformed historical data for ${symbol}:`, historicalData);
-
     if (historicalData.length === 0) {
       console.warn(`No valid historical data found for ${symbol}`);
     }
 
-    return {
+    // Create the result object
+    const result = {
       symbol,
       historicalData
     };
+
+    // Store in cache with 24-hour expiration
+    apiCache[cacheKey] = {
+      data: result,
+      timestamp: Date.now()
+    };
+
+    return result;
   } catch (error) {
     console.error(`Error fetching historical data for ${symbol}:`, error);
     toast.error(`Failed to fetch historical data for ${symbol}`);

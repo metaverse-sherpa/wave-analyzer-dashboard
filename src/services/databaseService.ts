@@ -1,39 +1,101 @@
-
 import { WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
+import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { toast } from "@/lib/toast";
 
-// Cache duration in milliseconds (6 hours)
-const CACHE_DURATION = 6 * 60 * 60 * 1000;
+// Update cache duration to 24 hours (in milliseconds)
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
-// Storage key prefix
-const STORAGE_KEY_PREFIX = 'wave_analysis_';
+// Storage key prefixes
+const WAVE_STORAGE_KEY_PREFIX = 'wave_analysis_';
+const HISTORICAL_STORAGE_KEY_PREFIX = 'historical_data_';
 
-// Store wave analysis in local storage
+// Wave Analysis - existing functions
 export const storeWaveAnalysis = (
   symbol: string, 
   timeframe: string, 
   analysis: WaveAnalysisResult
 ): void => {
   try {
-    const key = `${STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
-    const data = {
-      analysis,
-      timestamp: Date.now(),
-    };
-    localStorage.setItem(key, JSON.stringify(data));
+    localStorage.setItem(
+      `${WAVE_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`,
+      JSON.stringify({
+        analysis,
+        timestamp: Date.now()
+      })
+    );
   } catch (error) {
     console.error('Error storing wave analysis:', error);
     toast.error('Failed to store analysis data locally');
   }
 };
 
-// Retrieve wave analysis from local storage
+// Add Historical Data storage
+export const storeHistoricalData = (
+  symbol: string,
+  timeframe: string,
+  historicalData: StockHistoricalData[]
+): void => {
+  try {
+    localStorage.setItem(
+      `${HISTORICAL_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`,
+      JSON.stringify({
+        historicalData,
+        timestamp: Date.now()
+      })
+    );
+  } catch (error) {
+    console.error('Error storing historical data:', error);
+  }
+};
+
+export const retrieveHistoricalData = (
+  symbol: string,
+  timeframe: string
+): { historicalData: StockHistoricalData[]; timestamp: number } | null => {
+  try {
+    const data = localStorage.getItem(`${HISTORICAL_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`);
+    
+    if (!data) {
+      return null;
+    }
+    
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error retrieving historical data:', error);
+    return null;
+  }
+};
+
+// Get all stored historical data
+export const getAllHistoricalData = (): Record<string, { historicalData: StockHistoricalData[]; timestamp: number }> => {
+  try {
+    const historicalData: Record<string, { historicalData: StockHistoricalData[]; timestamp: number }> = {};
+    
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith(HISTORICAL_STORAGE_KEY_PREFIX)) {
+        const data = localStorage.getItem(key);
+        if (data) {
+          const parsedData = JSON.parse(data);
+          const symbolKey = key.replace(HISTORICAL_STORAGE_KEY_PREFIX, '');
+          historicalData[symbolKey] = parsedData;
+        }
+      }
+    });
+    
+    return historicalData;
+  } catch (error) {
+    console.error('Error retrieving all historical data:', error);
+    return {};
+  }
+};
+
+// Rest of existing functions
 export const retrieveWaveAnalysis = (
   symbol: string, 
   timeframe: string
 ): { analysis: WaveAnalysisResult; timestamp: number } | null => {
   try {
-    const key = `${STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
+    const key = `${WAVE_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
     const data = localStorage.getItem(key);
     
     if (data) {
@@ -54,11 +116,16 @@ export const isAnalysisExpired = (timestamp: number): boolean => {
   return (now - timestamp) > CACHE_DURATION;
 };
 
+// Add this function for historical data
+export const isHistoricalDataExpired = (timestamp: number): boolean => {
+  return Date.now() - timestamp > CACHE_DURATION;
+};
+
 // Clear all analyses from local storage
 export const clearAllAnalyses = (): void => {
   try {
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith(STORAGE_KEY_PREFIX)) {
+      if (key.startsWith(WAVE_STORAGE_KEY_PREFIX)) {
         localStorage.removeItem(key);
       }
     });
@@ -69,32 +136,24 @@ export const clearAllAnalyses = (): void => {
 };
 
 // Get all stored analyses
-export const getAllAnalyses = (): { symbol: string; timeframe: string; analysis: WaveAnalysisResult; timestamp: number }[] => {
+export const getAllAnalyses = (): Record<string, { analysis: WaveAnalysisResult, timestamp: number }> => {
   try {
-    const analyses: { symbol: string; timeframe: string; analysis: WaveAnalysisResult; timestamp: number }[] = [];
+    const analyses: Record<string, { analysis: WaveAnalysisResult, timestamp: number }> = {};
     
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith(STORAGE_KEY_PREFIX)) {
-        const [, symbolAndTimeframe] = key.split(STORAGE_KEY_PREFIX);
-        const [symbol, timeframe] = symbolAndTimeframe.split('_');
+      if (key.startsWith(WAVE_STORAGE_KEY_PREFIX)) {
         const data = localStorage.getItem(key);
-        
         if (data) {
           const parsedData = JSON.parse(data);
-          analyses.push({
-            symbol,
-            timeframe,
-            analysis: parsedData.analysis,
-            timestamp: parsedData.timestamp,
-          });
+          const symbolKey = key.replace(WAVE_STORAGE_KEY_PREFIX, '');
+          analyses[symbolKey] = parsedData;
         }
       }
     });
     
     return analyses;
   } catch (error) {
-    console.error('Error getting all analyses:', error);
-    toast.error('Failed to retrieve stored analyses');
-    return [];
+    console.error('Error retrieving all analyses:', error);
+    return {};
   }
 };

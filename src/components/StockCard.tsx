@@ -8,6 +8,7 @@ import { analyzeElliottWaves, Wave, WaveAnalysisResult } from "@/utils/elliottWa
 import { storeWaveAnalysis } from "@/services/databaseService";
 import { LightweightChart } from '@/components/LightweightChart';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
 
 interface StockCardProps {
   stock: StockData;
@@ -18,44 +19,23 @@ interface StockCardProps {
 const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) => {
   const [chartData, setChartData] = useState<StockHistoricalData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentWave, setCurrentWave] = useState<Wave | null>(null);
-  const [waveAnalysis, setWaveAnalysis] = useState<WaveAnalysisResult | null>(null);
-  const { getAnalysis } = useWaveAnalysis();
+  const { analyses } = useWaveAnalysis();
+  const { getHistoricalData } = useHistoricalData();
+  
+  // Get currentWave and waveAnalysis from context
+  const cacheKey = `${stock.symbol}_1d`;
+  const waveAnalysis = analyses[cacheKey];
+  const currentWave = waveAnalysis?.currentWave;
   
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         
-        // Try to get analysis from context/cache
-        let analysis = await getAnalysis(stock.symbol, '1d');
-        
-        // If we don't have analysis, fetch new data and analyze
-        if (!analysis) {
-          const historicalResponse = await fetchHistoricalData(stock.symbol, '1d');
-          
-          if (historicalResponse.historicalData.length > 0) {
-            setChartData(historicalResponse.historicalData.slice(-30)); // Only show last 30 days in mini chart
-            
-            // Analyze the data
-            analysis = analyzeElliottWaves(historicalResponse.historicalData);
-            
-            // Store the analysis
-            storeWaveAnalysis(stock.symbol, '1d', analysis);
-          } else {
-            console.warn(`No historical data found for ${stock.symbol}`);
-          }
-        } else {
-          // Still need to fetch chart data for display
-          const historicalResponse = await fetchHistoricalData(stock.symbol, '1d');
-          if (historicalResponse.historicalData.length > 0) {
-            setChartData(historicalResponse.historicalData.slice(-30));
-          }
-        }
-        
-        if (analysis) {
-          setCurrentWave(analysis.currentWave);
-          setWaveAnalysis(analysis);
+        // Use the context to get historical data
+        const historicalData = await getHistoricalData(stock.symbol, '1d');
+        if (historicalData.length > 0) {
+          setChartData(historicalData.slice(-30)); // Only show last 30 days in mini chart
         }
       } catch (error) {
         console.error(`Error loading data for ${stock.symbol}:`, error);
@@ -65,7 +45,7 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
     };
     
     loadData();
-  }, [stock.symbol]);
+  }, [stock.symbol, getHistoricalData]);
   
   const priceChange = stock.regularMarketChange;
   const priceChangePercent = stock.regularMarketChangePercent;
@@ -88,8 +68,9 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
   const chartColor = isPositive ? 'var(--bullish)' : 'var(--bearish)';
   
   const handleCardClick = () => {
-    // Pass both the stock and the wave analysis to the onClick handler
-    onClick(stock, waveAnalysis || undefined);
+    // Pass the stock to the onClick handler - we don't need to pass waveAnalysis
+    // as it's already in the shared context
+    onClick(stock);
   };
   
   const highlightMatch = (text: string, query: string) => {
@@ -133,12 +114,14 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
               {isPositive ? <ArrowUpRight className="w-3 h-3 mr-1" /> : <ArrowDownRight className="w-3 h-3 mr-1" />}
               <span>{formattedChange} ({formattedPercent})</span>
             </div>
-            <div className={cn(
-              "text-xs mt-1",
-              `wave-${stock.wave}`
-            )}>
-              Wave {stock.wave}
-            </div>
+            {currentWave && (
+              <div className={cn(
+                "text-xs mt-1",
+                `wave-${currentWave.number}`
+              )}>
+                Wave {currentWave.number}
+              </div>
+            )}
           </div>
         </div>
         

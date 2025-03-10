@@ -10,6 +10,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { toast } from '@/lib/toast';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'; // Add these missing Lucide icon imports
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -43,13 +44,26 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const { analyses, preloadAnalyses } = useWaveAnalysis();
+  const { preloadHistoricalData } = useHistoricalData();
+
   // Load stocks when component mounts
   useEffect(() => {
     const loadStocks = async () => {
       try {
+        setLoading(true);
         const stockData = await fetchTopStocks();
         setStocks(stockData);
         setFilteredStocks(stockData);
+        
+        // Preload both wave analyses and historical data for all stocks
+        const symbols = stockData.map(stock => stock.symbol);
+        
+        // Load in parallel
+        await Promise.all([
+          preloadAnalyses(symbols),
+          preloadHistoricalData(symbols)
+        ]);
       } catch (error) {
         console.error('Error loading stocks:', error);
         toast.error('Failed to load stocks');
@@ -59,7 +73,7 @@ const Dashboard: React.FC = () => {
     };
     
     loadStocks();
-  }, []);
+  }, [preloadAnalyses, preloadHistoricalData]);
   
   // Filter stocks based on search query
   useEffect(() => {
@@ -76,8 +90,6 @@ const Dashboard: React.FC = () => {
     }
   }, [debouncedQuery, stocks]);
 
-  const { analyses } = useWaveAnalysis();
-  
   // Filter stocks based on selected wave using the context's analyses
   const filteredStocksByWave = useMemo(() => {
     if (selectedWave === 'all') return filteredStocks;
@@ -93,16 +105,9 @@ const Dashboard: React.FC = () => {
     });
   }, [filteredStocks, selectedWave, analyses, stockWaves]);
 
-  // Handle StockCard click including wave analysis
-  const handleStockClick = (stock: StockData, waveAnalysis?: WaveAnalysisResult) => {
-    // Store the wave analysis if provided
-    if (waveAnalysis) {
-      setStockWaves(prev => ({
-        ...prev,
-        [stock.symbol]: waveAnalysis
-      }));
-    }
-    
+  // Handle StockCard click
+  const handleStockClick = (stock: StockData) => {
+    // Navigate to the stock details page
     navigate(`/stocks/${stock.symbol}`);
   };
   

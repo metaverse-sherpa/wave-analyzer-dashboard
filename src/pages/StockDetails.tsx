@@ -23,6 +23,7 @@ import {
 import { toast } from "@/lib/toast";
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -50,6 +51,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [analysis, setAnalysis] = useState<WaveAnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
   const { getAnalysis } = useWaveAnalysis();
+  const { getHistoricalData } = useHistoricalData();
   
   useEffect(() => {
     const loadData = async () => {
@@ -70,22 +72,18 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           return;
         }
         
-        // Try to get analysis from context/cache
-        let waveAnalysis = await getAnalysis(symbol, '1d');
+        // Fetch historical data from context
+        const historicalData = await getHistoricalData(symbol, '1d');
+        setHistoricalData(historicalData);
         
-        // Fetch historical data for the chart
-        const historicalResponse = await fetchHistoricalData(symbol, '1d');
-        setHistoricalData(historicalResponse.historicalData);
+        // Get wave analysis from context or calculate if needed
+        const waveAnalysis = await getAnalysis(symbol, '1d');
         
-        if (!waveAnalysis) {
-          // Analyze the data
-          waveAnalysis = analyzeElliottWaves(historicalResponse.historicalData);
-          
-          // Store the analysis
-          storeWaveAnalysis(symbol, '1d', waveAnalysis);
+        if (waveAnalysis) {
+          setAnalysis(waveAnalysis);
+        } else {
+          toast.error(`Failed to analyze waves for ${symbol}`);
         }
-        
-        setAnalysis(waveAnalysis);
       } catch (error) {
         console.error(`Error loading data for ${symbol}:`, error);
         toast.error(`Failed to load data for ${symbol}`);
@@ -95,7 +93,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     };
     
     loadData();
-  }, [symbol, navigate, getAnalysis]);
+  }, [symbol, navigate, getAnalysis, getHistoricalData]);
   
   const handleBackClick = () => {
     navigate('/');
