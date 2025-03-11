@@ -11,10 +11,15 @@ export const waveColors = [
 ];
 
 // Format tooltip values
-export const tooltipFormatter = (value: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2
-  }).format(value);
+export const tooltipFormatter = (value, name, props) => {
+  if (name === 'close') {
+    return [`$${value.toFixed(2)}`, 'Price'];
+  }
+  
+  // For wave lines
+  if (name === 'value' && props.payload.waveNumber) {
+    return [`$${value.toFixed(2)}`, `Wave ${props.payload.waveNumber}`];
+  }
+  
+  return [value, name];
 };

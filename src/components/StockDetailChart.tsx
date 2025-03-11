@@ -18,18 +18,6 @@ import { formatChartData, calculatePriceRange } from './chart/chartUtils';
 import WaveLegend from './chart/WaveLegend';
 import { getWaveColor, prepareWaveLines, getWavePatternDescription } from './chart/waveChartUtils';
 
-// Define wave colors for consistency
-const WAVE_COLORS = {
-  1: '#4CAF50',
-  2: '#FF9800',
-  3: '#2196F3',
-  4: '#F44336',
-  5: '#9C27B0',
-  'A': '#FFEB3B',
-  'B': '#795548',
-  'C': '#00BCD4'
-};
-
 interface StockDetailChartProps {
   symbol: string;
   data: StockHistoricalData[];
@@ -50,39 +38,62 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   const [waveLines, setWaveLines] = useState<any[]>([]);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 100]);
   
+  // Debug waves and lines when they change
+  useEffect(() => {
+    console.log(`Waves data:`, waves);
+    console.log(`Historical data length: ${data.length}`);
+  }, [waves, data]);
+  
+  // Debug waves and data
+  useEffect(() => {
+    if (waves.length > 0 && data.length > 0) {
+      console.log('Chart data time range:', {
+        start: new Date(data[0].timestamp * 1000).toISOString(),
+        end: new Date(data[data.length - 1].timestamp * 1000).toISOString(),
+        startUnix: data[0].timestamp,
+        endUnix: data[data.length - 1].timestamp
+      });
+      
+      console.log('Wave timestamps:', waves.map(w => ({
+        wave: w.number,
+        start: new Date(w.startTimestamp * 1000).toISOString(),
+        end: w.endTimestamp ? new Date(w.endTimestamp * 1000).toISOString() : 'now',
+        startUnix: w.startTimestamp,
+        endUnix: w.endTimestamp
+      })));
+    }
+  }, [waves, data]);
+  
   // Process chart data when inputs change
   useEffect(() => {
     if (!data || data.length === 0) return;
     
-    // Find the first wave in the sequence (if available)
-    const firstWave = waves.length > 0 ? waves[0] : null;
-    
-    // Filter data to show only from the first wave onwards, if available
-    const filteredData = firstWave 
-      ? data.filter(item => item.timestamp >= firstWave.startTimestamp)
-      : data;
-    
-    // Format the data for the chart
-    const formattedData = formatChartData(filteredData);
-    setChartData(formattedData);
-    
-    // Prepare wave lines
-    const lines = prepareWaveLines(waves, data);
-    setWaveLines(lines);
-    
     try {
+      // Find the first wave in the sequence (if available)
+      const firstWave = waves.length > 0 ? waves[0] : null;
+      
+      // Filter data to show only from the first wave onwards, if available
+      const filteredData = firstWave 
+        ? data.filter(item => item.timestamp >= firstWave.startTimestamp)
+        : data;
+      
+      // Format the data for the chart
+      const formattedData = formatChartData(filteredData);
+      setChartData(formattedData);
+      
+      // Prepare wave lines
+      const lines = prepareWaveLines(waves, data);
+      console.log('Wave lines prepared:', lines);
+      setWaveLines(lines);
+      
       // Calculate price range
-      const range = calculatePriceRange(filteredData, fibTargets);
-      setPriceRange(range);
+      const [min, max] = calculatePriceRange(filteredData, fibTargets);
+      setPriceRange([min, max]);
+      
+      console.log(`Chart data prepared: ${formattedData.length} points, waves: ${waves.length}, lines: ${lines.length}`);
     } catch (error) {
-      console.error("Error calculating price range:", error);
-      setPriceRange([
-        Math.min(...filteredData.map(d => d.low)) * 0.98,
-        Math.max(...filteredData.map(d => d.high)) * 1.02
-      ]);
+      console.error('Error preparing chart data:', error);
     }
-    
-    console.log(`Chart data prepared: ${formattedData.length} points, waves: ${lines.length}`);
   }, [data, waves, fibTargets]);
   
   // Return early if no data available
@@ -171,7 +182,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             />
           ))}
           
-          {/* Render wave lines */}
+          {/* IMPORTANT: Render wave lines */}
           {waveLines.map((waveLine) => (
             <Line
               key={waveLine.id}
@@ -188,39 +199,17 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                 strokeWidth: 1
               }}
               activeDot={{ r: 6 }}
+              isAnimationActive={false}
+              name={`Wave ${waveLine.wave.number}`}
+              connectNulls={true}
             />
           ))}
-          
-          {/* Highlight current wave */}
-          {currentWave && currentWave.number && (
-            <text
-              x="95%"
-              y="30"
-              fill={WAVE_COLORS[currentWave.number] || '#FFFFFF'}
-              fontSize={14}
-              textAnchor="end"
-              fontWeight="bold"
-            >
-              Current: Wave {currentWave.number}
-            </text>
-          )}
-
-          {/* Additional information about wave pattern */}
-          <text
-            x="50%"
-            y="30"
-            fill="#94a3b8"
-            fontSize={12}
-            textAnchor="middle"
-          >
-            {getWavePatternDescription(waves)}
-          </text>
         </ComposedChart>
       </ResponsiveContainer>
       
       {/* Add debug info for troubleshooting */}
       <div className="text-xs text-muted-foreground mt-2">
-        {chartData.length} data points | {waves.length} waves | {fibTargets.length} targets
+        {chartData.length} data points | {waves.length} waves | {waveLines.length} wave lines | {fibTargets.length} targets
       </div>
     </div>
   );

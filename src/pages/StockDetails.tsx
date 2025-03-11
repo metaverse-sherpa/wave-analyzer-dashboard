@@ -150,24 +150,66 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               <Skeleton className="h-6 w-32" />
             </div>
           ) : stockData ? (
-            <div>
-              <div className="flex items-baseline gap-4">
-                <h1 className="text-3xl font-bold">{symbol}</h1>
-                <h2 className="text-xl text-muted-foreground">{stockData.shortName}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+              {/* Stock header info - Takes up 3 columns */}
+              <div className="md:col-span-3">
+                <div className="flex items-baseline gap-2">
+                  <h1 className="text-2xl font-semibold">{stockData.shortName}</h1>
+                  <span className="text-base text-muted-foreground">({symbol})</span>
+                </div>
+                
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xl font-semibold">
+                    {formattedPrice}
+                  </span>
+                  <span className={`flex items-center text-sm ${isPositive ? 'text-bullish' : 'text-bearish'}`}>
+                    {isPositive ? (
+                      <ArrowUpRight className="h-4 w-4 mr-1" />
+                    ) : (
+                      <ArrowDownRight className="h-4 w-4 mr-1" />
+                    )}
+                    <span>{formattedChange} ({formattedPercent})</span>
+                  </span>
+                </div>
               </div>
               
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xl font-mono">
-                  {formattedPrice}
-                </span>
-                <span className={`flex items-center text-sm ${isPositive ? 'text-bullish' : 'text-bearish'}`}>
-                  {isPositive ? (
-                    <ArrowUpRight className="h-4 w-4 mr-1" />
-                  ) : (
-                    <ArrowDownRight className="h-4 w-4 mr-1" />
-                  )}
-                  <span>{formattedChange} ({formattedPercent})</span>
-                </span>
+              {/* Stock Information - Takes up 2 columns */}
+              <div className="md:col-span-2">
+                <div className="flex flex-col h-full">
+                  <h3 className="text-base font-semibold mb-2">Stock Information</h3>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Market Cap:</span>
+                      <span>
+                        ${(stockData.marketCap / 1000000000).toFixed(2)}B
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Volume:</span>
+                      <span>
+                        {(stockData.regularMarketVolume / 1000000).toFixed(2)}M
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">52W Range:</span>
+                      <span>
+                        ${stockData.fiftyTwoWeekLow.toFixed(2)}-${stockData.fiftyTwoWeekHigh.toFixed(2)}
+                      </span>
+                    </div>
+                    {stockData.trailingPE && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">P/E:</span>
+                        <span>{stockData.trailingPE.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* AI Analysis - Takes up 2 columns */}
+              <div className="md:col-span-2">
+                <h3 className="text-base font-semibold mb-2">AI Analysis</h3>
+                <AIAnalysis symbol={symbol} />
               </div>
             </div>
           ) : (
@@ -316,74 +358,12 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               ) : (
                 <p className="text-muted-foreground">No analysis available</p>
               )}
-            </div>
-          </div>
-          
-          <div>
-            <AIAnalysis symbol={symbol} />
-            
-            {!loading && stockData && (
-              <div className="mt-6 bg-card rounded-lg p-6">
-                <h3 className="text-lg font-semibold mb-4">Stock Information</h3>
-                
-                <div className="space-y-3">
-                  <div className="flex justify-between border-b border-border pb-2">
-                    <span className="text-sm text-muted-foreground">Market Cap</span>
-                    <span className="text-sm font-mono">
-                      ${(stockData.marketCap / 1000000000).toFixed(2)}B
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between border-b border-border pb-2">
-                    <span className="text-sm text-muted-foreground">52 Week Range</span>
-                    <span className="text-sm font-mono">
-                      ${stockData.fiftyTwoWeekLow.toFixed(2)} - ${stockData.fiftyTwoWeekHigh.toFixed(2)}
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between border-b border-border pb-2">
-                    <span className="text-sm text-muted-foreground">Volume</span>
-                    <span className="text-sm font-mono">
-                      {(stockData.regularMarketVolume / 1000000).toFixed(2)}M
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between border-b border-border pb-2">
-                    <span className="text-sm text-muted-foreground">Avg. Volume</span>
-                    <span className="text-sm font-mono">
-                      {(stockData.averageVolume / 1000000).toFixed(2)}M
-                    </span>
-                  </div>
-                  
-                  {stockData.trailingPE && (
-                    <div className="flex justify-between border-b border-border pb-2">
-                      <span className="text-sm text-muted-foreground">P/E (TTM)</span>
-                      <span className="text-sm font-mono">{stockData.trailingPE.toFixed(2)}</span>
-                    </div>
-                  )}
-                  
-                  {stockData.forwardPE && (
-                    <div className="flex justify-between border-b border-border pb-2">
-                      <span className="text-sm text-muted-foreground">Forward P/E</span>
-                      <span className="text-sm font-mono">{stockData.forwardPE.toFixed(2)}</span>
-                    </div>
-                  )}
-                  
-                  {stockData.dividendYield && (
-                    <div className="flex justify-between border-b border-border pb-2">
-                      <span className="text-sm text-muted-foreground">Dividend Yield</span>
-                      <span className="text-sm font-mono">
-                        {(stockData.dividendYield * 100).toFixed(2)}%
-                      </span>
-                    </div>
-                  )}
-                </div>
+              
+              {/* Add disclaimer here */}
+              <div className="mt-6 text-xs text-muted-foreground">
+                <p>Data provided by Yahoo Finance API. This tool provides Elliott Wave analysis for educational purposes only.</p>
+                <p className="mt-2">The analysis is based on historical price patterns and should not be considered as financial advice.</p>
               </div>
-            )}
-            
-            <div className="mt-6 text-xs text-muted-foreground">
-              <p>Data provided by Yahoo Finance API. This tool provides Elliott Wave analysis for educational purposes only.</p>
-              <p className="mt-2">The analysis is based on historical price patterns and should not be considered as financial advice.</p>
             </div>
           </div>
         </div>

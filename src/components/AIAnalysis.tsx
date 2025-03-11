@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,57 +54,40 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol }) => {
   };
   
   return (
-    <Card className="border bg-card/50 backdrop-blur-sm">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            AI Market Analysis
-          </CardTitle>
-          
-          {!loading && analysis && (
+    <Card className="h-full">
+      {/* Just keep the badge at the top of the content */}
+      <CardContent className="pt-3 pb-3">
+        {!loading && analysis && (
+          <div className="mb-2 flex justify-end">
             <Badge className={`${getSentimentColor(analysis.sentiment)} px-2 py-1`}>
               <span className="flex items-center gap-1">
                 {getSentimentIcon(analysis.sentiment)}
                 <span className="capitalize">{analysis.sentiment}</span>
-                <span className="opacity-70">({Math.round(analysis.confidence * 100)}%)</span>
+                <span className="opacity-70 text-xs">({Math.round(analysis.confidence * 100)}%)</span>
               </span>
             </Badge>
-          )}
-        </div>
-      </CardHeader>
+          </div>
+        )}
       
-      <CardContent>
         {loading ? (
           <>
-            <Skeleton className="h-4 w-full my-2" />
-            <Skeleton className="h-4 w-full my-2" />
-            <Skeleton className="h-4 w-3/4 my-2" />
-            <div className="mt-4">
-              <Skeleton className="h-3 w-full my-2" />
-              <Skeleton className="h-3 w-full my-2" />
-              <Skeleton className="h-3 w-full my-2" />
-              <Skeleton className="h-3 w-2/3 my-2" />
-            </div>
+            <Skeleton className="h-4 w-full my-1" />
+            <Skeleton className="h-4 w-full my-1" />
+            <Skeleton className="h-4 w-3/4 my-1" />
           </>
         ) : analysis ? (
           <>
-            <p className="text-sm mb-4 text-foreground/80">{analysis.summary}</p>
+            <p className="text-sm mb-2 text-foreground/90">{analysis.summary}</p>
             
-            <div className="mt-2">
-              <h4 className="text-sm font-medium mb-2">Key Points</h4>
+            <div className="mt-1">
               <ul className="space-y-1">
-                {analysis.keyPoints.map((point, index) => (
-                  <li key={index} className="text-xs flex items-start gap-2">
+                {analysis.keyPoints.slice(0, 2).map((point, index) => (
+                  <li key={index} className="text-sm flex items-start gap-1">
                     <span className="text-primary mt-0.5">•</span>
                     <span>{point}</span>
                   </li>
                 ))}
               </ul>
-            </div>
-            
-            <div className="mt-4 text-xs text-muted-foreground">
-              Last updated: {new Date(analysis.timestamp).toLocaleString()}
             </div>
           </>
         ) : (
