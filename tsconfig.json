@@ -36,7 +36,8 @@
       "esnext"
     ],
     "noEmit": true,
-    "incremental": true
+    "incremental": true,
+    "typeRoots": ["./node_modules/@types", "./src/types"]
   },
   "include": [],
   "exclude": ["node_modules"]

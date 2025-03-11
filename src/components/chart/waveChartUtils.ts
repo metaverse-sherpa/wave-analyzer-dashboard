@@ -17,6 +17,17 @@ export const getWaveColor = (waveNumber: string | number): string => {
   return colorMap[waveNumber] || '#FFFFFF';
 };
 
+// Update this to determine if a wave is impulse or corrective
+export const isImpulseWave = (waveNumber: string | number): boolean => {
+  // Impulse waves are usually odd-numbered (1, 3, 5) and 'A' and 'C'
+  if (typeof waveNumber === 'number') {
+    return waveNumber % 2 === 1; // 1, 3, 5 are impulse
+  } else {
+    // A and C are impulse-like, B is corrective
+    return waveNumber === 'A' || waveNumber === 'C';
+  }
+};
+
 // Function to prepare wave lines for the chart
 export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalData[]) => {
   console.log(`Preparing wave lines for ${waves.length} waves`);
@@ -78,7 +89,10 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
         
         waveLines.push({
           id: `wave-${wave.number}-${i}`,
-          wave,
+          wave: {
+            ...wave,
+            isImpulse: isImpulseWave(wave.number)  // Add this for the label positioning
+          },
           data,
           color: getWaveColor(wave.number)
         });
@@ -103,7 +117,10 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
     
     waveLines.push({
       id: `wave-${wave.number}-${i}`,
-      wave,
+      wave: {
+        ...wave,
+        isImpulse: isImpulseWave(wave.number)  // Add this for the label positioning
+      },
       data,
       color: getWaveColor(wave.number)
     });
