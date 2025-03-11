@@ -55,10 +55,31 @@ const topStockSymbols = [
 ];
 
 // Replace yahooFinance imports with fetch calls to your backend
-const API_BASE_URL = '/api'; // Changed to a relative URL
+const API_BASE_URL = 'http://localhost:3001/api'; // Changed to a relative URL
+
+const USE_MOCK_DATA = true; // Set to false when your backend is working
 
 // Function to fetch top stocks
 export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> => {
+  if (USE_MOCK_DATA) {
+    console.log(`Using mock data for top ${limit} stocks`);
+    return topStockSymbols.slice(0, limit).map(symbol => ({
+      symbol,
+      shortName: `${symbol} Inc.`,
+      regularMarketPrice: 100 + Math.random() * 100,
+      regularMarketChange: (Math.random() * 10) - 5,
+      regularMarketChangePercent: (Math.random() * 10) - 5,
+      regularMarketVolume: Math.floor(Math.random() * 10000000),
+      averageVolume: Math.floor(Math.random() * 5000000),
+      marketCap: Math.floor(Math.random() * 1000000000000),
+      fiftyTwoWeekLow: 50 + Math.random() * 50,
+      fiftyTwoWeekHigh: 150 + Math.random() * 50,
+      trailingPE: 15 + Math.random() * 20,
+      forwardPE: 12 + Math.random() * 15,
+      dividendYield: Math.random() * 0.05,
+    }));
+  }
+
   const cacheKey = `topStocks_${limit}`;
   
   // Check cache
@@ -112,6 +133,15 @@ export const fetchHistoricalData = async (
   symbol: string,
   timeframe: string = '1d'
 ): Promise<{ symbol: string; historicalData: StockHistoricalData[] }> => {
+  // If using mock data, bypass API calls entirely
+  if (USE_MOCK_DATA) {
+    console.log(`Using mock data for ${symbol} (${timeframe})`);
+    return {
+      symbol,
+      historicalData: generateMockHistoricalData(symbol, 500)
+    };
+  }
+
   // Validate symbol
   if (!symbol) {
     throw new Error('Symbol is required to fetch historical data');

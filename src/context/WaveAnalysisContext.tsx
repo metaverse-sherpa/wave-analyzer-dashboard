@@ -22,31 +22,65 @@ const WaveAnalysisContext = createContext<WaveAnalysisContextType>({
 });
 
 // Create a custom hook to use the context
-function useWaveAnalysis() {
+export const useWaveAnalysis = () => {
   const context = useContext(WaveAnalysisContext);
-  if (context === undefined) {
-    throw new Error('useWaveAnalysis must be used within a WaveAnalysisProvider');
+  if (!context) {
+    console.error('useWaveAnalysis must be used within a WaveAnalysisProvider');
+    // Return a dummy implementation instead of throwing
+    return {
+      analyses: {},
+      isLoading: false,
+      getAnalysis: async () => null,
+      preloadAnalyses: async () => {},
+    };
   }
   return context;
-}
+};
 
-// In WaveAnalysisContext.tsx
-const worker = typeof window !== 'undefined' 
-  ? new Worker(new URL('../workers/waveAnalysisWorker.ts', import.meta.url))
-  : null;
+// In WaveAnalysisContext.tsx, update the worker initialization code:
 
-const workerAnalyzeElliottWaves = (data) => {
+// Use a try/catch when initializing the worker
+const createWorker = () => {
+  try {
+    if (typeof window === 'undefined') return null;
+    return new Worker(new URL('../workers/waveAnalysisWorker.ts', import.meta.url));
+  } catch (error) {
+    console.error('Failed to initialize Web Worker:', error);
+    return null;
+  }
+};
+
+const worker = createWorker();
+
+const workerAnalyzeElliottWaves = (data: StockHistoricalData[]): Promise<WaveAnalysisResult> => {
   return new Promise((resolve, reject) => {
     if (!worker) {
       // Fallback to direct analysis if workers aren't supported
-      resolve(analyzeElliottWaves(data));
+      console.log('Using direct analysis (no web worker)');
+      try {
+        const result = analyzeElliottWaves(data);
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      }
       return;
     }
     
     const id = Date.now();
+    const timeout = setTimeout(() => {
+      worker.removeEventListener('message', handler);
+      console.warn('Worker analysis timed out after 10 seconds, falling back to main thread');
+      try {
+        const result = analyzeElliottWaves(data);
+        resolve(result);
+      } catch (err) {
+        reject(err);
+      }
+    }, 10000);
     
-    const handler = (event) => {
+    const handler = (event: MessageEvent) => {
       if (event.data.id === id) {
+        clearTimeout(timeout);
         worker.removeEventListener('message', handler);
         if (event.data.error) {
           reject(new Error(event.data.error));
@@ -59,6 +93,25 @@ const workerAnalyzeElliottWaves = (data) => {
     worker.addEventListener('message', handler);
     worker.postMessage({ data, id });
   });
+};
+
+// Add to WaveAnalysisContext.tsx
+// Optionally, you can add a synchronous fallback
+const analyzeWithFallback = (data: StockHistoricalData[]): WaveAnalysisResult => {
+  try {
+    // This will run in the main thread if the worker fails
+    return analyzeElliottWaves(data);
+  } catch (error) {
+    console.error('Failed to analyze data:', error);
+    return {
+      waves: [], 
+      currentWave: {} as Wave, 
+      fibTargets: [],
+      trend: 'neutral',
+      impulsePattern: false,
+      correctivePattern: false
+    };
+  }
 };
 
 // Create a separate provider component
@@ -160,17 +213,27 @@ function WaveAnalysisProvider({
     try {
       // Fetch historical data
       console.log(`Starting analysis for ${symbol}`);
-      const historicalResponse = await fetchHistoricalData(symbol, timeframe);
+      let historicalData;
       
-      if (!historicalResponse.historicalData || historicalResponse.historicalData.length === 0) {
-        console.error(`No historical data returned for ${symbol}`);
+      try {
+        const historicalResponse = await fetchHistoricalData(symbol, timeframe);
+        historicalData = historicalResponse.historicalData;
+      } catch (fetchError) {
+        console.error(`Failed to fetch data for ${symbol}, using fallback data`, fetchError);
+        // Use fallback mock data
+        const mockData = generateFallbackData(symbol, 300);
+        historicalData = mockData;
+      }
+      
+      if (!historicalData || historicalData.length === 0) {
+        console.error(`No historical data available for ${symbol}`);
         return null;
       }
       
-      console.log(`Got ${historicalResponse.historicalData.length} data points for ${symbol}`);
+      console.log(`Got ${historicalData.length} data points for ${symbol}`);
       
       // Analyze the data
-      const analysis = await workerAnalyzeElliottWaves(historicalResponse.historicalData);
+      const analysis = await workerAnalyzeElliottWaves(historicalData);
       console.log(`Analysis complete for ${symbol}, found ${analysis.waves.length} waves`);
       
       // Store in cache
@@ -312,13 +375,12 @@ function WaveAnalysisProvider({
 const WaveAnalysis = {
   Provider: WaveAnalysisProvider,
   useWaveAnalysis,
-  forcePreload: (symbols: string[]) => {
-    // This is just a placeholder - the actual function will be replaced at runtime
-    console.log("Force preload called but not yet initialized", symbols);
-    return Promise.resolve();
-  }
+  // Include forcePreload in the exported object
+  forcePreload: (symbols: string[]) => Promise.resolve()
 };
 
-export { WaveAnalysisProvider, useWaveAnalysis };
+// Export only the Provider as a named export if needed
+export { WaveAnalysisProvider };
 
+// Export the main object as default
 export default WaveAnalysis;

@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "dev:frontend": "vite dev",
-    "dev:backend": "NODE_OPTIONS='--import \"data:text/javascript,import { register } from \\\"node:module\\\"; import { pathToFileURL } from \\\"node:url\\\"; register(\\\"ts-node/esm\\\", pathToFileURL(\\\"./\\\"));\"' NODE_NO_WARNINGS=1 ts-node --esm server/index.ts",
+    "dev:frontend": "vite",
+    "dev:backend": "tsx simple-server.ts",
+    "dev:mock": "MOCK_API=true vite",
     "build": "tsc && vite build",
-    "build:dev": "vite build --mode development",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview",
+    "start:backend": "tsx simple-server.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

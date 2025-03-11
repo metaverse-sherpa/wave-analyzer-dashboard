@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import { visualizer } from 'rollup-plugin-visualizer';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -11,17 +12,33 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false, // Disable the error overlay which can be CPU intensive
     },
-    proxy: {
+    proxy: process.env.MOCK_API ? {} : {
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
         secure: false,
+        rewrite: (path) => path,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending Request:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response:', proxyRes.statusCode, req.url);
+          });
+        },
       },
     },
   },
   plugins: [
     react(),
     mode === 'development' && componentTagger(),
+    visualizer({
+      open: false,
+      gzipSize: true,
+    }),
   ].filter(Boolean),
   resolve: {
     alias: {
@@ -68,5 +85,9 @@ export default defineConfig(({ mode }) => ({
   optimizeDeps: {
     include: ['react', 'react-dom', 'recharts'], // Pre-bundle commonly used dependencies
     exclude: ['next'] // Exclude Next.js as it's causing conflicts
+  },
+  worker: {
+    format: 'es', // Use ES modules format for workers
+    plugins: () => [] // Updated to return an array of plugins
   },
 }));

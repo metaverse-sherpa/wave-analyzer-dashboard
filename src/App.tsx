@@ -41,7 +41,7 @@ import Index from "./pages/Index";
 import StockDetails from "./pages/StockDetails";
 import NotFound from "./pages/NotFound";
 import Dashboard from './components/Dashboard';
-import WaveAnalysis, { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 import { HistoricalDataProvider } from '@/context/HistoricalDataContext';
 import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -239,7 +239,22 @@ const App = () => {
     return () => clearTimeout(forceLoadTimeout);
   }, [loadState]);
 
-  const { analyses, getAnalysis } = useWaveAnalysis();
+  // Add this component inside your App component
+  const AnalysisStatusTracker = () => {
+    // This component lives inside the WaveAnalysis.Provider
+    const { analyses } = WaveAnalysis.useWaveAnalysis();
+    
+    // Effect to track when analyses become available
+    useEffect(() => {
+      const analysesCount = Object.keys(analyses).length;
+      if (analysesCount > 0) {
+        console.log(`AnalysisStatusTracker: ${analysesCount} analyses loaded`);
+        // You could dispatch an event or call a function here
+      }
+    }, [analyses]);
+    
+    return null; // This component doesn't render anything
+  };
 
   return (
     <ErrorBoundary>
@@ -249,6 +264,7 @@ const App = () => {
             <KillSwitchProvider>
               <HistoricalDataProvider>
                 <WaveAnalysis.Provider killSwitch={calculationKillSwitch}>
+                  <AnalysisStatusTracker />
                   {loadState === 'loading' ? (
                     <div className="flex items-center justify-center h-screen">
                       <div className="text-center p-8">
