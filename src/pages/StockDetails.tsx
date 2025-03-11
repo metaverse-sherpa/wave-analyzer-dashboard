@@ -175,19 +175,21 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           )}
         </div>
         
-        {loading ? (
+        {!loading && historicalData.length > 0 ? (
+          <StockDetailChart 
+            symbol={symbol || ''} 
+            data={historicalData} 
+            waves={analysis?.waves || []}
+            currentWave={analysis?.currentWave || {} as Wave}
+            fibTargets={analysis?.fibTargets || []}
+          />
+        ) : (
           <div className="w-full h-[400px] bg-card rounded-lg p-4 flex items-center justify-center">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2 mx-auto"></div>
               <p className="text-muted-foreground">Loading chart data...</p>
             </div>
           </div>
-        ) : (
-          <SimpleCandlestickChart 
-            symbol={symbol || ''} 
-            data={historicalData} 
-            waves={analysis?.waves || []}
-          />
         )}
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
