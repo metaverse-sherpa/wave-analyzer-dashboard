@@ -272,24 +272,44 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                   <div>
                     <h4 className="text-sm font-medium mb-2">Wave Sequence</h4>
                     <div className="flex flex-wrap gap-2">
-                      {analysis.waves.map((wave, index) => (
-                        <div 
-                          key={index} 
-                          className={`wave-marker wave-${wave.number} text-xs px-2 py-1`}
-                        >
-                          Wave {wave.number}
-                          <span className="text-xs opacity-75 ml-1">
-                            {new Date(wave.startTimestamp * 1000).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric'
-                            })}
-                            {wave.endTimestamp ? ` → ${new Date(wave.endTimestamp * 1000).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric'
-                            })}` : ' → Now'}
-                          </span>
-                        </div>
-                      ))}
+                      {analysis.waves.map((wave, index) => {
+                        // Find the price data points for start and end of wave
+                        const startDataPoint = historicalData.find(
+                          point => point.timestamp === wave.startTimestamp
+                        );
+                        
+                        const endDataPoint = wave.endTimestamp 
+                          ? historicalData.find(point => point.timestamp === wave.endTimestamp)
+                          : historicalData[historicalData.length - 1];
+                        
+                        const startPrice = startDataPoint?.close || wave.startPrice;
+                        const endPrice = endDataPoint?.close || wave.endPrice;
+                        
+                        return (
+                          <div 
+                            key={index} 
+                            className={`wave-marker wave-${wave.number} text-xs px-2 py-1`}
+                          >
+                            Wave {wave.number}
+                            <span className="text-xs opacity-75 ml-1">
+                              {new Date(wave.startTimestamp * 1000).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric'
+                              })}
+                              <span className="font-mono"> (${startPrice?.toFixed(2)})</span>
+                              <span> → </span>
+                              {wave.endTimestamp 
+                                ? new Date(wave.endTimestamp * 1000).toLocaleDateString(undefined, {
+                                    month: 'short',
+                                    day: 'numeric'
+                                  })
+                                : "Now"
+                              }
+                              <span className="font-mono"> (${endPrice?.toFixed(2)})</span>
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
