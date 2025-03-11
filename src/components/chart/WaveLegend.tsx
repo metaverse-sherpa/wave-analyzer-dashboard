@@ -7,10 +7,13 @@ interface WaveLegendProps {
 }
 
 const WaveLegend: React.FC<WaveLegendProps> = ({ waveNumbers, compact = false }) => {
+  // Create a unique set of wave numbers to avoid duplicates
+  const uniqueWaveNumbers = Array.from(new Set(waveNumbers));
+  
   return (
     <div className={`flex ${compact ? 'flex-wrap justify-center gap-2' : 'flex-col gap-1'}`}>
-      {waveNumbers.map(number => (
-        <div key={number} className="flex items-center">
+      {uniqueWaveNumbers.map((number, index) => (
+        <div key={`wave-${number}-${index}`} className="flex items-center">
           <div 
             className="w-3 h-3 rounded-full mr-1" 
             style={{ backgroundColor: getWaveColor(number) }}
