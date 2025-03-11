@@ -149,22 +149,21 @@ const App = () => {
 
       document.addEventListener('visibilitychange', handleVisibilityChange);
       
-      // Simplified CPU monitor that runs less frequently
-      let highCpuUsageCount = 0;
+      // Replace the CPU monitor with a more conservative approach
       const cpuMonitor = setInterval(() => {
-        // Simpler check that's less CPU intensive
+        // Much simpler check that's less CPU intensive itself
         const start = Date.now();
         setTimeout(() => {
           const elapsed = Date.now() - start;
           // Only consider it high CPU usage if the delay is very significant
-          if (elapsed > 1000) { // More tolerance - 1 second
+          if (elapsed > 2000) { // 2 seconds instead of 1
             console.warn('High CPU usage detected - throttling analysis');
             setCalculationKillSwitch(true);
-            // Reset after recovery
-            setTimeout(() => setCalculationKillSwitch(false), 5000);
+            // Reset after recovery with longer timeout
+            setTimeout(() => setCalculationKillSwitch(false), 10000); // 10 seconds cooldown
           }
         }, 100);
-      }, 10000); // Check even less frequently - every 10 seconds
+      }, 20000); // Check even less frequently - every 20 seconds
       
       return () => {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -313,13 +312,18 @@ const App = () => {
                   
                   <DataInitializer 
                     onDataLoaded={() => {
-                      console.log("Data successfully loaded from DataInitializer");
-                      setLoadState('success');
+                      // Only update state if not already loaded
+                      if (loadState === 'loading') {
+                        console.log("Data successfully loaded from DataInitializer");
+                        setLoadState('success');
+                      }
                     }}
                     onError={(msg) => {
                       console.error("DataInitializer error:", msg);
                       // Still set success to allow app to load
-                      setLoadState('success');
+                      if (loadState === 'loading') {
+                        setLoadState('success');
+                      }
                     }}
                   />
                   

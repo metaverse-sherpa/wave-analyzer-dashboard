@@ -27,16 +27,24 @@ self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
   try {
     console.log(`Worker: Starting analysis for request #${id} with ${data.length} data points`);
     
-    // Use a more efficient approach for large datasets
+    // Aggressive data reduction to prevent timeouts
     let processData = data;
-    if (data.length > 300) {
-      const sampleFactor = Math.ceil(data.length / 300);
+    if (data.length > 100) {
+      const sampleFactor = Math.ceil(data.length / 100);
       processData = data.filter((_, index) => index % sampleFactor === 0);
-      console.log(`Worker: Sampled data to ${processData.length} points`);
+      console.log(`Worker: Reduced data from ${data.length} to ${processData.length} points for analysis`);
     }
     
-    // Perform the analysis
-    const result = analyzeElliottWaves(processData);
+    // Log each step of the analysis for debugging
+    console.log(`Worker: Finding pivots...`);
+    const pivots = findPivots(processData, 0.03); // Use a lower threshold
+    
+    console.log(`Worker: Found ${pivots.length} pivots, identifying waves...`);
+    const waves = identifyWaves(pivots, processData);
+    
+    console.log(`Worker: Identified ${waves.length} waves, finalizing analysis...`);
+    const result = completeAnalysis(waves, processData);
+    
     console.log(`Worker: Analysis complete, found ${result.waves.length} waves`);
     
     // Send the result back to the main thread
@@ -53,6 +61,40 @@ self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
     self.postMessage(errorResponse);
   }
 });
+
+// Helper function to finalize analysis
+function completeAnalysis(waves: Wave[], data: StockHistoricalData[]): WaveAnalysisResult {
+  // Determine trend based on overall price movement
+  const trend = data[data.length - 1].close > data[0].close ? 'bullish' : 'bearish';
+  
+  // Determine current wave
+  const currentWave = waves.length > 0 ? waves[waves.length - 1] : ({} as Wave);
+  
+  // Calculate Fibonacci targets
+  let fibTargets: FibTarget[] = [];
+  
+  if (waves.length >= 2) {
+    const wave1 = waves.find(w => w.number === 1);
+    const wave2 = waves.find(w => w.number === 2);
+    
+    if (wave1 && wave2) {
+      fibTargets = calculateFibonacciTargets(wave1, wave2);
+    }
+  }
+  
+  // Determine if we have an impulse or corrective pattern
+  const impulsePattern = waves.some(w => typeof w.number === 'number' && w.number === 5);
+  const correctivePattern = waves.some(w => w.number === 'C');
+  
+  return {
+    waves,
+    currentWave,
+    fibTargets,
+    trend,
+    impulsePattern,
+    correctivePattern
+  };
+}
 
 // Signal that the worker is ready
 console.log('Elliott Wave Analysis worker initialized');

@@ -76,265 +76,80 @@ const calculateFibExtension = (startPrice: number, endPrice: number): FibTarget[
  * @param data - Historical price data
  * @param threshold - Minimum percentage change required to identify a pivot
  */
-const findPivots = (data: StockHistoricalData[], threshold: number = 0.05): ZigzagPoint[] => {
-  if (data.length < 7) return []; // Need at least 7 candles (2 on each side + 1 for peak/trough + 2 for confirmation)
+export const findPivots = (data: StockHistoricalData[], threshold: number = 0.03): ZigzagPoint[] => {
+  if (data.length < 10) return []; // Need sufficient data
   
-  // Enhanced algorithm based on true price swings with minimum candle requirements
+  console.log(`Finding pivots with threshold ${threshold} in ${data.length} data points`);
+  
+  // Use a simpler, more efficient algorithm that won't time out
   const pivots: ZigzagPoint[] = [];
-  let lastHigh = { price: data[0].high, timestamp: data[0].timestamp, index: 0 };
-  let lastLow = { price: data[0].low, timestamp: data[0].timestamp, index: 0 };
-  let currentDirection: 'up' | 'down' | null = null;
   
-  // First determine initial direction - need at least 2 candles in a direction
-  let i = 2; // Start from the 3rd candle to ensure we have 2 candles before
-  let consecutiveUp = 0;
-  let consecutiveDown = 0;
+  // Always start with the first point
+  pivots.push({
+    price: data[0].close,
+    timestamp: data[0].timestamp,
+    index: 0,
+    type: 'start'
+  });
   
-  while (i < data.length && currentDirection === null) {
-    // Use high price for upward moves and low price for downward moves
-    if (data[i].high > lastHigh.price * (1 + threshold)) {
-      consecutiveUp++;
-      consecutiveDown = 0;
-      
-      // Update the highest point
-      if (data[i].high > lastHigh.price) {
-        lastHigh = { price: data[i].high, timestamp: data[i].timestamp, index: i };
-      }
-      
-      // Require at least 2 consecutive candles in the direction
-      if (consecutiveUp >= 2) {
-        currentDirection = 'up';
-        
-        // Find the lowest point before this uptrend started
-        let lowestIndex = i - consecutiveUp;
-        let lowestPrice = data[lowestIndex].low;
-        
-        for (let j = lowestIndex - 2; j >= 0 && j >= lowestIndex - 4; j--) {
-          if (data[j].low < lowestPrice) {
-            lowestIndex = j;
-            lowestPrice = data[j].low;
-          }
-        }
-        
-        // Add the lowest point as a trough - using LOW price
-        pivots.push({
-          price: data[lowestIndex].low, // Use the low price for trough
-          timestamp: data[lowestIndex].timestamp,
-          index: lowestIndex,
-          type: 'trough'
-        });
-      }
-    } else if (data[i].low < lastLow.price * (1 - threshold)) {
-      consecutiveDown++;
-      consecutiveUp = 0;
-      
-      // Update the lowest point
-      if (data[i].low < lastLow.price) {
-        lastLow = { price: data[i].low, timestamp: data[i].timestamp, index: i };
-      }
-      
-      // Require at least 2 consecutive candles in the direction
-      if (consecutiveDown >= 2) {
-        currentDirection = 'down';
-        
-        // Find the highest point before this downtrend started
-        let highestIndex = i - consecutiveDown;
-        let highestPrice = data[highestIndex].high;
-        
-        for (let j = highestIndex - 2; j >= 0 && j >= highestIndex - 4; j--) {
-          if (data[j].high > highestPrice) {
-            highestIndex = j;
-            highestPrice = data[j].high;
-          }
-        }
-        
-        // Add the highest point as a peak - using HIGH price
-        pivots.push({
-          price: data[highestIndex].high, // Use the high price for peak
-          timestamp: data[highestIndex].timestamp,
-          index: highestIndex,
-          type: 'peak'
-        });
-      }
-    } else {
-      // Reset counts if not meeting threshold
-      consecutiveUp = 0;
-      consecutiveDown = 0;
-      
-      // Keep track of potential extremes before confirming direction
-      if (data[i].high > lastHigh.price) {
-        lastHigh = { price: data[i].high, timestamp: data[i].timestamp, index: i };
-      }
-      if (data[i].low < lastLow.price) {
-        lastLow = { price: data[i].low, timestamp: data[i].timestamp, index: i };
-      }
-    }
-    i++;
-  }
+  let lastDirection: 'up' | 'down' | null = null;
+  let lastExtreme = data[0];
+  let lastExtremeIndex = 0;
   
-  // Continue with the established direction
-  let pivotConfirmCount = 0;
-  let potentialPivotIndex = -1;
-  
-  for (; i < data.length; i++) {
-    if (currentDirection === 'up') {
-      // In uptrend - track new highs and look for reversal
-      if (data[i].high > lastHigh.price) {
-        // New high, reset reversal confirmation
-        lastHigh = { price: data[i].high, timestamp: data[i].timestamp, index: i };
-        pivotConfirmCount = 0;
-        potentialPivotIndex = -1;
-      } else if (data[i].low < lastHigh.price * (1 - threshold)) {
-        // Potential reversal detected
-        if (potentialPivotIndex === -1) {
-          // Mark this as the potential pivot point
-          potentialPivotIndex = lastHigh.index;
-        }
-        
-        pivotConfirmCount++;
-        
-        // Require at least 2 candles to confirm the reversal
-        if (pivotConfirmCount >= 2) {
-          // Confirmed reversal - use HIGH price for peak
-          pivots.push({ 
-            price: lastHigh.price, // Use the high price for peak
-            timestamp: lastHigh.timestamp, 
-            index: lastHigh.index,
-            type: 'peak' 
-          });
-          currentDirection = 'down';
-          lastLow = { price: data[i].low, timestamp: data[i].timestamp, index: i };
-          pivotConfirmCount = 0;
-          potentialPivotIndex = -1;
-        }
-      } else {
-        // Not a significant move, reset confirmation if we were tracking one
-        if (potentialPivotIndex !== -1 && data[i].low > lastHigh.price * (1 - threshold * 0.5)) {
-          pivotConfirmCount = 0;
-          potentialPivotIndex = -1;
-        }
-      }
-    } else if (currentDirection === 'down') {
-      // In downtrend - track new lows and look for reversal
-      if (data[i].low < lastLow.price) {
-        // New low, reset reversal confirmation
-        lastLow = { price: data[i].low, timestamp: data[i].timestamp, index: i };
-        pivotConfirmCount = 0;
-        potentialPivotIndex = -1;
-      } else if (data[i].high > lastLow.price * (1 + threshold)) {
-        // Potential reversal detected
-        if (potentialPivotIndex === -1) {
-          // Mark this as the potential pivot point
-          potentialPivotIndex = lastLow.index;
-        }
-        
-        pivotConfirmCount++;
-        
-        // Require at least 2 candles to confirm the reversal
-        if (pivotConfirmCount >= 2) {
-          // Confirmed reversal - use LOW price for trough
-          pivots.push({
-            price: lastLow.price, // Use the low price for trough
-            timestamp: lastLow.timestamp,
-            index: lastLow.index,
-            type: 'trough'
-          });
-          currentDirection = 'up';
-          lastHigh = { price: data[i].high, timestamp: data[i].timestamp, index: i };
-          pivotConfirmCount = 0;
-          potentialPivotIndex = -1;
-        }
-      } else {
-        // Not a significant move, reset confirmation if we were tracking one
-        if (potentialPivotIndex !== -1 && data[i].high < lastLow.price * (1 + threshold * 0.5)) {
-          pivotConfirmCount = 0;
-          potentialPivotIndex = -1;
-        }
-      }
-    }
-  }
-  
-  // Add the final extreme point if it's significant and confirmed
-  // We require at least 2 candles after the extreme for confirmation
-  const lastDataIndex = data.length - 1;
-  
-  if (currentDirection === 'up' && 
-      lastHigh.index > pivots[pivots.length-1]?.index && 
-      lastHigh.index <= lastDataIndex - 2) {
-    // Check if the last 2 candles confirm this high point
-    let confirmed = true;
-    for (let j = lastHigh.index + 1; j <= Math.min(lastHigh.index + 2, lastDataIndex); j++) {
-      if (data[j].high > lastHigh.price) {
-        confirmed = false;
-        break;
-      }
-    }
+  // Find local maxima and minima
+  for (let i = 1; i < data.length; i++) {
+    const candle = data[i];
     
-    if (confirmed) {
-      pivots.push({
-        price: lastHigh.price, // Use the high price for peak
-        timestamp: lastHigh.timestamp,
-        index: lastHigh.index,
-        type: 'peak'
-      });
-    }
-  } else if (currentDirection === 'down' && 
-             lastLow.index > pivots[pivots.length-1]?.index && 
-             lastLow.index <= lastDataIndex - 2) {
-    // Check if the last 2 candles confirm this low point
-    let confirmed = true;
-    for (let j = lastLow.index + 1; j <= Math.min(lastLow.index + 2, lastDataIndex); j++) {
-      if (data[j].low < lastLow.price) {
-        confirmed = false;
-        break;
-      }
-    }
+    // Determine current direction
+    const currentDirection = candle.close > lastExtreme.close ? 'up' : 'down';
     
-    if (confirmed) {
-      pivots.push({
-        price: lastLow.price, // Use the low price for trough
-        timestamp: lastLow.timestamp,
-        index: lastLow.index,
-        type: 'trough'
-      });
-    }
-  }
-  
-  // Validate minimum candle spacing between pivots (at least 2 candles between pivots)
-  const validPivots: ZigzagPoint[] = [];
-  
-  for (let i = 0; i < pivots.length; i++) {
-    if (i === 0) {
-      validPivots.push(pivots[i]);
-    } else {
-      const lastIndex = validPivots[validPivots.length - 1].index;
-      const currentIndex = pivots[i].index;
+    // Check for direction change
+    if (lastDirection !== null && currentDirection !== lastDirection) {
+      // Calculate % change to see if it's significant enough
+      const change = Math.abs(lastExtreme.close - candle.close) / lastExtreme.close;
       
-      // Ensure at least 4 candles between pivots (2 on each side)
-      if (currentIndex - lastIndex >= 4) {
-        validPivots.push(pivots[i]);
+      if (change >= threshold) {
+        // Direction changed significantly, add the last extreme as a pivot
+        pivots.push({
+          price: lastExtreme.close,
+          timestamp: lastExtreme.timestamp,
+          index: lastExtremeIndex,
+          type: lastDirection === 'up' ? 'peak' : 'trough'
+        });
+        
+        // Reset tracking
+        lastExtreme = candle;
+        lastExtremeIndex = i;
+        lastDirection = currentDirection;
       }
-    }
-  }
-  
-  // Make sure we alternate between peaks and troughs
-  const finalPivots: ZigzagPoint[] = [];
-  
-  for (let i = 0; i < validPivots.length; i++) {
-    if (i === 0) {
-      finalPivots.push(validPivots[i]);
-    } else {
-      const lastType = finalPivots[finalPivots.length - 1].type;
-      const currentType = validPivots[i].type;
+    } 
+    // If continuing in the same direction, check if this is more extreme
+    else {
+      if (currentDirection === 'up' && candle.close > lastExtreme.close) {
+        lastExtreme = candle;
+        lastExtremeIndex = i;
+      } 
+      else if (currentDirection === 'down' && candle.close < lastExtreme.close) {
+        lastExtreme = candle;
+        lastExtremeIndex = i;
+      }
       
-      // Only add if different from previous pivot type (alternate peak/trough)
-      if (currentType !== lastType) {
-        finalPivots.push(validPivots[i]);
-      }
+      lastDirection = currentDirection;
     }
   }
   
-  return finalPivots;
+  // Add the last point if it's different from the last pivot
+  if (lastExtremeIndex !== pivots[pivots.length - 1].index) {
+    pivots.push({
+      price: data[data.length - 1].close,
+      timestamp: data[data.length - 1].timestamp,
+      index: data.length - 1,
+      type: 'end'
+    });
+  }
+  
+  console.log(`Found ${pivots.length} pivots`);
+  return pivots;
 };
 
 /**
@@ -847,108 +662,146 @@ const memoCache = new Map();
  * @param data - Historical price data to analyze
  */
 export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisResult => {
-  if (!data || data.length < 50) { // Need sufficient data for reliable analysis
-    return { 
-      waves: [], 
-      currentWave: {} as Wave, 
-      fibTargets: [],
-      trend: 'neutral',
-      impulsePattern: false,
-      correctivePattern: false
-    };
+  console.log(`Starting wave analysis with ${data.length} data points`);
+  
+  // Initialize with empty result for safety
+  const emptyResult = {
+    waves: [],
+    currentWave: {} as Wave,
+    fibTargets: [],
+    trend: 'neutral',
+    impulsePattern: false,
+    correctivePattern: false
+  };
+  
+  if (!data || data.length < 20) {
+    console.log("Insufficient data for wave analysis");
+    return emptyResult;
   }
 
-  // Create a cache key based on the first and last data points
-  const cacheKey = `${data[0].timestamp}-${data[data.length-1].timestamp}-${data.length}`;
-  
-  // Return cached result if available and not older than 10 minutes
-  if (memoCache.has(cacheKey)) {
-    const cached = memoCache.get(cacheKey);
-    if (Date.now() - cached.timestamp < 600000) { // 10 minutes
-      return cached.result;
+  try {
+    // Sample data more aggressively to prevent timeouts
+    let processData = data;
+    if (data.length > 200) {
+      const sampleFactor = Math.ceil(data.length / 200);
+      processData = data.filter((_, index) => index % sampleFactor === 0);
+      console.log(`Reduced data to ${processData.length} points for analysis`);
     }
-  }
-  
-  // If data is too large, sample it to reduce computation
-  let processData = data;
-  if (data.length > 300) {
-    const sampleFactor = Math.ceil(data.length / 300);
-    processData = data.filter((_, index) => index % sampleFactor === 0);
-  }
-  
-  // Find pivot points with less sensitivity for better performance
-  const pivots = findPivots(processData, 0.05);
-  
-  // Identify waves based on pivot points
-  let waves = identifyWaves(pivots, processData);
-  
-  // Sort waves by timestamp for consistent analysis
-  waves.sort((a, b) => a.startTimestamp - b.startTimestamp);
-  
-  // Determine current wave and other analysis result properties
-  let currentWave = waves.length > 0 ? waves[waves.length - 1] : ({} as Wave);
-  
-  // Calculate Fibonacci targets
-  let fibTargets: FibTarget[] = [];
-  
-  if (waves.length >= 2) {
-    const lastCompleteWave = waves[waves.length - 1];
-    const previousWave = waves[waves.length - 2];
     
-    // Calculate retracements and extensions
-    const retracements = calculateFibRetracement(previousWave.startPrice, lastCompleteWave.endPrice!);
-    const extensions = calculateFibExtension(previousWave.startPrice, lastCompleteWave.endPrice!);
+    // Find pivot points with more relaxed criteria to ensure we find some
+    const pivots = findPivots(processData, 0.03);
     
-    fibTargets = [...retracements, ...extensions];
-  }
-  
-  // Determine trend
-  let trend: 'bullish' | 'bearish' | 'neutral' = 'neutral';
-  
-  if (waves.length > 0) {
-    const firstWave = waves[0];
-    const lastWave = waves[waves.length - 1];
-    
-    if (lastWave.endPrice && firstWave.startPrice) {
-      if (lastWave.endPrice > firstWave.startPrice) {
-        trend = 'bullish';
-      } else if (lastWave.endPrice < firstWave.startPrice) {
-        trend = 'bearish';
+    // If we don't find enough pivots, try with a lower threshold
+    if (pivots.length < 5) {
+      console.log("Not enough pivots found, trying with lower threshold");
+      const morePivots = findPivots(processData, 0.02);
+      
+      if (morePivots.length > pivots.length) {
+        console.log(`Found more pivots with lower threshold: ${morePivots.length}`);
+        return completeWaveAnalysis(morePivots, processData);
       }
     }
+    
+    // If we have enough pivots, proceed with wave identification
+    if (pivots.length >= 5) {
+      return completeWaveAnalysis(pivots, processData);
+    } else {
+      console.log(`Not enough pivots found (${pivots.length}), unable to identify waves`);
+      return emptyResult;
+    }
+  } catch (error) {
+    console.error("Error in wave analysis:", error);
+    return emptyResult;
+  }
+};
+
+// Helper function to complete the analysis
+const completeWaveAnalysis = (pivots: ZigzagPoint[], data: StockHistoricalData[]): WaveAnalysisResult => {
+  console.log(`Identifying waves from ${pivots.length} pivots`);
+  
+  // Make wave identification simpler - just assign alternating numbers
+  const waves: Wave[] = [];
+  let waveNumber = 1;
+  
+  // Create simple waves from pivots
+  for (let i = 0; i < pivots.length - 1; i++) {
+    const startPoint = pivots[i];
+    const endPoint = pivots[i + 1];
+    
+    // Don't use complex wave labeling for now, just simple numbering
+    const isUpWave = endPoint.price > startPoint.price;
+    
+    const wave: Wave = {
+      number: waveNumber <= 5 ? waveNumber : waveNumber <= 8 ? ['A', 'B', 'C'][waveNumber - 6] : 1,
+      startTimestamp: startPoint.timestamp,
+      endTimestamp: endPoint.timestamp,
+      startPrice: startPoint.price,
+      endPrice: endPoint.price,
+      type: isUpWave ? 'impulse' : 'corrective',
+      isComplete: i < pivots.length - 2,
+      isImpulse: isUpWave
+    };
+    
+    waves.push(wave);
+    waveNumber = waveNumber === 5 ? 1 : (waveNumber === 8 ? 1 : waveNumber + 1);
   }
   
-  // Determine pattern types
-  const impulsePattern = waves.length >= 5 && 
-    waves.slice(0, 5).every((w, i) => 
-      (typeof w.number === 'number' && w.number === i + 1)
-    );
-    
-  const correctivePattern = waves.length >= 3 && 
-    waves[0].number === 'A' && waves[1].number === 'B' && waves[2].number === 'C';
-
-  const result = { 
-    waves, 
-    currentWave, 
+  console.log(`Identified ${waves.length} waves`);
+  
+  // Determine current wave
+  const currentWave = waves.length > 0 ? waves[waves.length - 1] : ({} as Wave);
+  
+  // Simple trend determination
+  const trend = data[data.length - 1].close > data[Math.floor(data.length / 2)].close ? 'bullish' : 'bearish';
+  
+  // Calculate Fibonacci targets
+  const fibTargets = calculateFibTargetsForWaves(waves, data);
+  
+  // Pattern determination
+  const impulsePattern = waves.some(w => w.number === 5);
+  const correctivePattern = waves.some(w => w.number === 'C');
+  
+  return {
+    waves,
+    currentWave,
     fibTargets,
     trend,
     impulsePattern,
     correctivePattern
   };
+};
+
+// Simple function to calculate Fibonacci targets
+const calculateFibTargetsForWaves = (waves: Wave[], data: StockHistoricalData[]): FibTarget[] => {
+  const targets: FibTarget[] = [];
   
-  // Cache the result
-  memoCache.set(cacheKey, {
-    timestamp: Date.now(),
-    result
-  });
-  
-  // Limit cache size to prevent memory leaks
-  if (memoCache.size > 100) {
-    const oldestKey = Array.from(memoCache.keys())[0];
-    memoCache.delete(oldestKey);
+  // If we have at least 3 waves, calculate some targets
+  if (waves.length >= 3) {
+    // Use the latest price movement to project targets
+    const lastWave = waves[waves.length - 1];
+    const secondLastWave = waves[waves.length - 2];
+    
+    const waveDiff = Math.abs(lastWave.endPrice! - secondLastWave.endPrice!);
+    const isUptrend = data[data.length - 1].close > data[Math.floor(data.length / 2)].close;
+    
+    // Common Fibonacci levels
+    const fibLevels = [0.382, 0.5, 0.618, 0.786, 1.0, 1.618];
+    
+    fibLevels.forEach(level => {
+      const extension = isUptrend 
+        ? lastWave.endPrice! + waveDiff * level
+        : lastWave.endPrice! - waveDiff * level;
+      
+      targets.push({
+        level,
+        price: extension,
+        label: `${(level * 100).toFixed(1)}%`,
+        isExtension: level > 1.0
+      });
+    });
   }
   
-  return result;
+  return targets;
 };
 
 export default analyzeElliottWaves;

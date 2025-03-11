@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { WaveAnalysisResult } from '@/utils/elliottWaveAnalysis';
 import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired, getAllAnalyses } from '@/services/databaseService';
 import { fetchHistoricalData } from '@/services/yahooFinanceService';
@@ -56,11 +56,12 @@ const worker = createWorker();
 const WORKER_TIMEOUT_MS = 120000; // 120 seconds (2 minutes)
 const LOW_MEMORY_WORKER_TIMEOUT_MS = 60000; // 60 seconds for low memory mode
 
-const workerAnalyzeElliottWaves = (data: StockHistoricalData[]): Promise<WaveAnalysisResult> => {
+// Update the worker function to accept a symbol parameter
+const workerAnalyzeElliottWaves = (data: StockHistoricalData[], symbol: string = 'unknown'): Promise<WaveAnalysisResult> => {
   return new Promise((resolve, reject) => {
     if (!worker) {
       // Fallback to direct analysis if workers aren't supported
-      console.log('Using direct analysis (no web worker)');
+      console.log(`Using direct analysis (no web worker) for ${symbol}`);
       try {
         const result = analyzeElliottWaves(data);
         resolve(result);
@@ -76,13 +77,20 @@ const workerAnalyzeElliottWaves = (data: StockHistoricalData[]): Promise<WaveAna
     const timeout = setTimeout(() => {
       worker.removeEventListener('message', handler);
       console.warn(`Worker analysis for ${symbol} timed out after ${timeoutDuration/1000} seconds, falling back to main thread`);
+      
+      // If window._workerErrorCount doesn't exist yet, initialize it
+      if (typeof window._workerErrorCount === 'undefined') {
+        window._workerErrorCount = 0;
+      }
+      
       window._workerErrorCount++;
       
       try {
-        const result = analyzeElliottWaves(processData);
+        // processData is undefined, use data instead
+        const result = analyzeElliottWaves(data);
         resolve(result);
       } catch (err) {
-        console.error("Fallback analysis failed:", err);
+        console.error(`Fallback analysis failed for ${symbol}:`, err);
         resolve(generateEmptyAnalysisResult());
       }
     }, timeoutDuration);
@@ -102,6 +110,18 @@ const workerAnalyzeElliottWaves = (data: StockHistoricalData[]): Promise<WaveAna
     worker.addEventListener('message', handler);
     worker.postMessage({ data, id });
   });
+};
+
+// Add this helper function to generate an empty analysis result
+const generateEmptyAnalysisResult = (): WaveAnalysisResult => {
+  return {
+    waves: [],
+    currentWave: {} as Wave,
+    fibTargets: [],
+    trend: 'neutral',
+    impulsePattern: false,
+    correctivePattern: false
+  };
 };
 
 // Add to WaveAnalysisContext.tsx
@@ -133,7 +153,8 @@ function WaveAnalysisProvider({
 }) {
   const [analyses, setAnalyses] = useState<Record<string, WaveAnalysisResult>>({});
   const [isLoading, setIsLoading] = useState(false);
-  
+  const pendingAnalyses = useRef<Record<string, Promise<WaveAnalysisResult | null>>>({});
+
   // Load any cached analyses from localStorage when the app starts
   useEffect(() => {
     const loadCachedAnalyses = async () => {
@@ -173,41 +194,34 @@ function WaveAnalysisProvider({
       return null;
     }
     
-    // Return cached results immediately if kill switch is active
-    if (killSwitch && !forceRefresh) {
-      const cacheKey = `${symbol}_${timeframe}`;
-      if (analyses[cacheKey]) {
-        return analyses[cacheKey];
-      }
-      
-      const cachedAnalysis = retrieveWaveAnalysis(symbol, timeframe);
-      if (cachedAnalysis) {
-        return cachedAnalysis.analysis;
-      }
-      
-      // If no cached result and kill switch on, return empty analysis
-      return {
-        waves: [],
-        currentWave: {} as Wave,
-        fibTargets: [],
-        trend: 'neutral',
-        impulsePattern: false,
-        correctivePattern: false
-      };
-    }
-    
     const cacheKey = `${symbol}_${timeframe}`;
     
-    // Skip cache if forceRefresh is true
-    if (!forceRefresh) {
-      // First check if we already have it in state
-      if (analyses[cacheKey]) {
-        return analyses[cacheKey];
+    // First check in-memory cache for faster access
+    if (!forceRefresh && analyses[cacheKey]) {
+      console.log(`Using in-memory cached analysis for ${symbol}`);
+      return analyses[cacheKey];
+    }
+    
+    // Return cached results immediately if kill switch is active
+    if (killSwitch && !forceRefresh) {
+      const cachedAnalysis = retrieveWaveAnalysis(symbol, timeframe);
+      if (cachedAnalysis) {
+        console.log(`Kill switch active - using cached analysis for ${symbol}`);
+        setAnalyses(prev => ({
+          ...prev,
+          [cacheKey]: cachedAnalysis.analysis
+        }));
+        return cachedAnalysis.analysis;
       }
-      
-      // Next check IndexedDB/localStorage
+      // If no cached analysis available with kill switch active, return empty result
+      return null;
+    }
+    
+    // Check localStorage cache if not already refreshing
+    if (!forceRefresh) {
       const cachedAnalysis = retrieveWaveAnalysis(symbol, timeframe);
       if (cachedAnalysis && !isAnalysisExpired(cachedAnalysis.timestamp)) {
+        console.log(`Using cached analysis for ${symbol} from localStorage`);
         // Store in state for future quick access
         setAnalyses(prev => ({
           ...prev,
@@ -218,47 +232,68 @@ function WaveAnalysisProvider({
       }
     }
     
-    // If forced refresh or not in cache or expired, fetch data and analyze
-    try {
-      // Fetch historical data
-      console.log(`Starting analysis for ${symbol}`);
-      let historicalData;
-      
+    // If we're already fetching this analysis, don't start another fetch
+    if (pendingAnalyses.current[cacheKey]) {
+      console.log(`Already fetching analysis for ${symbol}, waiting for that to complete`);
       try {
-        const historicalResponse = await fetchHistoricalData(symbol, timeframe);
-        historicalData = historicalResponse.historicalData;
-      } catch (fetchError) {
-        console.error(`Failed to fetch data for ${symbol}, using fallback data`, fetchError);
-        // Use fallback mock data
-        const mockData = generateFallbackData(symbol, 300);
-        historicalData = mockData;
-      }
-      
-      if (!historicalData || historicalData.length === 0) {
-        console.error(`No historical data available for ${symbol}`);
+        return await pendingAnalyses.current[cacheKey];
+      } catch (error) {
+        console.error(`Error waiting for pending analysis of ${symbol}:`, error);
         return null;
       }
-      
-      console.log(`Got ${historicalData.length} data points for ${symbol}`);
-      
-      // Analyze the data
-      const analysis = await workerAnalyzeElliottWaves(historicalData);
-      console.log(`Analysis complete for ${symbol}, found ${analysis.waves.length} waves`);
-      
-      // Store in cache
-      storeWaveAnalysis(symbol, timeframe, analysis);
-      
-      // Update state
-      setAnalyses(prev => ({
-        ...prev,
-        [cacheKey]: analysis
-      }));
-      
-      return analysis;
-    } catch (error) {
-      console.error(`Error analyzing waves for ${symbol}:`, error);
-      return null;
     }
+    
+    // If forced refresh or not in cache or expired, fetch data and analyze
+    const analysisPromise = (async () => {
+      try {
+        // Fetch historical data
+        console.log(`Starting analysis for ${symbol}`);
+        let historicalData;
+        
+        try {
+          const historicalResponse = await fetchHistoricalData(symbol, timeframe);
+          historicalData = historicalResponse.historicalData;
+        } catch (fetchError) {
+          console.error(`Failed to fetch data for ${symbol}, using fallback data`, fetchError);
+          // Use fallback mock data
+          const mockData = generateFallbackData(symbol, 300);
+          historicalData = mockData;
+        }
+        
+        if (!historicalData || historicalData.length === 0) {
+          console.error(`No historical data available for ${symbol}`);
+          return null;
+        }
+        
+        console.log(`Got ${historicalData.length} data points for ${symbol}`);
+        
+        // Analyze the data
+        const analysis = await workerAnalyzeElliottWaves(historicalData, symbol);
+        console.log(`Analysis complete for ${symbol}, found ${analysis.waves.length} waves`);
+        
+        // Store in cache
+        storeWaveAnalysis(symbol, timeframe, analysis);
+        
+        // Update state
+        setAnalyses(prev => ({
+          ...prev,
+          [cacheKey]: analysis
+        }));
+        
+        return analysis;
+      } catch (error) {
+        console.error(`Error analyzing waves for ${symbol}:`, error);
+        return null;
+      } finally {
+        // Remove from pending analyses
+        delete pendingAnalyses.current[cacheKey];
+      }
+    })();
+    
+    // Store the promise in pendingAnalyses
+    pendingAnalyses.current[cacheKey] = analysisPromise;
+    
+    return analysisPromise;
   };
   
   // Function to preload analyses for multiple symbols
