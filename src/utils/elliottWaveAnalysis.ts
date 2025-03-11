@@ -952,3 +952,8 @@ export const analyzeElliottWaves = (data: StockHistoricalData[]): WaveAnalysisRe
 };
 
 export default analyzeElliottWaves;
+
+// Around line 1057
+
+// Change this line:
+const MAX_EXECUTION_TIME = 100000; // 100 seconds

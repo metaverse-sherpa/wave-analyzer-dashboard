@@ -56,3 +56,5 @@ self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
 
 // Signal that the worker is ready
 console.log('Elliott Wave Analysis worker initialized');
+
+const MAX_EXECUTION_TIME = 100000; // 100 seconds max for wave identification

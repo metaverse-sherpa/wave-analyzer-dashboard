@@ -52,6 +52,10 @@ const createWorker = () => {
 
 const worker = createWorker();
 
+// Add timeout configuration
+const WORKER_TIMEOUT_MS = 120000; // 120 seconds (2 minutes)
+const LOW_MEMORY_WORKER_TIMEOUT_MS = 60000; // 60 seconds for low memory mode
+
 const workerAnalyzeElliottWaves = (data: StockHistoricalData[]): Promise<WaveAnalysisResult> => {
   return new Promise((resolve, reject) => {
     if (!worker) {
@@ -67,16 +71,21 @@ const workerAnalyzeElliottWaves = (data: StockHistoricalData[]): Promise<WaveAna
     }
     
     const id = Date.now();
+    const timeoutDuration = 120000; // 120 seconds (2 minutes)
+
     const timeout = setTimeout(() => {
       worker.removeEventListener('message', handler);
-      console.warn('Worker analysis timed out after 10 seconds, falling back to main thread');
+      console.warn(`Worker analysis for ${symbol} timed out after ${timeoutDuration/1000} seconds, falling back to main thread`);
+      window._workerErrorCount++;
+      
       try {
-        const result = analyzeElliottWaves(data);
+        const result = analyzeElliottWaves(processData);
         resolve(result);
       } catch (err) {
-        reject(err);
+        console.error("Fallback analysis failed:", err);
+        resolve(generateEmptyAnalysisResult());
       }
-    }, 10000);
+    }, timeoutDuration);
     
     const handler = (event: MessageEvent) => {
       if (event.data.id === id) {

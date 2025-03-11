@@ -57,7 +57,7 @@ const topStockSymbols = [
 // Replace yahooFinance imports with fetch calls to your backend
 const API_BASE_URL = 'http://localhost:3001/api'; // Changed to a relative URL
 
-const USE_MOCK_DATA = true; // Set to false when your backend is working
+const USE_MOCK_DATA = false; // Set to false when your backend is working
 
 // Function to fetch top stocks
 export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> => {

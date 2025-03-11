@@ -47,6 +47,7 @@ import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { KillSwitchProvider, useKillSwitch } from './context/KillSwitchContext';
 import DataInitializer from './context/DataInitializer';
+import AdminDashboard from "./pages/Admin";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -303,6 +304,7 @@ const App = () => {
                           <Route path="/" element={<Index />} />
                           <Route path="/stocks/:symbol" element={<StockDetails />} />
                           <Route path="/dashboard" element={<Dashboard />} />
+                          <Route path="/admin" element={<AdminDashboard />} />
                           <Route path="*" element={<NotFound />} />
                         </Routes>
                       </BrowserRouter>
