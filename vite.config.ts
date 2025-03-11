@@ -8,6 +8,16 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 3000,
+    hmr: {
+      overlay: false, // Disable the error overlay which can be CPU intensive
+    },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   plugins: [
     react(),
@@ -21,7 +31,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: "dist",
     // Increase the warning limit if you're confident about your bundle structure
-    chunkSizeWarningLimit: 800,
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks: (id) => {
@@ -52,6 +62,11 @@ export default defineConfig(({ mode }) => ({
           }
         }
       }
-    }
+    },
+    sourcemap: false, // Disable sourcemaps in production
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'recharts'], // Pre-bundle commonly used dependencies
+    exclude: ['next'] // Exclude Next.js as it's causing conflicts
   },
 }));

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { Wave } from "@/utils/elliottWaveAnalysis";
 import {
@@ -10,6 +10,7 @@ import {
   Tooltip,
   CartesianGrid
 } from 'recharts';
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface SimpleCandlestickChartProps {
   symbol: string;
@@ -18,11 +19,13 @@ interface SimpleCandlestickChartProps {
 }
 
 // Fallback simpler chart if the candlestick implementation isn't working
-const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
+const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = React.memo(({
   symbol,
   data,
   waves
 }) => {
+  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
+  
   // Return early if no data available
   if (!data || data.length === 0) {
     return (
@@ -32,42 +35,49 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
     );
   }
   
-  // Find the first wave in the sequence (if available)
-  const firstWave = waves.length > 0 ? waves[0] : null;
-  
-  // Filter data to show only from the first wave onwards, if available
-  // If first wave is far back (>200 periods), show at least 200 periods for better visualization
-  const filteredData = firstWave 
-    ? data.filter(item => item.timestamp >= firstWave.startTimestamp)
-    : data;
+  // Process data with useMemo to prevent recalculations
+  const { filteredData, chartData, priceRange } = useMemo(() => {
+    // Find the first wave
+    const firstWave = waves.length > 0 ? waves[0] : null;
     
-  // Make sure we're not showing too much data for clear visualization
-  // If after filtering we still have over 500 data points, sample them
-  let displayData = filteredData;
-  if (displayData.length > 500) {
-    const samplingFactor = Math.ceil(displayData.length / 500);
-    displayData = displayData.filter((_, index) => index % samplingFactor === 0);
-  }
-  
-  // Format the data for the chart
-  const chartData = displayData.map(d => ({
-    timestamp: d.timestamp * 1000, // Convert to milliseconds for date display
-    price: d.close,
-    date: new Date(d.timestamp * 1000).toLocaleDateString()
-  }));
-  
-  // Calculate price range for y-axis
-  const prices = displayData.map(d => d.close);
-  const minPrice = Math.min(...prices) * 0.95; // 5% padding below
-  const maxPrice = Math.max(...prices) * 1.05; // 5% padding above
+    // Filter data
+    const filtered = firstWave 
+      ? data.filter(item => item.timestamp >= firstWave.startTimestamp)
+      : data;
+    
+    // Sample data if too large
+    let displayData = filtered;
+    if (displayData.length > 500) {
+      const samplingFactor = Math.ceil(displayData.length / 500);
+      displayData = displayData.filter((_, index) => index % samplingFactor === 0);
+    }
+    
+    // Format chart data
+    const formatted = displayData.map(d => ({
+      timestamp: d.timestamp * 1000,
+      price: d.close,
+      date: new Date(d.timestamp * 1000).toLocaleDateString()
+    }));
+    
+    // Calculate price range
+    const prices = displayData.map(d => d.close);
+    const minPrice = Math.min(...prices) * 0.95;
+    const maxPrice = Math.max(...prices) * 1.05;
+    
+    return { 
+      filteredData: displayData, 
+      chartData: formatted,
+      priceRange: [minPrice, maxPrice]
+    };
+  }, [data, waves]);
   
   return (
     <div className="w-full h-[500px] bg-card rounded-lg p-4">
       <h3 className="text-lg font-semibold mb-4">{symbol} - Price Chart</h3>
       <div className="flex justify-between items-center text-xs text-muted-foreground mb-2">
         <span>
-          {firstWave ? 
-            `Showing data since Wave ${firstWave.number} (${new Date(firstWave.startTimestamp * 1000).toLocaleDateString()})` : 
+          {waves.length > 0 ? 
+            `Showing data since Wave ${waves[0].number} (${new Date(waves[0].startTimestamp * 1000).toLocaleDateString()})` : 
             `Showing ${chartData.length} data points from ${chartData[0]?.date || 'unknown'} to ${chartData[chartData.length-1]?.date || 'unknown'}`
           }
         </span>
@@ -93,7 +103,7 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
             tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
           />
           <YAxis
-            domain={[minPrice, maxPrice]}
+            domain={priceRange}
             tickFormatter={(tick) => tick.toFixed(2)}
           />
           <Tooltip
@@ -111,6 +121,6 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = ({
       </ResponsiveContainer>
     </div>
   );
-};
+});
 
 export default SimpleCandlestickChart;

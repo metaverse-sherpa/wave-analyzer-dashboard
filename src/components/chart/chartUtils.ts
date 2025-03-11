@@ -1,5 +1,6 @@
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { FibTarget } from "@/utils/elliottWaveAnalysis";
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 // Format data for the chart
 export const formatChartData = (data: StockHistoricalData[]) => {
@@ -25,3 +26,4 @@ export const calculatePriceRange = (data: StockHistoricalData[], fibTargets: Fib
   
   return { minPrice, maxPrice };
 };
+

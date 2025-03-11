@@ -164,3 +164,5 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 };
 
 export default StockDetailChart;
+
+

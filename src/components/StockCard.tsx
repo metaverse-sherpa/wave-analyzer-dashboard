@@ -9,6 +9,7 @@ import { storeWaveAnalysis } from "@/services/databaseService";
 import { LightweightChart } from '@/components/LightweightChart';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface StockCardProps {
   stock: StockData;
@@ -17,9 +18,9 @@ interface StockCardProps {
 }
 
 const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) => {
+  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
   const [chartData, setChartData] = useState<StockHistoricalData[]>([]);
   const [loading, setLoading] = useState(true);
-  const { analyses } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
   
   // Get currentWave and waveAnalysis from context

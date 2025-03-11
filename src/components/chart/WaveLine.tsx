@@ -2,6 +2,7 @@ import React from 'react';
 import { Line } from 'recharts';
 import { Wave } from "@/utils/elliottWaveAnalysis";
 import { StockHistoricalData } from "@/services/yahooFinanceService";
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface WaveLineProps {
   wave: Wave;
@@ -37,5 +38,11 @@ const WaveLine: React.FC<WaveLineProps> = ({ wave, data, color }) => {
     />
   );
 };
+
+function MyComponent() {
+  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
+  
+  // Rest of component logic
+}
 
 export default WaveLine;

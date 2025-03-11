@@ -25,6 +25,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
 import SimpleCandlestickChart from '@/components/SimpleCandlestickChart';
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface StockDetailsProps {
   stock?: StockData;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StockCard from './StockCard';
 import { StockData, fetchTopStocks } from '@/services/yahooFinanceService';
@@ -11,6 +11,13 @@ import { toast } from '@/lib/toast';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'; // Add these missing Lucide icon imports
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
+import WaveAnalysis from '@/context/WaveAnalysisContext';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import StockTrendList from './StockTrendList';
+import WavePatternChart from './WavePatternChart';
+import MarketOverview from './MarketOverview';
+import Settings from './Settings'; // Import the new Settings component
+import ApiStatusCheck from './ApiStatusCheck'; // Import the new ApiStatusCheck component
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -47,34 +54,41 @@ const Dashboard: React.FC = () => {
   const { analyses, preloadAnalyses } = useWaveAnalysis();
   const { preloadHistoricalData } = useHistoricalData();
 
-  // Load stocks when component mounts
-  useEffect(() => {
-    const loadStocks = async () => {
-      try {
-        setLoading(true);
-        const stockData = await fetchTopStocks();
-        setStocks(stockData);
-        setFilteredStocks(stockData);
-        
-        // Preload both wave analyses and historical data for all stocks
-        const symbols = stockData.map(stock => stock.symbol);
-        
-        // Load in parallel
-        await Promise.all([
-          preloadAnalyses(symbols),
-          preloadHistoricalData(symbols)
-        ]);
-
-      } catch (error) {
-        console.error('Error loading stocks:', error);
-        toast.error('Failed to load stocks');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    loadStocks();
+  // Use useCallback for functions
+  const loadStocks = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Limit the number of stocks to analyze
+      const topStocks = await fetchTopStocks();
+      setStocks(topStocks.slice(0, 20)); // Only load top 20
+      
+      // Stagger loading to prevent CPU spikes
+      setTimeout(() => {
+        preloadHistoricalData(topStocks.slice(0, 20).map(s => s.symbol));
+      }, 1000);
+      
+      setTimeout(() => {
+        preloadAnalyses(topStocks.slice(0, 20).map(s => s.symbol));
+      }, 2000);
+    } catch (error) {
+      console.error('Error loading stocks:', error);
+      toast.error('Failed to load stocks data');
+    } finally {
+      setLoading(false);
+    }
   }, [preloadAnalyses, preloadHistoricalData]);
+  
+  // Use a more conservative approach to refresh
+  useEffect(() => {
+    loadStocks();
+    
+    // Refresh data only every 5 minutes instead of continuously
+    const intervalId = setInterval(() => {
+      loadStocks();
+    }, 5 * 60 * 1000);
+    
+    return () => clearInterval(intervalId);
+  }, [loadStocks]);
   
   // Filter stocks based on search query
   useEffect(() => {
@@ -119,100 +133,45 @@ const Dashboard: React.FC = () => {
   const totalPages = Math.ceil(filteredStocksByWave.length / itemsPerPage);
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-6">
-        <div className="relative w-full max-w-md">
-          <Input
-            type="text"
-            placeholder="Search by symbol or company name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pr-10"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Select
-            value={selectedWave.toString()}
-            onValueChange={(value) => setSelectedWave(value === 'all' ? 'all' : Number(value))}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filter by Wave" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Waves</SelectItem>
-              <SelectItem value="1">Wave 1</SelectItem>
-              <SelectItem value="2">Wave 2</SelectItem>
-              <SelectItem value="3">Wave 3</SelectItem>
-              <SelectItem value="4">Wave 4</SelectItem>
-              <SelectItem value="5">Wave 5</SelectItem>
-              <SelectItem value="A">Wave A</SelectItem>
-              <SelectItem value="B">Wave B</SelectItem>
-              <SelectItem value="C">Wave C</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Items per page:</span>
-          <select
-            value={itemsPerPage}
-            onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
-            className="border rounded-md p-1 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-          >
-            {itemsPerPageOptions.map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <h1 className="text-3xl font-bold">Wave Analyzer Dashboard</h1>
+        <Settings /> {/* Add the Settings component here */}
       </div>
+      
+      <ApiStatusCheck /> {/* Add the ApiStatusCheck component here */}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-        {currentItems.map(stock => (
-          <StockCard
-            key={stock.symbol}
-            stock={stock}
-            onClick={handleStockClick}
-            searchQuery={searchQuery}
-          />
-        ))}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="col-span-1 md:col-span-2">
+          <CardHeader>
+            <CardTitle>Market Overview</CardTitle>
+            <CardDescription>Current market trends and key indicators</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MarketOverview />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Stock Trends</CardTitle>
+            <CardDescription>Key stocks and their Elliott Wave patterns</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <StockTrendList />
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-1 md:col-span-3">
+          <CardHeader>
+            <CardTitle>Wave Pattern Analysis</CardTitle>
+            <CardDescription>Detailed Elliott Wave patterns for selected stocks</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <WavePatternChart />
+          </CardContent>
+        </Card>
       </div>
-
-      {itemsPerPage < filteredStocksByWave.length && (
-        <div className="flex justify-center items-center gap-4 mt-6">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          
-          <span className="text-sm">
-            Page {currentPage} of {totalPages}
-          </span>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
     </div>
   );
 };
