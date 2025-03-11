@@ -1,6 +1,6 @@
-
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { FibTarget } from "@/utils/elliottWaveAnalysis";
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 // Format data for the chart
 export const formatChartData = (data: StockHistoricalData[]) => {
@@ -16,7 +16,7 @@ export const formatChartData = (data: StockHistoricalData[]) => {
 };
 
 // Calculate price range for y-axis
-export const calculatePriceRange = (data: StockHistoricalData[], fibTargets: FibTarget[]) => {
+export const calculatePriceRange = (data: StockHistoricalData[], fibTargets: FibTarget[] = []) => {
   const prices = data.flatMap(d => [d.high, d.low]);
   const fibPrices = fibTargets.map(target => target.price);
   const allPrices = [...prices, ...fibPrices];
@@ -26,3 +26,4 @@ export const calculatePriceRange = (data: StockHistoricalData[], fibTargets: Fib
   
   return { minPrice, maxPrice };
 };
+

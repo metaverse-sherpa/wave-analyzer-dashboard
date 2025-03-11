@@ -1,8 +1,8 @@
-
 import React from 'react';
 import { Line } from 'recharts';
 import { Wave } from "@/utils/elliottWaveAnalysis";
 import { StockHistoricalData } from "@/services/yahooFinanceService";
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface WaveLineProps {
   wave: Wave;
@@ -32,10 +32,17 @@ const WaveLine: React.FC<WaveLineProps> = ({ wave, data, color }) => {
       connectNulls
       data={[
         { timestamp: startPoint.timestamp * 1000, price: wave.startPrice },
-        { timestamp: endPoint.timestamp * 1000, price: wave.endPrice ?? endPoint.close }
+        { timestamp: endPoint.timestamp * 1000, price: wave.endPrice || endPoint.close }
       ]}
+      name={`Wave ${wave.number}`}
     />
   );
 };
+
+function MyComponent() {
+  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
+  
+  // Rest of component logic
+}
 
 export default WaveLine;

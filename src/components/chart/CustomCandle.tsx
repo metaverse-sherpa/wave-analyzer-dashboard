@@ -1,52 +1,56 @@
-
 import React from 'react';
+import { Rectangle, Line } from 'recharts';
+
+interface HighLowLines {
+  high: number;
+  low: number;
+  stroke: string;
+}
 
 interface CustomCandleProps {
   x: number;
   y: number;
   width: number;
   height: number;
-  open: number;
-  close: number;
-  high: number;
-  low: number;
+  fill: string;
+  stroke: string;
+  highLowLines: HighLowLines;
 }
 
-const CustomCandle: React.FC<CustomCandleProps> = ({ x, y, width, height, open, close, high, low }) => {
-  const isUp = close >= open;
-  
+const CustomCandle: React.FC<CustomCandleProps> = (props) => {
+  const { x, y, width, height, fill, stroke, highLowLines } = props;
+  const centerX = x + width / 2;
+
   return (
-    <g>
-      {/* Candle body */}
-      <rect
-        x={x - width / 2}
-        y={isUp ? y : y + height}
+    <>
+      {/* Main candle body */}
+      <Rectangle
+        x={x}
+        y={y}
         width={width}
-        height={Math.abs(height) || 1}
-        fill={isUp ? 'var(--bullish)' : 'var(--bearish)'}
-        stroke={isUp ? 'var(--bullish)' : 'var(--bearish)'}
+        height={Math.max(1, height)} // Ensure minimum height of 1px
+        fill={fill}
+        stroke={stroke}
       />
       
-      {/* Upper wick */}
-      <line
-        x1={x}
-        y1={isUp ? y : y + height}
-        x2={x}
-        y2={y - high}
-        stroke={isUp ? 'var(--bullish)' : 'var(--bearish)'}
+      {/* High-low lines (wicks) */}
+      <Line
+        x1={centerX}
+        y1={y}
+        x2={centerX}
+        y2={highLowLines.high}
+        stroke={highLowLines.stroke}
         strokeWidth={1}
       />
-      
-      {/* Lower wick */}
-      <line
-        x1={x}
-        y1={isUp ? y + height : y}
-        x2={x}
-        y2={y + low}
-        stroke={isUp ? 'var(--bullish)' : 'var(--bearish)'}
+      <Line
+        x1={centerX}
+        y1={y + height}
+        x2={centerX}
+        y2={highLowLines.low}
+        stroke={highLowLines.stroke}
         strokeWidth={1}
       />
-    </g>
+    </>
   );
 };
 

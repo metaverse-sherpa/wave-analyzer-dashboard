@@ -1,5 +1,4 @@
-
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { Wave, FibTarget } from "@/utils/elliottWaveAnalysis";
 import {
@@ -8,15 +7,75 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid
+  CartesianGrid,
+  ReferenceLine,
+  Rectangle,
+  Line,
+  Label
 } from 'recharts';
 
-// Import extracted components
-import CustomCandle from './chart/CustomCandle';
-import WaveLine from './chart/WaveLine';
-import FibonacciTargets from './chart/FibonacciTargets';
-import { waveColors, tooltipFormatter } from './chart/chartConstants';
-import { formatChartData, calculatePriceRange } from './chart/chartUtils';
+// Import utils and constants
+import { tooltipFormatter } from './chart/chartConstants';
+import { formatChartData } from './chart/chartUtils';
+import WaveLegend from './chart/WaveLegend';
+import { getWaveColor, prepareWaveLines, getWavePatternDescription } from './chart/waveChartUtils';
+
+// A completely reworked candlestick renderer for Recharts
+const CandlestickSeries = (props) => {
+  const { data, xScale, yScale, xAccessor, yAccessor, width = 6 } = props;
+
+  return data.map((candle, index) => {
+    const x = xScale(candle.timestamp);
+    const y = yScale(Math.max(candle.open, candle.close));
+    const height = Math.abs(yScale(candle.open) - yScale(candle.close));
+    const candleY = candle.close > candle.open ? yScale(candle.close) : yScale(candle.open);
+    const halfWidth = width / 2;
+
+    const isUp = candle.close > candle.open;
+    const color = isUp ? 'var(--bullish)' : 'var(--bearish)';
+
+    // Skip rendering if x or y is undefined
+    if (x === undefined || y === undefined) return null;
+
+    // Make sure we have a minimum height for visibility
+    const effectiveHeight = Math.max(height, 1);
+
+    return (
+      <g key={`candle-${index}`}>
+        {/* High-low line */}
+        <line
+          x1={x}
+          y1={yScale(candle.high)}
+          x2={x}
+          y2={yScale(candle.low)}
+          stroke={color}
+          strokeWidth={1}
+        />
+        {/* Candle body */}
+        <rect
+          x={x - halfWidth}
+          y={candleY}
+          width={width}
+          height={effectiveHeight}
+          fill={color}
+          stroke="none"
+        />
+      </g>
+    );
+  });
+};
+
+// Define wave colors for consistency across the app
+const WAVE_COLORS = {
+  1: '#4CAF50', // Green
+  2: '#FF9800', // Orange
+  3: '#2196F3', // Blue
+  4: '#F44336', // Red
+  5: '#9C27B0', // Purple
+  'A': '#FFEB3B', // Yellow
+  'B': '#795548', // Brown
+  'C': '#00BCD4'  // Cyan
+};
 
 interface StockDetailChartProps {
   symbol: string;
@@ -34,11 +93,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   fibTargets
 }) => {
   const chartRef = useRef<any>(null);
+  const [hoveredWave, setHoveredWave] = useState<Wave | null>(null);
   
-  useEffect(() => {
-    // Any initialization for the chart
-  }, [data, waves]);
-  
+  // Return early if no data available
   if (!data || data.length === 0) {
     return (
       <div className="w-full h-64 flex items-center justify-center bg-card rounded-lg">
@@ -47,14 +104,49 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     );
   }
   
-  // Format data and calculate price range using utility functions
-  const chartData = formatChartData(data);
-  const { minPrice, maxPrice } = calculatePriceRange(data, fibTargets);
+  // Find the first wave in the sequence (if available)
+  const firstWave = waves.length > 0 ? waves[0] : null;
+  
+  // Filter data to show only from the first wave onwards, if available
+  const filteredData = firstWave 
+    ? data.filter(item => item.timestamp >= firstWave.startTimestamp)
+    : data;
+  
+  // Format the data for the chart
+  const chartData = formatChartData(filteredData);
+  
+  // Use our utility function instead of inline wave preparation
+  const waveLines = prepareWaveLines(waves, data);
+  
+  // Extract wave numbers for the legend
+  const waveNumbers = waves.map(w => w.number);
+  
+  // Calculate price range for y-axis
+  const prices = filteredData.flatMap(d => [d.high, d.low]);
+  const minPrice = Math.min(...prices) * 0.98; // 2% padding below
+  const maxPrice = Math.max(...prices) * 1.02; // 2% padding above
   
   return (
     <div className="w-full h-[500px] bg-chart-background rounded-lg p-4">
-      <h3 className="text-lg font-semibold mb-4">{symbol} - Elliott Wave Analysis</h3>
-      <ResponsiveContainer width="100%" height="90%">
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 className="text-lg font-semibold">{symbol} - Elliott Wave Chart</h3>
+          <p className="text-xs text-muted-foreground">
+            {firstWave 
+              ? `Showing Elliott Wave sequence starting from ${new Date(firstWave.startTimestamp * 1000).toLocaleDateString()}` 
+              : `No wave patterns detected`
+            }
+          </p>
+        </div>
+        
+        {waves.length > 0 && (
+          <div className="bg-background/30 backdrop-blur-sm p-2 rounded-md">
+            <WaveLegend waveNumbers={waveNumbers} compact />
+          </div>
+        )}
+      </div>
+      
+      <ResponsiveContainer width="100%" height="85%">
         <ComposedChart
           data={chartData}
           margin={{ top: 20, right: 50, left: 20, bottom: 20 }}
@@ -81,37 +173,107 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             contentStyle={{ backgroundColor: 'var(--chart-tooltip)', border: 'none' }}
           />
           
-          {/* Render candles */}
-          {chartData.map((entry, index) => (
-            <CustomCandle
-              key={`candle-${index}`}
-              x={entry.timestamp}
-              y={entry.open}
+          {/* Render candlesticks */}
+          {({ xScale, yScale }) => (
+            <CandlestickSeries
+              data={chartData}
+              xScale={xScale}
+              yScale={yScale}
               width={8}
-              height={entry.close - entry.open}
-              open={entry.open}
-              close={entry.close}
-              high={entry.high - entry.open}
-              low={entry.low - entry.open}
+            />
+          )}
+          
+          {/* Render fibonacci targets as horizontal lines */}
+          {fibTargets.map((target, index) => (
+            <ReferenceLine
+              key={`fib-${index}`}
+              y={target.price}
+              stroke={target.isExtension ? "#9c27b0" : "#3f51b5"}
+              strokeDasharray="3 3"
+              strokeOpacity={0.6}
+              label={{
+                position: 'right',
+                value: `${target.label}: $${target.price.toFixed(2)}`,
+                fill: target.isExtension ? "#9c27b0" : "#3f51b8",
+                fontSize: 10
+              }}
             />
           ))}
           
-          {/* Render all completed waves */}
-          {waves.map((wave, index) => {
-            const waveNumber = typeof wave.number === 'number' ? wave.number : wave.number;
-            const color = waveColors[waveNumber as keyof typeof waveColors] || '#94a3b8';
-            
-            return (
-              <WaveLine key={`wave-${index}`} wave={wave} data={data} color={color} />
-            );
-          })}
+          {/* Render wave lines */}
+          {waveLines.map((waveLine) => (
+            <Line
+              key={waveLine.id}
+              data={waveLine.data}
+              type="linear"
+              dataKey="value"
+              stroke={waveLine.color}
+              strokeWidth={2}
+              strokeDasharray={waveLine.wave.isImpulse ? "0" : "5 5"}
+              activeDot={{
+                r: 6,
+                fill: waveLine.color,
+                stroke: "#fff",
+                strokeWidth: 1,
+                onMouseOver: () => setHoveredWave(waveLine.wave),
+                onMouseLeave: () => setHoveredWave(null)
+              }}
+              dot={{
+                r: 4,
+                fill: waveLine.color,
+                stroke: "#fff",
+                strokeWidth: 1
+              }}
+              label={({ x, y, value, index, wave }) => {
+                // Only render labels at start and end of the line
+                if (index !== 0 && index !== 1) return null;
+                
+                const wavePoint = waveLine.data[index];
+                const isStart = wavePoint.wavePoint === 'start';
+                const labelText = `${isStart ? 'Start' : 'End'} ${wavePoint.waveNumber}`;
+                const xOffset = isStart ? -5 : 5;
+                const textAnchor = isStart ? "end" : "start";
+                
+                return (
+                  <text
+                    x={x + xOffset}
+                    y={y - 10}
+                    fill={waveLine.color}
+                    fontSize={10}
+                    textAnchor={textAnchor}
+                    fontWeight="bold"
+                  >
+                    {labelText}
+                  </text>
+                );
+              }}
+            />
+          ))}
           
-          {/* Render Fibonacci targets */}
-          <FibonacciTargets 
-            fibTargets={fibTargets} 
-            currentWave={currentWave} 
-            data={data}
-          />
+          {/* Highlight current wave */}
+          {currentWave && currentWave.number && (
+            <text
+              x="95%"
+              y="30"
+              fill={WAVE_COLORS[currentWave.number] || '#FFFFFF'}
+              fontSize={14}
+              textAnchor="end"
+              fontWeight="bold"
+            >
+              Current: Wave {currentWave.number}
+            </text>
+          )}
+
+          {/* Additional information about wave pattern */}
+          <text
+            x="50%"
+            y="30"
+            fill="#94a3b8"
+            fontSize={12}
+            textAnchor="middle"
+          >
+            {getWavePatternDescription(waves)}
+          </text>
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -119,3 +281,5 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 };
 
 export default StockDetailChart;
+
+

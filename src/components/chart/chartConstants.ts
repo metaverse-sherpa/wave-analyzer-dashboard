@@ -1,29 +1,20 @@
+// Wave colors for visualization - alternating colors for waves
+export const waveColors = [
+  '#4CAF50', // Green for Wave 1
+  '#FF9800', // Orange for Wave 2 
+  '#2196F3', // Blue for Wave 3
+  '#F44336', // Red for Wave 4
+  '#9C27B0', // Purple for Wave 5
+  '#FFEB3B', // Yellow for Wave A
+  '#795548', // Brown for Wave B
+  '#00BCD4'  // Cyan for Wave C
+];
 
-// Wave colors mapping
-export const waveColors = {
-  1: '#3B82F6', // blue
-  2: '#EF4444', // red
-  3: '#22C55E', // green
-  4: '#F97316', // orange
-  5: '#8B5CF6', // purple
-  A: '#EC4899', // pink
-  B: '#FBBF24', // yellow
-  C: '#6366F1', // indigo
-};
-
-// Custom tooltip formatter
-export const tooltipFormatter = (value: any, name: string) => {
-  if (name === 'close') {
-    return [`$${value.toFixed(2)}`, 'Close'];
-  }
-  if (name === 'open') {
-    return [`$${value.toFixed(2)}`, 'Open'];
-  }
-  if (name === 'high') {
-    return [`$${value.toFixed(2)}`, 'High'];
-  }
-  if (name === 'low') {
-    return [`$${value.toFixed(2)}`, 'Low'];
-  }
-  return [value, name];
+// Format tooltip values
+export const tooltipFormatter = (value: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2
+  }).format(value);
 };

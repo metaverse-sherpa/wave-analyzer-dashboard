@@ -1,45 +1,32 @@
-
 import React from 'react';
-import { ReferenceLine, Label } from 'recharts';
-import { Wave, FibTarget } from "@/utils/elliottWaveAnalysis";
-import { StockHistoricalData } from "@/services/yahooFinanceService";
+import { ReferenceLine } from 'recharts';
+import { FibTarget } from "@/utils/elliottWaveAnalysis";
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface FibonacciTargetsProps {
   fibTargets: FibTarget[];
-  currentWave: Wave;
-  data: StockHistoricalData[];
 }
 
-const FibonacciTargets: React.FC<FibonacciTargetsProps> = ({ 
-  fibTargets, 
-  currentWave, 
-  data 
-}) => {
-  if (!currentWave || !data || fibTargets.length === 0) return null;
-  
+const FibonacciTargets: React.FC<FibonacciTargetsProps> = ({ fibTargets }) => {
+  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
+
   return (
     <>
-      {fibTargets.map((target, index) => {
-        const startPoint = data.find(d => d.timestamp === currentWave.startTimestamp);
-        if (!startPoint) return null;
-        
-        return (
-          <ReferenceLine
-            key={`fib-${index}`}
-            y={target.price}
-            stroke={target.isExtension ? "#F59E0B" : "#60A5FA"}
-            strokeDasharray={target.isExtension ? "3 3" : undefined}
-            strokeWidth={1}
-          >
-            <Label
-              value={`${target.label} (${target.price.toFixed(2)})`}
-              position="right"
-              fill={target.isExtension ? "#F59E0B" : "#60A5FA"}
-              fontSize={10}
-            />
-          </ReferenceLine>
-        );
-      })}
+      {fibTargets.map((target, index) => (
+        <ReferenceLine
+          key={`fib-${index}`}
+          y={target.price}
+          stroke={target.isExtension ? "#9c27b0" : "#3f51b5"}
+          strokeDasharray="3 3"
+          strokeOpacity={0.6}
+          label={{
+            position: 'right',
+            value: `${target.label}`,
+            fill: target.isExtension ? "#9c27b0" : "#3f51b5",
+            fontSize: 10
+          }}
+        />
+      ))}
     </>
   );
 };

@@ -22,6 +22,10 @@ import {
 } from "@/services/databaseService";
 import { toast } from "@/lib/toast";
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
+import SimpleCandlestickChart from '@/components/SimpleCandlestickChart';
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -48,6 +52,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [historicalData, setHistoricalData] = useState<StockHistoricalData[]>([]);
   const [analysis, setAnalysis] = useState<WaveAnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const { getAnalysis } = useWaveAnalysis();
+  const { getHistoricalData } = useHistoricalData();
   
   useEffect(() => {
     const loadData = async () => {
@@ -68,26 +74,23 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           return;
         }
         
-        // Check for cached analysis
-        const cachedAnalysis = retrieveWaveAnalysis(symbol, '1d');
+        // Load both historical data and wave analysis in parallel
+        const [historicalData, waveAnalysis] = await Promise.all([
+          getHistoricalData(symbol, '1d'),
+          getAnalysis(symbol, '1d')
+        ]);
         
-        if (cachedAnalysis && !isAnalysisExpired(cachedAnalysis.timestamp)) {
-          // Use cached analysis
-          setAnalysis(cachedAnalysis.analysis);
-          
-          // Still need to fetch historical data for the chart
-          const historicalResponse = await fetchHistoricalData(symbol, '2y', '1d');
-          setHistoricalData(historicalResponse.historicalData);
-        } else {
-          // Fetch new data and analyze
-          const historicalResponse = await fetchHistoricalData(symbol, '2y', '1d');
-          setHistoricalData(historicalResponse.historicalData);
-          
-          const waveAnalysis = analyzeElliottWaves(historicalResponse.historicalData);
+        // Set historical data
+        setHistoricalData(historicalData);
+        
+        // Set wave analysis if available
+        if (waveAnalysis) {
           setAnalysis(waveAnalysis);
-          
-          // Store the analysis
-          storeWaveAnalysis(symbol, '1d', waveAnalysis);
+        } else {
+          // Only show error if we have historical data but no analysis
+          if (historicalData.length > 0) {
+            toast.error(`Could not analyze waves for ${symbol}`);
+          }
         }
       } catch (error) {
         console.error(`Error loading data for ${symbol}:`, error);
@@ -98,7 +101,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     };
     
     loadData();
-  }, [symbol, navigate]);
+  }, [symbol, navigate, getAnalysis, getHistoricalData]);
   
   const handleBackClick = () => {
     navigate('/');
@@ -172,24 +175,25 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           )}
         </div>
         
+        {!loading && historicalData.length > 0 ? (
+          <StockDetailChart 
+            symbol={symbol || ''} 
+            data={historicalData} 
+            waves={analysis?.waves || []}
+            currentWave={analysis?.currentWave || {} as Wave}
+            fibTargets={analysis?.fibTargets || []}
+          />
+        ) : (
+          <div className="w-full h-[400px] bg-card rounded-lg p-4 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2 mx-auto"></div>
+              <p className="text-muted-foreground">Loading chart data...</p>
+            </div>
+          </div>
+        )}
+        
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            {loading ? (
-              <Skeleton className="h-[500px] w-full rounded-lg" />
-            ) : analysis && historicalData.length > 0 ? (
-              <StockDetailChart
-                symbol={symbol}
-                data={historicalData}
-                waves={analysis.waves}
-                currentWave={analysis.currentWave}
-                fibTargets={analysis.fibTargets}
-              />
-            ) : (
-              <div className="bg-card rounded-lg p-6 flex items-center justify-center h-[500px]">
-                <p className="text-muted-foreground">No chart data available</p>
-              </div>
-            )}
-            
             <div className="mt-6 bg-card rounded-lg p-6">
               <h3 className="text-lg font-semibold mb-4">Elliott Wave Analysis</h3>
               

@@ -4,50 +4,39 @@ import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { ArrowUpRight, ArrowDownRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StockData, fetchHistoricalData, StockHistoricalData } from "@/services/yahooFinanceService";
-import { analyzeElliottWaves, Wave } from "@/utils/elliottWaveAnalysis";
-import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired } from "@/services/databaseService";
+import { analyzeElliottWaves, Wave, WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
+import { storeWaveAnalysis } from "@/services/databaseService";
 import { LightweightChart } from '@/components/LightweightChart';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
+import WaveAnalysis from '@/context/WaveAnalysisContext';
 
 interface StockCardProps {
   stock: StockData;
-  onClick: (stock: StockData) => void;
-  searchQuery?: string;
+  onClick: (stock: StockData, waveAnalysis?: WaveAnalysisResult) => void;
+  searchQuery: string;
 }
 
 const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) => {
+  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
   const [chartData, setChartData] = useState<StockHistoricalData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentWave, setCurrentWave] = useState<Wave | null>(null);
+  const { getHistoricalData } = useHistoricalData();
+  
+  // Get currentWave and waveAnalysis from context
+  const cacheKey = `${stock.symbol}_1d`;
+  const waveAnalysis = analyses[cacheKey];
+  const currentWave = waveAnalysis?.currentWave;
   
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         
-        // Check if we have a cached analysis
-        const cachedAnalysis = retrieveWaveAnalysis(stock.symbol, '1d');
-        
-        if (cachedAnalysis && !isAnalysisExpired(cachedAnalysis.timestamp)) {
-          // Use cached analysis
-          setCurrentWave(cachedAnalysis.analysis.currentWave);
-          
-          // Fetch chart data for display
-          const historicalResponse = await fetchHistoricalData(stock.symbol, '1d');
-          setChartData(historicalResponse.historicalData);
-        } else {
-          // Fetch new data and analyze
-          const historicalResponse = await fetchHistoricalData(stock.symbol, '1d');
-          if (historicalResponse.historicalData.length > 0) {
-            setChartData(historicalResponse.historicalData.slice(-30)); // Only show last 30 days in mini chart
-          } else {
-            console.warn(`No historical data found for ${stock.symbol}`);
-          }
-          
-          const analysis = analyzeElliottWaves(historicalResponse.historicalData);
-          setCurrentWave(analysis.currentWave);
-          
-          // Store the analysis
-          storeWaveAnalysis(stock.symbol, '1d', analysis);
+        // Use the context to get historical data
+        const historicalData = await getHistoricalData(stock.symbol, '1d');
+        if (historicalData.length > 0) {
+          setChartData(historicalData.slice(-30)); // Only show last 30 days in mini chart
         }
       } catch (error) {
         console.error(`Error loading data for ${stock.symbol}:`, error);
@@ -57,7 +46,7 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
     };
     
     loadData();
-  }, [stock.symbol]);
+  }, [stock.symbol, getHistoricalData]);
   
   const priceChange = stock.regularMarketChange;
   const priceChangePercent = stock.regularMarketChangePercent;
@@ -80,6 +69,8 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
   const chartColor = isPositive ? 'var(--bullish)' : 'var(--bearish)';
   
   const handleCardClick = () => {
+    // Pass the stock to the onClick handler - we don't need to pass waveAnalysis
+    // as it's already in the shared context
     onClick(stock);
   };
   
@@ -98,8 +89,11 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
   
   return (
     <Card 
-      className="stock-card cursor-pointer transition-all duration-300 hover:scale-102"
+      className={cn("overflow-hidden hover:shadow-lg transition-shadow", 
+        loading ? "opacity-70" : "")} 
       onClick={handleCardClick}
+      role="button"
+      tabIndex={0}
     >
       <CardContent className="p-4">
         <div className="flex justify-between items-start mb-2">
@@ -121,12 +115,14 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
               {isPositive ? <ArrowUpRight className="w-3 h-3 mr-1" /> : <ArrowDownRight className="w-3 h-3 mr-1" />}
               <span>{formattedChange} ({formattedPercent})</span>
             </div>
-            <div className={cn(
-              "text-xs mt-1",
-              `wave-${stock.wave}`
-            )}>
-              Wave {stock.wave}
-            </div>
+            {currentWave && (
+              <div className={cn(
+                "text-xs mt-1",
+                `wave-${currentWave.number}`
+              )}>
+                Wave {currentWave.number}
+              </div>
+            )}
           </div>
         </div>
         
@@ -141,6 +137,11 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
         ) : (
           <div className="h-24">
             <LightweightChart data={chartData} />
+          </div>
+        )}
+        {currentWave && (
+          <div className="absolute top-2 right-2 px-2 py-1 text-xs bg-background/80 backdrop-blur-sm rounded-md">
+            Wave {currentWave.number}
           </div>
         )}
       </CardContent>
