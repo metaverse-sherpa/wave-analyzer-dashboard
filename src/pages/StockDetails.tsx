@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge"; // Add this import
 import { ArrowLeft, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import StockDetailChart from "@/components/StockDetailChart";
 import AIAnalysis from "@/components/AIAnalysis";
@@ -26,6 +27,8 @@ import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
 import SimpleCandlestickChart from '@/components/SimpleCandlestickChart';
 import WaveAnalysis from '@/context/WaveAnalysisContext';
+import WaveSequencePagination from '@/components/WaveSequencePagination';
+import { Card, CardContent } from "@/components/ui/card";
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -359,6 +362,21 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                       })}
                     </div>
                   </div>
+                  
+                  <Card className="mt-6">
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-lg font-medium">Wave Sequence</h3>
+                          <Badge variant="outline">
+                            {analysis.waves.length} waves detected
+                          </Badge>
+                        </div>
+                        
+                        <WaveSequencePagination waves={analysis.waves} />
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               ) : (
                 <p className="text-muted-foreground">No analysis available</p>

@@ -127,6 +127,12 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             scale="time"
             tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
             stroke="#94a3b8"
+            // Add these properties to fix the duplicate keys
+            ticks={processedChartData
+              .filter((_, index) => index % Math.ceil(processedChartData.length / 6) === 0)
+              .map(d => d.timestamp)}
+            interval="preserveStartEnd"
+            minTickGap={50}
           />
           <YAxis
             domain={[minPrice, maxPrice]}
