@@ -17,7 +17,6 @@ import StockTrendList from './StockTrendList';
 import WavePatternChart from './WavePatternChart';
 import MarketOverview from './MarketOverview';
 import Settings from './Settings'; // Import the new Settings component
-import ApiStatusCheck from './ApiStatusCheck'; // Import the new ApiStatusCheck component
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -139,8 +138,6 @@ const Dashboard: React.FC = () => {
         <Settings /> {/* Add the Settings component here */}
       </div>
       
-      <ApiStatusCheck /> {/* Add the ApiStatusCheck component here */}
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="col-span-1 md:col-span-2">
           <CardHeader>

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { Wave } from '@/types/waves';
+import ApiStatusCheck from '@/components/ApiStatusCheck';
 
 interface ActiveAnalysis {
   symbol: string;
@@ -447,6 +448,19 @@ const AdminDashboard = () => {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5" />
+                API Status
+              </CardTitle>
+              <CardDescription>Backend service health monitoring</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ApiStatusCheck />
             </CardContent>
           </Card>
         </div>

@@ -28,20 +28,34 @@ export const isImpulseWave = (waveNumber: string | number): boolean => {
   }
 };
 
-// Function to prepare wave lines for the chart
+// Add this helper function to find the most recent Wave 1
+const findMostRecentWave1Index = (waves: Wave[]): number => {
+  for (let i = waves.length - 1; i >= 0; i--) {
+    if (waves[i].number === 1) {
+      return i;
+    }
+  }
+  return -1;
+};
+
+// Update the prepareWaveLines function
 export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalData[]) => {
-  console.log(`Preparing wave lines for ${waves.length} waves`);
-  
   if (!waves || waves.length === 0 || !historicalData || historicalData.length === 0) return [];
+  
+  // Find the index of the most recent Wave 1
+  const mostRecentWave1Index = findMostRecentWave1Index(waves);
+  if (mostRecentWave1Index === -1) return [];
+  
+  // Filter waves to only include those after the most recent Wave 1
+  const relevantWaves = waves.slice(mostRecentWave1Index);
+  
+  console.log(`Preparing wave lines for ${relevantWaves.length} waves (from most recent Wave 1)`);
   
   const waveLines = [];
   
-  // Debug info about timestamps
-  console.log(`Historical data time range: ${historicalData[0].timestamp} to ${historicalData[historicalData.length-1].timestamp}`);
-  
-  // Process each wave and create a line for it
-  for (let i = 0; i < waves.length; i++) {
-    const wave = waves[i];
+  // Process each relevant wave
+  for (let i = 0; i < relevantWaves.length; i++) {
+    const wave = relevantWaves[i];
     
     // Skip if we don't have start timestamp
     if (!wave.startTimestamp) continue;
@@ -126,7 +140,7 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
     });
   }
   
-  console.log(`Created ${waveLines.length} wave lines`);
+  console.log(`Created ${waveLines.length} wave lines from most recent Wave 1`);
   return waveLines;
 };
 

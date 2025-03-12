@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { Wave, FibTarget } from "@/utils/elliottWaveAnalysis";
 import {
@@ -6,12 +6,12 @@ import {
   ComposedChart,
   XAxis,
   YAxis,
-  Tooltip,
   CartesianGrid,
   ReferenceLine,
   Line,
   Area,
-  Bar
+  Bar,
+  Brush
 } from 'recharts';
 
 // Make sure to include these imports
@@ -49,7 +49,54 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 }) => {
   const chartRef = useRef<any>(null);
   const [hoveredWave, setHoveredWave] = useState<Wave | null>(null);
-  
+  const [zoomRange, setZoomRange] = useState<{start: number; end: number} | null>(null);
+
+  // Find the most recent Wave 1
+  const mostRecentWave1 = useMemo(() => 
+    [...waves]
+      .sort((a, b) => b.startTimestamp - a.startTimestamp) // Sort by most recent first
+      .find(wave => wave.number === 1),
+    [waves]
+  );
+
+  // Filter data to start from most recent Wave 1
+  const baseData = useMemo(() => {
+    if (!mostRecentWave1 || !data.length) return data;
+    
+    // Find the index where the most recent Wave 1 starts
+    return data.filter(item => item.timestamp >= mostRecentWave1.startTimestamp);
+  }, [data, mostRecentWave1]);
+
+  // Format the filtered data for the chart
+  const processedChartData = useMemo(() => {
+    const formattedData = formatChartData(baseData);
+    return formattedData.map(d => ({
+      ...d,
+      candleHeight: Math.abs(d.close - d.open),
+      candleY: Math.min(d.open, d.close),
+      candleColor: d.close >= d.open ? 'var(--bullish)' : 'var(--bearish)',
+      highValue: d.high,
+      lowValue: d.low
+    }));
+  }, [baseData]);
+
+  // Update display data based on zoom
+  const displayData = useMemo(() => 
+    zoomRange 
+      ? processedChartData.slice(zoomRange.start, zoomRange.end + 1)
+      : processedChartData,
+    [processedChartData, zoomRange]
+  );
+
+  // Calculate price range for y-axis based on display data
+  const { minPrice, maxPrice } = useMemo(() => {
+    const prices = displayData.flatMap(d => [d.high, d.low]);
+    return {
+      minPrice: Math.min(...prices) * 0.98,
+      maxPrice: Math.max(...prices) * 1.02
+    };
+  }, [displayData]);
+
   // Return early if no data available
   if (!data || data.length === 0) {
     return (
@@ -58,49 +105,35 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       </div>
     );
   }
-  
-  // Find the first wave in the sequence (if available)
-  const firstWave = waves.length > 0 ? waves[0] : null;
-  
-  // Filter data to show only from the first wave onwards, if available
-  const filteredData = firstWave 
-    ? data.filter(item => item.timestamp >= firstWave.startTimestamp)
-    : data;
-  
-  // Format the data for the chart
-  const chartData = formatChartData(filteredData);
-  
-  // Process chart data to include candlestick values
-  const processedChartData = chartData.map(d => ({
-    ...d,
-    // Add properties for candlestick rendering
-    candleHeight: Math.abs(d.close - d.open),
-    candleY: Math.min(d.open, d.close),
-    candleColor: d.close >= d.open ? 'var(--bullish)' : 'var(--bearish)',
-    // For high-low lines
-    highValue: d.high,
-    lowValue: d.low
-  }));
-  
+
   // Use our utility function for wave preparation
   const waveLines = prepareWaveLines(waves, data);
     
   // Extract wave numbers for the legend
   const waveNumbers = [...new Set(waves.map(w => w.number))];
-  
-  // Calculate price range for y-axis
-  const prices = filteredData.flatMap(d => [d.high, d.low]);
-  const minPrice = Math.min(...prices) * 0.98; // 2% padding below
-  const maxPrice = Math.max(...prices) * 1.02; // 2% padding above
-  
+
+  // Add function to handle brush change
+  const handleBrushChange = (brushRange: any) => {
+    if (!brushRange) {
+      setZoomRange(null);
+      return;
+    }
+    
+    const { startIndex, endIndex } = brushRange;
+    setZoomRange({
+      start: startIndex,
+      end: endIndex
+    });
+  };
+
   return (
     <div className="w-full h-[500px] bg-chart-background rounded-lg p-4">
       <div className="flex justify-between items-start mb-4">
         <div>
           <h3 className="text-lg font-semibold">{symbol} - Elliott Wave Chart</h3>
           <p className="text-xs text-muted-foreground">
-            {firstWave 
-              ? `Showing Elliott Wave sequence starting from ${new Date(firstWave.startTimestamp * 1000).toLocaleDateString()}` 
+            {mostRecentWave1 
+              ? `Showing Elliott Wave sequence starting from Wave 1 (${new Date(mostRecentWave1.startTimestamp * 1000).toLocaleDateString()})` 
               : `No wave patterns detected`
             }
           </p>
@@ -115,7 +148,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       
       <ResponsiveContainer width="100%" height="85%">
         <ComposedChart
-          data={processedChartData}
+          data={displayData}
           margin={{ top: 20, right: 50, left: 20, bottom: 20 }}
           ref={chartRef}
         >
@@ -140,12 +173,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             orientation="right"
             stroke="#94a3b8"
           />
-          <Tooltip
-            formatter={tooltipFormatter}
-            labelFormatter={(label) => new Date(label).toLocaleDateString()}
-            contentStyle={{ backgroundColor: 'var(--chart-tooltip)', border: 'none' }}
-          />
           
+          {/* Remove Tooltip component */}
+
           {/* METHOD 1: Render price data as a line chart for simplicity */}
           <Line
             type="monotone"
@@ -289,6 +319,20 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           >
             {getWavePatternDescription(waves)}
           </text>
+
+          {/* Enhanced brush for better zooming */}
+          <Brush
+            dataKey="timestamp"
+            height={40}
+            stroke="#8884d8"
+            fill="rgba(136, 132, 216, 0.1)"
+            tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+            startIndex={Math.max(0, processedChartData.length - 90)}
+            travellerWidth={10}
+            gap={1}
+            className="mt-4"
+            onChange={handleBrushChange}
+          />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
