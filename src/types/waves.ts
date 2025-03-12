@@ -1,11 +1,12 @@
 // If this file doesn't exist, create it:
 export interface Wave {
-  number: number | string;
+  number: number | 'A' | 'B' | 'C';
   startTimestamp: number;
-  endTimestamp: number;
-  startPrice?: number;
+  endTimestamp?: number;
+  startPrice: number;
   endPrice?: number;
   type: 'impulse' | 'corrective';
+  isComplete: boolean;
   isImpulse: boolean;
 }
 

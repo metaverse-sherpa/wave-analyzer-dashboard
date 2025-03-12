@@ -259,8 +259,13 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                         </div>
                         <div className="text-xs text-muted-foreground">
                           <div>
-                            Start: ${analysis.currentWave.startPrice.toFixed(2)} 
-                            ({new Date(analysis.currentWave.startTimestamp * 1000).toLocaleDateString()})
+                            Start: {analysis.currentWave?.startPrice !== undefined 
+                              ? `$${analysis.currentWave.startPrice.toFixed(2)}` 
+                              : 'N/A'
+                            } ({analysis.currentWave?.startTimestamp 
+                              ? new Date(analysis.currentWave.startTimestamp * 1000).toLocaleDateString()
+                              : 'N/A'
+                            })
                           </div>
                           <div className="mt-1">
                             Pattern: {analysis.impulsePattern ? 'Impulse (5 waves)' : 

@@ -9,8 +9,26 @@ import { toast } from '@/lib/toast';
 import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { Wave } from '@/types/waves';
+
+interface ActiveAnalysis {
+  symbol: string;
+  startTime: number;
+  waves: Wave[];
+  status: 'running' | 'completed' | 'error';
+}
 
 const AdminDashboard = () => {
+  // Add useEffect for title
+  useEffect(() => {
+    document.title = "EW Analyzer - Admin";
+    // Restore original title when component unmounts
+    return () => {
+      document.title = "EW Analyzer";
+    };
+  }, []);
+
   const [cacheData, setCacheData] = useState<{
     waves: Record<string, any>;
     historical: Record<string, any>;
@@ -21,7 +39,115 @@ const AdminDashboard = () => {
   
   const [selectedData, setSelectedData] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+  const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
+
+  const { analysisEvents } = useWaveAnalysis();
+
+  useEffect(() => {
+    // TypeScript type for our custom events
+    type AnalysisEvent = CustomEvent<{
+      symbol: string;
+      startTime?: number;
+      waves?: Wave[];
+      error?: string;
+    }>;
+
+    const handleAnalysisStart = (e: Event) => {
+      console.log("Analysis start event received");
+      const event = e as AnalysisEvent;
+      const { symbol, startTime = Date.now() } = event.detail;
+      
+      setActiveAnalyses(prev => ({
+        ...prev,
+        [symbol]: {
+          symbol,
+          startTime,
+          waves: [],
+          status: 'running'
+        }
+      }));
+    };
+
+    const handleAnalysisProgress = (e: Event) => {
+      const event = e as AnalysisEvent;
+      const { symbol, waves = [] } = event.detail;
+      console.log(`Progress event received for ${symbol}: ${waves.length} waves`);
+      
+      setActiveAnalyses(prev => {
+        // Only update if we're tracking this analysis
+        if (!prev[symbol]) return prev;
+        
+        return {
+          ...prev,
+          [symbol]: {
+            ...prev[symbol],
+            waves,
+            status: 'running'
+          }
+        };
+      });
+    };
+
+    const handleAnalysisComplete = (e: Event) => {
+      const event = e as AnalysisEvent;
+      const { symbol } = event.detail;
+      console.log(`Completion event received for ${symbol}`);
+      
+      setActiveAnalyses(prev => {
+        if (!prev[symbol]) return prev;
+        
+        return {
+          ...prev,
+          [symbol]: {
+            ...prev[symbol],
+            status: 'completed'
+          }
+        };
+      });
+
+      // Remove completed analysis after delay
+      setTimeout(() => {
+        setActiveAnalyses(prev => {
+          const newState = { ...prev };
+          delete newState[symbol];
+          return newState;
+        });
+      }, 10000);
+    };
+
+    const handleAnalysisError = (e: Event) => {
+      const event = e as AnalysisEvent;
+      const { symbol, error } = event.detail;
+      console.log(`Error event received for ${symbol}: ${error}`);
+      
+      setActiveAnalyses(prev => {
+        if (!prev[symbol]) return prev;
+        
+        return {
+          ...prev,
+          [symbol]: {
+            ...prev[symbol],
+            status: 'error'
+          }
+        };
+      });
+    };
+
+    // Add event listeners
+    analysisEvents.addEventListener('analysisStart', handleAnalysisStart);
+    analysisEvents.addEventListener('analysisProgress', handleAnalysisProgress);
+    analysisEvents.addEventListener('analysisComplete', handleAnalysisComplete);
+    analysisEvents.addEventListener('analysisError', handleAnalysisError);
+
+    // Cleanup
+    return () => {
+      analysisEvents.removeEventListener('analysisStart', handleAnalysisStart);
+      analysisEvents.removeEventListener('analysisProgress', handleAnalysisProgress);
+      analysisEvents.removeEventListener('analysisComplete', handleAnalysisComplete);
+      analysisEvents.removeEventListener('analysisError', handleAnalysisError);
+    };
+  }, [analysisEvents]); // Only depend on analysisEvents
+
   const loadCacheData = () => {
     setIsRefreshing(true);
     try {
@@ -247,6 +373,58 @@ const AdminDashboard = () => {
                   <span>{cacheStats.oldestHistorical.key ? getAgeString(cacheStats.oldestHistorical.timestamp) : 'N/A'}</span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5 animate-pulse" />
+                Active Analyses
+              </CardTitle>
+              <CardDescription>Real-time wave detection monitoring</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {Object.keys(activeAnalyses).length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-4">
+                  No active wave analyses
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {Object.entries(activeAnalyses).map(([symbol, analysis]) => (
+                    <div key={symbol} className="border rounded-lg p-3">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="font-medium">{symbol}</span>
+                        <Badge variant="outline" className={
+                          analysis.status === 'running' ? 'bg-blue-50 text-blue-700' :
+                          analysis.status === 'completed' ? 'bg-green-50 text-green-700' :
+                          'bg-red-50 text-red-700'
+                        }>
+                          {analysis.status}
+                        </Badge>
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          Started: {new Date(analysis.startTime).toLocaleTimeString()}
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {analysis.waves.map((wave, index) => (
+                            <Badge 
+                              key={index} 
+                              variant="outline" 
+                              className={`wave-${wave.number} text-xs`}
+                            >
+                              Wave {wave.number}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

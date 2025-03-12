@@ -6,59 +6,52 @@ import type { WaveAnalysisResult } from '../types/waves';
 interface WorkerMessage {
   data: StockHistoricalData[];
   id: number;
+  symbol: string;
 }
 
 // Define the response structure
 interface WorkerResponse {
   result: WaveAnalysisResult;
   id: number;
+  symbol: string;
 }
 
 // Define the error response structure
 interface WorkerErrorResponse {
   error: string;
   id: number;
+  symbol: string;
 }
 
 // Handle incoming messages from the main thread
 self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
-  const { data, id } = event.data;
+  const { data, id, symbol } = event.data;
   
   try {
-    console.log(`Worker: Starting analysis for request #${id} with ${data.length} data points`);
+    console.log(`Worker: Starting analysis for ${symbol} (request #${id}) with ${data.length} data points`);
     
-    // Aggressive data reduction to prevent timeouts
-    let processData = data;
-    if (data.length > 100) {
-      const sampleFactor = Math.ceil(data.length / 100);
-      processData = data.filter((_, index) => index % sampleFactor === 0);
-      console.log(`Worker: Reduced data from ${data.length} to ${processData.length} points for analysis`);
-    }
-    
-    // Log each step of the analysis for debugging
-    console.log(`Worker: Finding pivots...`);
-    const pivots = findPivots(processData, 0.03); // Use a lower threshold
-    
-    console.log(`Worker: Found ${pivots.length} pivots, identifying waves...`);
-    const waves = identifyWaves(pivots, processData);
-    
-    console.log(`Worker: Identified ${waves.length} waves, finalizing analysis...`);
-    const result = completeAnalysis(waves, processData);
-    
-    console.log(`Worker: Analysis complete, found ${result.waves.length} waves`);
-    
-    // Send the result back to the main thread
-    const response: WorkerResponse = { result, id };
-    self.postMessage(response);
-  } catch (error) {
-    console.error(`Worker: Error analyzing data:`, error);
-    
-    // Send error response back to main thread
-    const errorResponse: WorkerErrorResponse = { 
-      error: error instanceof Error ? error.message : String(error), 
-      id 
+    // Add progress handler that posts back to main thread
+    const handleProgress = (waves: Wave[]) => {
+      self.postMessage({
+        type: 'progress',
+        id,
+        symbol,
+        waves
+      });
     };
-    self.postMessage(errorResponse);
+
+    const result = analyzeElliottWaves(data, handleProgress);
+    
+    // Send final result
+    self.postMessage({ type: 'complete', result, id, symbol });
+  } catch (error) {
+    console.error(`Worker: Error analyzing data for ${symbol}:`, error);
+    self.postMessage({ 
+      type: 'error',
+      error: error instanceof Error ? error.message : String(error),
+      id,
+      symbol
+    });
   }
 });
 
