@@ -53,11 +53,13 @@ const createWorker = () => {
   }
 };
 
-const worker = createWorker();
+let worker = createWorker();
 
-// Add timeout configuration
-const WORKER_TIMEOUT_MS = 120000; // 120 seconds (2 minutes)
+// Update these constants for better worker reliability
+const WORKER_TIMEOUT_MS = 30000; // Increase to 30 seconds
+const HEARTBEAT_MAX_DELAY = 5000; // Increase to 5 seconds
 const LOW_MEMORY_WORKER_TIMEOUT_MS = 60000; // 60 seconds for low memory mode
+const BATCH_SIZE = 500; // Reduce batch size for better responsiveness
 
 // Add this helper function to generate an empty analysis result
 const generateEmptyAnalysisResult = (): WaveAnalysisResult => {
@@ -69,6 +71,96 @@ const generateEmptyAnalysisResult = (): WaveAnalysisResult => {
     impulsePattern: false,
     correctivePattern: false
   };
+};
+
+// Add after the generateEmptyAnalysisResult function
+const createSimpleWavePattern = (data: StockHistoricalData[]): WaveAnalysisResult => {
+  // Enhanced validation
+  if (!data || !Array.isArray(data)) {
+    console.warn('Invalid data provided to createSimpleWavePattern: data is null or not an array');
+    return generateEmptyAnalysisResult();
+  }
+
+  // Filter out invalid data points
+  const validData = data.filter(point => (
+    point &&
+    typeof point.timestamp === 'number' &&
+    typeof point.close === 'number' &&
+    typeof point.high === 'number' &&
+    typeof point.low === 'number'
+  ));
+
+  if (validData.length < 3) {
+    console.warn(`Insufficient valid data points: ${validData.length}`);
+    return generateEmptyAnalysisResult();
+  }
+
+  try {
+    const third = Math.floor(validData.length / 3);
+    const twoThirds = Math.floor(2 * validData.length / 3);
+
+    // Ensure we have enough data points
+    if (third === 0 || twoThirds === 0) {
+      console.warn('Data segments too small for wave pattern');
+      return generateEmptyAnalysisResult();
+    }
+
+    const waves: Wave[] = [
+      {
+        number: 1,
+        startTimestamp: validData[0].timestamp,
+        endTimestamp: validData[third].timestamp,
+        startPrice: validData[0].close,
+        endPrice: validData[third].close,
+        type: 'impulse',
+        isComplete: true,
+        isImpulse: true
+      },
+      {
+        number: 2,
+        startTimestamp: validData[third].timestamp,
+        endTimestamp: validData[twoThirds].timestamp,
+        startPrice: validData[third].close,
+        endPrice: validData[twoThirds].close,
+        type: 'corrective',
+        isComplete: true,
+        isImpulse: false
+      },
+      {
+        number: 3,
+        startTimestamp: validData[twoThirds].timestamp,
+        endTimestamp: validData[validData.length - 1].timestamp,
+        startPrice: validData[twoThirds].close,
+        endPrice: validData[validData.length - 1].close,
+        type: 'impulse',
+        isComplete: false,
+        isImpulse: true
+      }
+    ];
+
+    // Ensure the wave pattern follows basic Elliott Wave rules
+    const trend = validData[validData.length - 1].close > validData[0].close ? 'bullish' : 'bearish';
+    
+    // If bearish, reverse wave types
+    if (trend === 'bearish') {
+      waves.forEach(wave => {
+        wave.type = wave.type === 'impulse' ? 'corrective' : 'impulse';
+        wave.isImpulse = !wave.isImpulse;
+      });
+    }
+
+    return {
+      waves,
+      currentWave: waves[waves.length - 1],
+      fibTargets: [],
+      trend,
+      impulsePattern: true,
+      correctivePattern: false
+    };
+  } catch (error) {
+    console.error('Error creating simple wave pattern:', error);
+    return generateEmptyAnalysisResult();
+  }
 };
 
 // Add to WaveAnalysisContext.tsx
@@ -104,77 +196,94 @@ function WaveAnalysisProvider({
   // Create a worker analysis function that has access to analysisEvents
   const workerAnalyzeElliottWaves = (data: StockHistoricalData[], symbol: string): Promise<WaveAnalysisResult> => {
     return new Promise((resolve, reject) => {
-      console.log(`Starting wave analysis for ${symbol} with ${data.length} data points`);
-
-      // Emit start event
+      if (!worker) {
+        console.log(`Using direct analysis (no web worker) for ${symbol}`);
+        return resolve(analyzeElliottWaves(data));
+      }
+  
+      // Emit analysis start event
       analysisEvents.dispatchEvent(new CustomEvent('analysisStart', {
         detail: { symbol, startTime: Date.now() }
       }));
-
-      // If no worker available, use direct analysis
-      if (!worker) {
-        console.log(`Using direct analysis (no web worker) for ${symbol}`);
-        try {
-          const result = analyzeElliottWaves(data);
-          resolve(result);
-        } catch (err) {
-          reject(err);
-        }
-        return;
-      }
-
+  
       const id = Date.now();
-      const timeoutDuration = 30000; // Reduced to 30 seconds
-
-      const timeout = setTimeout(() => {
-        worker.removeEventListener('message', handler);
-        console.warn(`Worker analysis for ${symbol} timed out after ${timeoutDuration/1000} seconds, falling back to main thread`);
-        
-        try {
-          // Validate data before analysis
-          if (!data || data.length === 0) {
-            throw new Error("Invalid data for analysis");
+      let lastHeartbeat = Date.now();
+      let hasResponded = false;
+      let progressWaves: Wave[] = [];
+  
+      // More robust health monitoring
+      const healthCheck = setInterval(() => {
+        const timeSinceHeartbeat = Date.now() - lastHeartbeat;
+        if (timeSinceHeartbeat > HEARTBEAT_MAX_DELAY) {
+          console.warn(`Worker appears stuck for ${symbol}, no heartbeat for ${timeSinceHeartbeat}ms`);
+          
+          // Only recover if we haven't already responded
+          if (!hasResponded) {
+            hasResponded = true;
+            clearInterval(healthCheck);
+            worker?.removeEventListener('message', handler);
+            
+            // Terminate and recreate worker
+            worker?.terminate();
+            worker = createWorker();
+            
+            // Use fallback analysis
+            const result = analyzeElliottWaves(data);
+            analysisEvents.dispatchEvent(new CustomEvent('analysisComplete', {
+              detail: { symbol, result }
+            }));
+            resolve(result);
           }
-          
-          // Use the simple pattern directly instead of trying direct analysis
-          const result = createSimpleWavePattern(data);
-          resolve(result);
-          
-        } catch (err) {
-          console.error(`Fallback analysis failed for ${symbol}:`, err);
-          // Return empty result instead of trying to create partial waves
-          resolve(generateEmptyAnalysisResult());
         }
-      }, timeoutDuration);
-
+      }, 1000);
+  
       const handler = (event: MessageEvent) => {
+        if (event.data.type === 'heartbeat') {
+          lastHeartbeat = event.data.timestamp;
+          return;
+        }
+  
         if (event.data.id === id) {
           if (event.data.type === 'progress') {
+            progressWaves = event.data.waves || progressWaves;
             analysisEvents.dispatchEvent(new CustomEvent('analysisProgress', {
-              detail: { symbol, waves: event.data.waves }
+              detail: { symbol, waves: progressWaves }
             }));
             return;
           }
-
-          clearTimeout(timeout);
-          worker.removeEventListener('message', handler);
-          
-          if (event.data.error) {
-            // Try fallback on worker error
-            try {
+  
+          if (!hasResponded) {
+            hasResponded = true;
+            clearInterval(healthCheck);
+            worker?.removeEventListener('message', handler);
+  
+            if (event.data.error) {
+              console.warn(`Worker error for ${symbol}, using fallback`);
               const result = analyzeElliottWaves(data);
               resolve(result);
-            } catch (err) {
-              reject(new Error(event.data.error));
+            } else {
+              resolve(event.data.result);
             }
-          } else {
-            resolve(event.data.result);
           }
         }
       };
-
+  
       worker.addEventListener('message', handler);
-      worker.postMessage({ data, id, symbol });
+  
+      // Send data to worker in smaller chunks
+      const chunkSize = BATCH_SIZE;
+      const chunks = [];
+      for (let i = 0; i < data.length; i += chunkSize) {
+        chunks.push(data.slice(i, Math.min(i + chunkSize, data.length)));
+      }
+  
+      worker.postMessage({ 
+        data: chunks.length > 1 ? chunks[0] : data,
+        id,
+        symbol,
+        isFirstChunk: true,
+        totalChunks: chunks.length
+      });
     });
   };
 
@@ -279,28 +388,31 @@ function WaveAnalysisProvider({
       // If forced refresh or not in cache or expired, fetch data and analyze
       const analysisPromise = (async () => {
         try {
-          let historicalData = await fetchHistoricalData(symbol, timeframe);
+          const response = await fetchHistoricalData(symbol, timeframe);
           
-          // Pass progress handler to worker
-          const result = await workerAnalyzeElliottWaves(historicalData, symbol);
-
-          // Dispatch progress events as waves are found
-          if (result.waves.length > 0) {
-            analysisEvents.dispatchEvent(new CustomEvent('analysisProgress', {
-              detail: { 
-                symbol, 
-                waves: result.waves 
-              }
-            }));
+          // Extract historical data from response
+          const historicalData = Array.isArray(response) 
+            ? response 
+            : response.historicalData;
+          
+          if (!historicalData || !Array.isArray(historicalData)) {
+            console.error(`Invalid historical data format for ${symbol}`);
+            return generateEmptyAnalysisResult();
           }
 
-          // Dispatch completion event
-          analysisEvents.dispatchEvent(new CustomEvent('analysisComplete', {
-            detail: { 
-              symbol, 
-              result 
-            }
-          }));
+          // Pass the historical data array to worker
+          const result = await workerAnalyzeElliottWaves(historicalData, symbol);
+
+          // Store result in cache if valid
+          if (result.waves.length > 0) {
+            storeWaveAnalysis(symbol, timeframe, result);
+            
+            // Update in-memory cache
+            setAnalyses(prev => ({
+              ...prev,
+              [cacheKey]: result
+            }));
+          }
 
           return result;
         } catch (error) {

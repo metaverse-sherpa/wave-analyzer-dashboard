@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,15 +20,7 @@ interface ActiveAnalysis {
 }
 
 const AdminDashboard = () => {
-  // Add useEffect for title
-  useEffect(() => {
-    document.title = "EW Analyzer - Admin";
-    // Restore original title when component unmounts
-    return () => {
-      document.title = "EW Analyzer";
-    };
-  }, []);
-
+  // Group all useState hooks together
   const [cacheData, setCacheData] = useState<{
     waves: Record<string, any>;
     historical: Record<string, any>;
@@ -36,15 +28,68 @@ const AdminDashboard = () => {
     waves: {},
     historical: {}
   });
-  
   const [selectedData, setSelectedData] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
 
-  const { analysisEvents } = useWaveAnalysis();
+  // Get context values
+  const { analysisEvents, getAnalysis } = useWaveAnalysis();
 
+  // Calculate cache statistics using useMemo
+  const cacheStats = useMemo(() => ({
+    waveEntryCount: Object.keys(cacheData.waves).length,
+    histEntryCount: Object.keys(cacheData.historical).length,
+    totalSize: Math.round(
+      (
+        JSON.stringify(cacheData.waves).length +
+        JSON.stringify(cacheData.historical).length
+      ) / 1024
+    ),
+    oldestWave: Object.entries(cacheData.waves).reduce((oldest, [key, data]) => {
+      return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
+    }, { key: '', timestamp: Date.now() }),
+    oldestHistorical: Object.entries(cacheData.historical).reduce((oldest, [key, data]) => {
+      return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
+    }, { key: '', timestamp: Date.now() })
+  }), [cacheData]);
+
+  // Handlers
+  const analyzeWaves = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const currentStocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'];
+      
+      toast.success('Starting wave analysis...');
+      
+      for (const symbol of currentStocks) {
+        try {
+          await new Promise(r => setTimeout(r, 500));
+          await getAnalysis(symbol, '1d', true);
+        } catch (err) {
+          console.error(`Failed to analyze ${symbol}:`, err);
+        }
+      }
+      
+      loadCacheData();
+      toast.success('Wave analysis completed');
+    } catch (error) {
+      console.error('Error analyzing waves:', error);
+      toast.error('Failed to analyze waves');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [getAnalysis]);
+
+  // Title effect
   useEffect(() => {
-    // TypeScript type for our custom events
+    document.title = "EW Analyzer - Admin";
+    return () => {
+      document.title = "EW Analyzer";
+    };
+  }, []);
+
+  // Analysis events effect
+  useEffect(() => {
     type AnalysisEvent = CustomEvent<{
       symbol: string;
       startTime?: number;
@@ -53,7 +98,6 @@ const AdminDashboard = () => {
     }>;
 
     const handleAnalysisStart = (e: Event) => {
-      console.log("Analysis start event received");
       const event = e as AnalysisEvent;
       const { symbol, startTime = Date.now() } = event.detail;
       
@@ -71,41 +115,29 @@ const AdminDashboard = () => {
     const handleAnalysisProgress = (e: Event) => {
       const event = e as AnalysisEvent;
       const { symbol, waves = [] } = event.detail;
-      console.log(`Progress event received for ${symbol}: ${waves.length} waves`);
       
-      setActiveAnalyses(prev => {
-        // Only update if we're tracking this analysis
-        if (!prev[symbol]) return prev;
-        
-        return {
-          ...prev,
-          [symbol]: {
-            ...prev[symbol],
-            waves,
-            status: 'running'
-          }
-        };
-      });
+      setActiveAnalyses(prev => ({
+        ...prev,
+        [symbol]: {
+          ...prev[symbol],
+          waves,
+          status: 'running'
+        }
+      }));
     };
 
     const handleAnalysisComplete = (e: Event) => {
       const event = e as AnalysisEvent;
       const { symbol } = event.detail;
-      console.log(`Completion event received for ${symbol}`);
       
-      setActiveAnalyses(prev => {
-        if (!prev[symbol]) return prev;
-        
-        return {
-          ...prev,
-          [symbol]: {
-            ...prev[symbol],
-            status: 'completed'
-          }
-        };
-      });
+      setActiveAnalyses(prev => ({
+        ...prev,
+        [symbol]: {
+          ...prev[symbol],
+          status: 'completed'
+        }
+      }));
 
-      // Remove completed analysis after delay
       setTimeout(() => {
         setActiveAnalyses(prev => {
           const newState = { ...prev };
@@ -118,19 +150,14 @@ const AdminDashboard = () => {
     const handleAnalysisError = (e: Event) => {
       const event = e as AnalysisEvent;
       const { symbol, error } = event.detail;
-      console.log(`Error event received for ${symbol}: ${error}`);
       
-      setActiveAnalyses(prev => {
-        if (!prev[symbol]) return prev;
-        
-        return {
-          ...prev,
-          [symbol]: {
-            ...prev[symbol],
-            status: 'error'
-          }
-        };
-      });
+      setActiveAnalyses(prev => ({
+        ...prev,
+        [symbol]: {
+          ...prev[symbol],
+          status: 'error'
+        }
+      }));
     };
 
     // Add event listeners
@@ -146,7 +173,7 @@ const AdminDashboard = () => {
       analysisEvents.removeEventListener('analysisComplete', handleAnalysisComplete);
       analysisEvents.removeEventListener('analysisError', handleAnalysisError);
     };
-  }, [analysisEvents]); // Only depend on analysisEvents
+  }, [analysisEvents]);
 
   const loadCacheData = () => {
     setIsRefreshing(true);
@@ -191,24 +218,6 @@ const AdminDashboard = () => {
   // Format data for display
   const formatJson = (obj: any) => {
     return JSON.stringify(obj, null, 2);
-  };
-  
-  // Calculate cache statistics
-  const cacheStats = {
-    waveEntryCount: Object.keys(cacheData.waves).length,
-    histEntryCount: Object.keys(cacheData.historical).length,
-    totalSize: Math.round(
-      (
-        JSON.stringify(cacheData.waves).length +
-        JSON.stringify(cacheData.historical).length
-      ) / 1024
-    ),
-    oldestWave: Object.entries(cacheData.waves).reduce((oldest, [key, data]) => {
-      return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
-    }, { key: '', timestamp: Date.now() }),
-    oldestHistorical: Object.entries(cacheData.historical).reduce((oldest, [key, data]) => {
-      return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
-    }, { key: '', timestamp: Date.now() })
   };
   
   // Clear wave analysis cache
@@ -269,7 +278,7 @@ const AdminDashboard = () => {
       }
     }
   };
-  
+
   return (
     <div className="container mx-auto p-4">
       <div className="flex items-center justify-between mb-6">
@@ -341,16 +350,29 @@ const AdminDashboard = () => {
               <CardDescription>Clear and maintain cached data</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button 
-                onClick={clearWaveCache}
-                variant="destructive"
-                size="sm"
-                className="w-full"
-                disabled={isRefreshing || cacheStats.waveEntryCount === 0}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Clear Wave Analysis Cache
-              </Button>
+              {cacheStats.waveEntryCount > 0 ? (
+                <Button 
+                  onClick={clearWaveCache}
+                  variant="destructive"
+                  size="sm"
+                  className="w-full"
+                  disabled={isRefreshing}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Clear Wave Analysis Cache
+                </Button>
+              ) : (
+                <Button 
+                  onClick={analyzeWaves}
+                  variant="default"
+                  size="sm"
+                  className="w-full"
+                  disabled={isRefreshing}
+                >
+                  <Activity className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  {isRefreshing ? 'Analyzing...' : 'Analyze Waves'}
+                </Button>
+              )}
               
               <Button 
                 onClick={clearHistoricalCache}

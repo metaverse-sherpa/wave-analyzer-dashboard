@@ -62,31 +62,28 @@ const Settings: React.FC = () => {
   const refreshCurrentAnalysis = async () => {
     setIsRefreshing(true);
     try {
-      // Get list of stocks to refresh
       const currentStocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'];
       
-      // Show toast to indicate refresh is starting
       toast({
         title: "Starting Analysis Refresh",
         description: "Please wait while we refresh the analysis...",
       });
       
-      // Clear their cache entries one by one
-      for (const symbol of currentStocks) {
-        const cacheKey = `wave_analysis_${symbol}_1d`;
-        localStorage.removeItem(cacheKey);
-      }
-      
-      // Force re-analyze each stock with forceRefresh=true
+      // Process one stock at a time
       for (const symbol of currentStocks) {
         try {
+          // Clear cache for this symbol
+          localStorage.removeItem(`wave_analysis_${symbol}_1d`);
+          
+          // Add a small delay before analysis
+          await new Promise(r => setTimeout(r, 500));
+          
+          // Force refresh analysis
           await getAnalysis(symbol, '1d', true);
           console.log(`Successfully refreshed analysis for ${symbol}`);
         } catch (err) {
           console.error(`Failed to refresh ${symbol}:`, err);
         }
-        // Add a small delay between analyses
-        await new Promise(r => setTimeout(r, 300));
       }
       
       toast({

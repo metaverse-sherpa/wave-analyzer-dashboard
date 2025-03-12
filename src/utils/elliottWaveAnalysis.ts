@@ -72,6 +72,35 @@ const calculateFibExtension = (startPrice: number, endPrice: number): FibTarget[
   }));
 };
 
+// Add this function after the other Fibonacci calculation functions
+const calculateFibTargetsForWaves = (waves: Wave[], data: StockHistoricalData[]): FibTarget[] => {
+  if (waves.length < 2) return [];
+
+  const fibTargets: FibTarget[] = [];
+  const lastWave = waves[waves.length - 1];
+  const previousWave = waves[waves.length - 2];
+
+  // Calculate retracements based on the last completed move
+  if (previousWave.startPrice && previousWave.endPrice) {
+    const retracementLevels = calculateFibRetracement(
+      previousWave.startPrice,
+      previousWave.endPrice
+    );
+    fibTargets.push(...retracementLevels);
+  }
+
+  // Add extensions if we're in an impulse wave
+  if (lastWave.isImpulse && lastWave.startPrice) {
+    const extensionLevels = calculateFibExtension(
+      lastWave.startPrice,
+      lastWave.endPrice || data[data.length - 1].close
+    );
+    fibTargets.push(...extensionLevels);
+  }
+
+  return fibTargets;
+};
+
 /**
  * Improved function to identify significant pivots in price data using proper high/low values
  * Ensures at least 2 candles on each side of a pivot point
@@ -248,11 +277,9 @@ export const analyzeElliottWaves = (
 
   try {
     // Sample data if needed
-    let processData = validData;
-    if (validData.length > 200) {
-      const sampleFactor = Math.ceil(validData.length / 200);
-      processData = validData.filter((_, index) => index % sampleFactor === 0);
-    }
+    const processData = validData.length > 200 
+      ? validData.filter((_, index) => index % Math.ceil(validData.length / 200) === 0)
+      : validData;
 
     // Find pivot points
     const pivots = findPivots(processData, 0.03);
@@ -273,7 +300,7 @@ export const analyzeElliottWaves = (
 
   } catch (error) {
     console.error("Error in wave analysis:", error);
-    return createSimpleWavePattern(processData);
+    return createSimpleWavePattern(validData);
   }
 };
 

@@ -7,6 +7,7 @@ interface WorkerMessage {
   data: StockHistoricalData[];
   id: number;
   symbol: string;
+  isSampled?: boolean;
 }
 
 // Define the response structure
@@ -23,29 +24,96 @@ interface WorkerErrorResponse {
   symbol: string;
 }
 
-// Handle incoming messages from the main thread
+// Add memory monitoring and chunked processing
+let heartbeatInterval: number;
+const CHUNK_SIZE = 500;
+const HEARTBEAT_INTERVAL = 1000; // 1 second
+
+const startHeartbeat = () => {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  
+  heartbeatInterval = setInterval(() => {
+    // Include memory usage if available
+    const memoryInfo = (performance as any).memory 
+      ? {
+          usedJSHeapSize: (performance as any).memory.usedJSHeapSize,
+          jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit
+        }
+      : null;
+
+    self.postMessage({ 
+      type: 'heartbeat', 
+      timestamp: Date.now(),
+      status: 'working',
+      memoryInfo
+    });
+  }, HEARTBEAT_INTERVAL);
+};
+
 self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
   const { data, id, symbol } = event.data;
   
   try {
-    console.log(`Worker: Starting analysis for ${symbol} (request #${id}) with ${data.length} data points`);
+    console.log(`Worker: Starting analysis for ${symbol} with ${data.length} points`);
+    startHeartbeat();
     
-    // Add progress handler that posts back to main thread
-    const handleProgress = (waves: Wave[]) => {
-      self.postMessage({
-        type: 'progress',
-        id,
-        symbol,
-        waves
-      });
+    // Send initial progress
+    self.postMessage({
+      type: 'progress',
+      id,
+      symbol,
+      progress: 0,
+      waves: []
+    });
+
+    // Process data in chunks
+    const processDataChunks = async () => {
+      const chunks = [];
+      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+        const chunk = data.slice(i, i + CHUNK_SIZE);
+        chunks.push(chunk);
+        
+        // Send progress update
+        self.postMessage({
+          type: 'progress',
+          id,
+          symbol,
+          progress: Math.round((i / data.length) * 100),
+          status: 'processing'
+        });
+
+        // Allow other messages to be processed
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      return chunks;
     };
 
-    const result = analyzeElliottWaves(data, handleProgress);
-    
-    // Send final result
-    self.postMessage({ type: 'complete', result, id, symbol });
+    // Process chunks and analyze
+    processDataChunks().then(chunks => {
+      const result = analyzeElliottWaves(data, (waves) => {
+        // Report wave progress
+        self.postMessage({
+          type: 'progress',
+          id,
+          symbol,
+          waves,
+          status: 'analyzing'
+        });
+      });
+      
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      
+      self.postMessage({ 
+        type: 'complete', 
+        result, 
+        id, 
+        symbol 
+      });
+    });
+
   } catch (error) {
-    console.error(`Worker: Error analyzing data for ${symbol}:`, error);
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    console.error(`Worker: Error analyzing ${symbol}:`, error);
     self.postMessage({ 
       type: 'error',
       error: error instanceof Error ? error.message : String(error),
@@ -93,3 +161,9 @@ function completeAnalysis(waves: Wave[], data: StockHistoricalData[]): WaveAnaly
 console.log('Elliott Wave Analysis worker initialized');
 
 const MAX_EXECUTION_TIME = 100000; // 100 seconds max for wave identification
+
+// Send ready message when worker starts
+self.postMessage({ 
+  type: 'ready', 
+  timestamp: Date.now() 
+});
