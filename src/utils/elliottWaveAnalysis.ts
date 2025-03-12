@@ -433,6 +433,24 @@ const completeWaveAnalysis = (
       isImpulse: shouldBeImpulse
     };
     
+    // CHECK FOR WAVE 1 DIRECTION 
+    // Wave 1 must move upward in bullish patterns
+    if (waveNumber === 1) {
+      // Ensure the prices are defined before comparison
+      if (wave.endPrice !== undefined && wave.startPrice !== undefined) {
+        if (wave.endPrice <= wave.startPrice) {
+          console.log("Wave 1 violated Elliott rule: must move upward in bullish patterns");
+          // Instead of skipping completely, mark it but still add to provide visualization
+          wave.type = 'corrective'; // Mark as invalid impulse
+          
+          // Add it to waves but don't increment wave count - will try to find another Wave 1
+          waves.push(wave);
+          // Don't increment waveCount so we look for another Wave 1
+          continue; 
+        }
+      }
+    }
+
     // Check if the actual price movement aligns with what we'd expect
     const isProperDirection = (shouldBeUp === isUpMove);
     
@@ -505,6 +523,12 @@ export const analyzeElliottWaves = (
   onProgress?: (waves: Wave[]) => void
 ): WaveAnalysisResult => {
   console.log(`Starting wave analysis with ${data.length} data points`);
+  
+  // Debug quality of data
+  if (data.length > 0) {
+    console.log(`First point: ${new Date(data[0].timestamp).toLocaleDateString()} Last point: ${new Date(data[data.length-1].timestamp).toLocaleDateString()}`);
+    console.log(`Price range: ${Math.min(...data.map(d => d.low))} to ${Math.max(...data.map(d => d.high))}`);
+  }
   
   // Create a cache key based on first/last timestamps and prices
   // This was missing and causing the reference error
