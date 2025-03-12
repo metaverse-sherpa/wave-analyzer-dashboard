@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Wave } from "@/types/waves";
@@ -14,10 +14,15 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
 }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const wavesPerPage = 5;
-  const pageCount = Math.ceil(waves.length / wavesPerPage);
   
+  // Sort waves by start time (most recent first)
+  const sortedWaves = useMemo(() => {
+    return [...waves].sort((a, b) => b.startTimestamp - a.startTimestamp);
+  }, [waves]);
+  
+  const pageCount = Math.ceil(sortedWaves.length / wavesPerPage);
   const startIndex = currentPage * wavesPerPage;
-  const displayedWaves = waves.slice(startIndex, startIndex + wavesPerPage);
+  const displayedWaves = sortedWaves.slice(startIndex, startIndex + wavesPerPage);
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleDateString();
@@ -33,7 +38,6 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Wave List */}
       <div className="space-y-1">
         {displayedWaves.map((wave, index) => (
           <div 
@@ -69,8 +73,6 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
           </div>
         ))}
       </div>
-
-      {/* Pagination Controls */}
       <div className="flex justify-between items-center pt-2">
         <Button
           variant="outline"

@@ -11,9 +11,9 @@ const WavePatternChart: React.FC = () => {
       1: 0, 2: 0, 3: 0, 4: 0, 5: 0, A: 0, B: 0, C: 0
     };
     
-    // Count occurrences of each wave number
+    // Count occurrences of each wave number with null checks
     Object.values(analyses).forEach(analysis => {
-      if (analysis.currentWave && analysis.currentWave.number) {
+      if (analysis && analysis.currentWave && analysis.currentWave.number) {
         const waveNumber = analysis.currentWave.number;
         if (waveCounts[waveNumber] !== undefined) {
           waveCounts[waveNumber]++;

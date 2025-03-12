@@ -12,15 +12,18 @@ const StockTrendList: React.FC<StockTrendListProps> = () => {
   
   // Get stocks with the strongest trends
   const trendingStocks = Object.entries(analyses)
-    .filter(([key, analysis]) => key.includes('_1d') && analysis.waves.length > 0)
+    .filter(([key, analysis]) => 
+      // Add proper null checks
+      key.includes('_1d') && analysis && analysis.waves && analysis.waves.length > 0)
     .map(([key, analysis]) => {
       const symbol = key.split('_')[0];
       return {
         symbol,
-        trend: analysis.trend,
-        currentWave: analysis.currentWave,
-        waveCount: analysis.waves.length,
-        patternType: analysis.impulsePattern ? 'impulse' : analysis.correctivePattern ? 'corrective' : 'undefined'
+        trend: analysis.trend || 'neutral',
+        currentWave: analysis.currentWave || null,
+        waveCount: analysis.waves?.length || 0,
+        patternType: analysis.impulsePattern ? 'impulse' : 
+                     analysis.correctivePattern ? 'corrective' : 'undefined'
       };
     })
     .sort((a, b) => b.waveCount - a.waveCount)

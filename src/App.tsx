@@ -48,6 +48,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { KillSwitchProvider, useKillSwitch } from './context/KillSwitchContext';
 import DataInitializer from './context/DataInitializer';
 import AdminDashboard from "./pages/Admin";
+import { toast } from '@/lib/toast';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -232,7 +233,10 @@ const App = () => {
       if (loadState === 'loading') {
         console.log('Forcing app to load after timeout');
         setLoadState('success');
-        toast.warning('Data loading timed out, but app will continue. Some features may be limited.');
+        toast({
+          title: "Loading timeout",
+          description: "Data loading timed out, but app will continue. Some features may be limited."
+        });
       }
     }, 20000);
     

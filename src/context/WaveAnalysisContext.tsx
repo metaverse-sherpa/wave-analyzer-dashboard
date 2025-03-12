@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { WaveAnalysisResult } from '@/utils/elliottWaveAnalysis';
 import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired, getAllAnalyses } from '@/services/databaseService';
 import { fetchHistoricalData } from '@/services/yahooFinanceService';
 import { analyzeElliottWaves } from '@/utils/elliottWaveAnalysis';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
 
 interface WaveAnalysisContextType {
   analyses: Record<string, WaveAnalysisResult>;
@@ -11,6 +12,8 @@ interface WaveAnalysisContextType {
   preloadAnalyses: (symbols: string[]) => Promise<void>;
   clearCache: () => void; // New method to clear cache
   analysisEvents: EventTarget; // Add this
+  cancelAllAnalyses: () => void; // Add this
+  hasActiveAnalyses: boolean; // Add this
 }
 
 // Create context with default values
@@ -20,7 +23,9 @@ const WaveAnalysisContext = createContext<WaveAnalysisContextType>({
   isLoading: false,
   preloadAnalyses: async () => {},
   clearCache: () => {}, // Default implementation
-  analysisEvents: new EventTarget() // Default implementation
+  analysisEvents: new EventTarget(), // Default implementation
+  cancelAllAnalyses: () => {}, // Default implementation
+  hasActiveAnalyses: false // Default implementation
 });
 
 // Create a custom hook to use the context
@@ -34,7 +39,9 @@ export const useWaveAnalysis = () => {
       isLoading: false,
       getAnalysis: async () => null,
       preloadAnalyses: async () => {},
-      analysisEvents: new EventTarget()
+      analysisEvents: new EventTarget(),
+      cancelAllAnalyses: () => {},
+      hasActiveAnalyses: false
     };
   }
   return context;
@@ -190,8 +197,8 @@ function WaveAnalysisProvider({
   children: React.ReactNode, 
   killSwitch?: boolean 
 }) {
-  // Move analysisEvents creation to the top of the provider
   const analysisEvents = useMemo(() => new EventTarget(), []);
+  const { getHistoricalData } = useHistoricalData(); // Add this line
   
   // Create a worker analysis function that has access to analysisEvents
   const workerAnalyzeElliottWaves = (data: StockHistoricalData[], symbol: string): Promise<WaveAnalysisResult> => {
@@ -291,6 +298,31 @@ function WaveAnalysisProvider({
   const [isLoading, setIsLoading] = useState(false);
   const pendingAnalyses = useRef<Record<string, Promise<WaveAnalysisResult | null>>>({});
 
+  // Add a new state to track active analysis processes
+  const [activeAnalyses, setActiveAnalyses] = useState<Set<string>>(new Set());
+
+  // Add a cancellation token system
+  const cancellationTokens = useRef<Map<string, boolean>>(new Map());
+
+  // Create a function to cancel all running analyses
+  const cancelAllAnalyses = useCallback(() => {
+    cancellationTokens.current.forEach((_, key) => {
+      cancellationTokens.current.set(key, true);
+    });
+    
+    // Create a custom event for cancellation
+    const event = new CustomEvent('analysisCancelled', {
+      detail: {
+        message: 'All analyses cancelled'
+      }
+    });
+    
+    analysisEvents.dispatchEvent(event);
+    
+    // Clear active analyses
+    setActiveAnalyses(new Set());
+  }, [analysisEvents]);
+
   // Load any cached analyses from localStorage when the app starts
   useEffect(() => {
     const loadCachedAnalyses = async () => {
@@ -324,122 +356,99 @@ function WaveAnalysisProvider({
   }, [killSwitch]);
   
   // Function to get a single analysis
-  const getAnalysis = async (symbol: string, timeframe: string = '1d', forceRefresh: boolean = false): Promise<WaveAnalysisResult | null> => {
+  const getAnalysis = useCallback(async (
+    symbol: string, 
+    timeframe: string = '1d',
+    refresh: boolean = false
+  ): Promise<WaveAnalysisResult> => {
+    // Generate a unique token key for this analysis
+    const tokenKey = `${symbol}_${timeframe}_${Date.now()}`;
+    
+    // Set a new non-cancelled token
+    cancellationTokens.current.set(tokenKey, false);
+    
+    // Track this analysis as active
+    setActiveAnalyses(prev => {
+      const newSet = new Set(prev);
+      newSet.add(symbol);
+      return newSet;
+    });
+    
+    // Dispatch start event
+    analysisEvents.dispatchEvent(new CustomEvent('analysisStart', {
+      detail: { symbol, startTime: Date.now() }
+    }));
+
     try {
-      // Create and dispatch start event
-      analysisEvents.dispatchEvent(new CustomEvent('analysisStart', {
-        detail: { symbol, startTime: Date.now() }
-      }));
+      // Check for cached analysis unless refresh is true
+      // ...existing code...
       
-      if (!symbol) {
-        console.error("getAnalysis called with no symbol");
-        return null;
+      // Get historical data
+      const stockData = await getHistoricalData(symbol, timeframe);
+      
+      // Check for cancellation between steps
+      if (cancellationTokens.current.get(tokenKey)) {
+        console.log(`Analysis for ${symbol} was cancelled`);
+        throw new Error('Analysis cancelled');
       }
       
-      const cacheKey = `${symbol}_${timeframe}`;
-      
-      // First check in-memory cache for faster access
-      if (!forceRefresh && analyses[cacheKey]) {
-        console.log(`Using in-memory cached analysis for ${symbol}`);
-        return analyses[cacheKey];
-      }
-      
-      // Return cached results immediately if kill switch is active
-      if (killSwitch && !forceRefresh) {
-        const cachedAnalysis = retrieveWaveAnalysis(symbol, timeframe);
-        if (cachedAnalysis) {
-          console.log(`Kill switch active - using cached analysis for ${symbol}`);
-          setAnalyses(prev => ({
-            ...prev,
-            [cacheKey]: cachedAnalysis.analysis
-          }));
-          return cachedAnalysis.analysis;
+      // Perform wave analysis with cancellation checking
+      const result = analyzeElliottWaves(stockData, (waves) => {
+        // Check cancellation during progress reporting
+        if (cancellationTokens.current.get(tokenKey)) {
+          console.log(`Analysis for ${symbol} was cancelled during progress`);
+          return;
         }
-        // If no cached analysis available with kill switch active, return empty result
-        return null;
-      }
+        
+        // Update progress
+        analysisEvents.dispatchEvent(new CustomEvent('analysisProgress', {
+          detail: { symbol, waves }
+        }));
+      });
       
-      // Check localStorage cache if not already refreshing
-      if (!forceRefresh) {
-        const cachedAnalysis = retrieveWaveAnalysis(symbol, timeframe);
-        if (cachedAnalysis && !isAnalysisExpired(cachedAnalysis.timestamp)) {
-          console.log(`Using cached analysis for ${symbol} from localStorage`);
-          // Store in state for future quick access
-          setAnalyses(prev => ({
-            ...prev,
-            [cacheKey]: cachedAnalysis.analysis
-          }));
-          
-          return cachedAnalysis.analysis;
-        }
-      }
+      // Add this code right after the analysis is done
+      console.log(`Analysis complete for ${symbol}: ${result.waves.length} waves found`);
       
-      // If we're already fetching this analysis, don't start another fetch
-      if (pendingAnalyses.current[cacheKey]) {
-        console.log(`Already fetching analysis for ${symbol}, waiting for that to complete`);
+      // Store waves in localStorage
+      if (result.waves && result.waves.length > 0) {
+        const storageKey = `wave_analysis_${symbol}_${timeframe}`;
+        console.log(`Storing ${result.waves.length} waves for ${symbol} in localStorage`);
+        
         try {
-          return await pendingAnalyses.current[cacheKey];
+          localStorage.setItem(storageKey, JSON.stringify({
+            ...result,
+            timestamp: Date.now()
+          }));
         } catch (error) {
-          console.error(`Error waiting for pending analysis of ${symbol}:`, error);
-          return null;
+          console.error(`Failed to store wave analysis for ${symbol}:`, error);
         }
+        
+        // Also update the in-memory state
+        setAnalyses(prev => ({
+          ...prev,
+          [`${symbol}_${timeframe}`]: result
+        }));
+      } else {
+        console.log(`No waves found for ${symbol}, nothing to store`);
       }
       
-      // If forced refresh or not in cache or expired, fetch data and analyze
-      const analysisPromise = (async () => {
-        try {
-          const response = await fetchHistoricalData(symbol, timeframe);
-          
-          // Extract historical data from response
-          const historicalData = Array.isArray(response) 
-            ? response 
-            : response.historicalData;
-          
-          if (!historicalData || !Array.isArray(historicalData)) {
-            console.error(`Invalid historical data format for ${symbol}`);
-            return generateEmptyAnalysisResult();
-          }
-
-          // Pass the historical data array to worker
-          const result = await workerAnalyzeElliottWaves(historicalData, symbol);
-
-          // Store result in cache if valid
-          if (result.waves.length > 0) {
-            storeWaveAnalysis(symbol, timeframe, result);
-            
-            // Update in-memory cache
-            setAnalyses(prev => ({
-              ...prev,
-              [cacheKey]: result
-            }));
-          }
-
-          return result;
-        } catch (error) {
-          // Dispatch error event
-          analysisEvents.dispatchEvent(new CustomEvent('analysisError', {
-            detail: { 
-              symbol, 
-              error: error instanceof Error ? error.message : String(error) 
-            }
-          }));
-          throw error;
-        }
-      })();
+      // Dispatch completion event and return result
+      analysisEvents.dispatchEvent(new CustomEvent('complete', { detail: { symbol } }));
+      return result;
       
-      // Store the promise in pendingAnalyses
-      pendingAnalyses.current[cacheKey] = analysisPromise;
-      
-      return analysisPromise;
     } catch (error) {
-      // On error
-      analysisEvents.dispatchEvent(new CustomEvent('analysisError', {
-        detail: { symbol, error }
-      }));
-      throw error;
+      // ...existing error handling...
+    } finally {
+      // Clean up the token and active analysis tracking
+      cancellationTokens.current.delete(tokenKey);
+      setActiveAnalyses(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(symbol);
+        return newSet;
+      });
     }
-  };
-  
+  }, [analysisEvents, getHistoricalData]);
+
   // Function to preload analyses for multiple symbols
   const preloadAnalyses = async (symbols: string[]) => {
     console.log("Attempting to preload analyses", { 
@@ -551,8 +560,10 @@ function WaveAnalysisProvider({
     isLoading,
     preloadAnalyses,
     clearCache,
-    analysisEvents  // Include in context
-  }), [analyses, isLoading, analysisEvents]);
+    analysisEvents,  // Include in context
+    cancelAllAnalyses, // Add this new function
+    hasActiveAnalyses: activeAnalyses.size > 0
+  }), [analyses, isLoading, analysisEvents, cancelAllAnalyses, activeAnalyses]);
 
   return (
     <WaveAnalysisContext.Provider value={contextValue}>
@@ -560,6 +571,76 @@ function WaveAnalysisProvider({
     </WaveAnalysisContext.Provider>
   );
 }
+
+// Look for the function that handles the analysis results and add this code:
+const handleAnalysisResult = (symbol: string, timeframe: string, result: WaveAnalysisResult) => {
+  // If we found waves, store them in localStorage
+  if (result.waves && result.waves.length > 0) {
+    const storageKey = `wave_analysis_${symbol}_${timeframe}`;
+    console.log(`Storing ${result.waves.length} waves for ${symbol} in localStorage`);
+    
+    // Add timestamp to the stored data
+    const storageData = {
+      ...result,
+      timestamp: Date.now()
+    };
+    
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(storageData));
+    } catch (error) {
+      console.error(`Failed to store wave analysis for ${symbol}:`, error);
+    }
+  } else {
+    console.log(`No waves found for ${symbol}, nothing to store`);
+  }
+  
+  // Continue with any other processing...
+};
+
+// Look for the getAnalysis function that calls analyzeElliottWaves
+const getAnalysis = async (symbol: string, timeframe: string = '1d', forceRefresh: boolean = false): Promise<WaveAnalysisResult> => {
+  // ...existing code...
+  
+  try {
+    // Get historical data first
+    const historicalData = await getHistoricalData(symbol, timeframe, forceRefresh);
+    
+    // Skip analysis if no data
+    if (!historicalData || !Array.isArray(historicalData) || historicalData.length === 0) {
+      console.error(`No historical data available for ${symbol}`);
+      return { waves: [], currentWave: {} as Wave, fibTargets: [], trend: 'neutral', impulsePattern: false, correctivePattern: false };
+    }
+
+    // Analyze the waves
+    const analysisResult = analyzeElliottWaves(historicalData, (waves) => {
+      // Progress event handling
+      analysisEvents.dispatchEvent(new CustomEvent('progress', { detail: { symbol, waves } }));
+    });
+    
+    // THIS IS THE MISSING PART:
+    // Store the results in localStorage only if we found waves
+    if (analysisResult.waves && analysisResult.waves.length > 0) {
+      const storageKey = `wave_analysis_${symbol}_${timeframe}`;
+      console.log(`Storing ${analysisResult.waves.length} waves for ${symbol} in localStorage`);
+      
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({
+          ...analysisResult,
+          timestamp: Date.now()
+        }));
+      } catch (error) {
+        console.error(`Failed to store wave analysis for ${symbol}:`, error);
+      }
+    }
+    
+    // Dispatch completion event
+    analysisEvents.dispatchEvent(new CustomEvent('complete', { detail: { symbol } }));
+    
+    return analysisResult;
+  } catch (error) {
+    // ...error handling...
+  }
+};
 
 // Group exports at the end
 const WaveAnalysis = {

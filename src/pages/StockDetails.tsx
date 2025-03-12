@@ -29,6 +29,7 @@ import SimpleCandlestickChart from '@/components/SimpleCandlestickChart';
 import WaveAnalysis from '@/context/WaveAnalysisContext';
 import WaveSequencePagination from '@/components/WaveSequencePagination';
 import { Card, CardContent } from "@/components/ui/card";
+import { getWavePatternDescription } from '@/components/chart/waveChartUtils';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -147,6 +148,22 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             <ArrowLeft className="h-4 w-4" />
             Back to Dashboard
           </Button>
+
+          {/* Add stock price info header here */}
+          {!loading && stockData && (
+            <div className="flex items-center gap-4">
+              <div>
+                <h1 className="text-2xl font-bold">{stockData.shortName || symbol}</h1>
+                <div className="flex items-center gap-2">
+                  <div className="text-lg font-mono">{formattedPrice}</div>
+                  <div className={`flex items-center ${isPositive ? "text-bullish" : "text-bearish"}`}>
+                    {isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                    <span>{formattedChange} ({formattedPercent})</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Main content area */}
@@ -172,16 +189,42 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             <Card>
               <CardContent className="pt-6">
                 <h3 className="text-lg font-medium mb-4">Elliott Wave Analysis</h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-sm font-medium">Wave Sequence</h4>
-                    <Badge variant="outline">
-                      {analysis?.waves.length || 0} waves detected
-                    </Badge>
+                {loading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h4 className="text-sm font-medium">Wave Sequence</h4>
+                      <Badge variant="outline">
+                        {analysis?.waves.length || 0} waves detected
+                      </Badge>
+                    </div>
+                    
+                    {analysis?.waves && analysis.waves.length > 0 ? (
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          {getWavePatternDescription(analysis.waves) || 
+                            "Analyzing detected wave patterns and market positions."}
+                        </p>
+                        
+                        {/* Add WaveSequencePagination here */}
+                        <div className="mt-4">
+                          <WaveSequencePagination 
+                            waves={analysis.waves} 
+                            onWaveSelect={(wave) => {
+                              // You can implement highlighting if needed
+                              console.log("Selected wave:", wave);
+                            }} 
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 border rounded-md text-center">
+                        No wave patterns detected
+                      </div>
+                    )}
                   </div>
-                  
-                  {analysis && <WaveSequencePagination waves={analysis.waves} />}
-                </div>
+                )}
               </CardContent>
             </Card>
 
@@ -199,6 +242,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               </CardContent>
             </Card>
           </div>
+          
+          {/* Remove the duplicate Elliott Wave Analysis section */}
         </div>
       </div>
     </ErrorBoundary>

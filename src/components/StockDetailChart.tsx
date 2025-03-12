@@ -19,6 +19,7 @@ import { tooltipFormatter } from './chart/chartConstants';
 import { formatChartData } from './chart/chartUtils';
 import WaveLegend from './chart/WaveLegend';
 import { getWaveColor, prepareWaveLines, getWavePatternDescription } from './chart/waveChartUtils';
+import WaveSequencePagination from './WaveSequencePagination'; // Add this import
 
 // Define wave colors
 const WAVE_COLORS = {
@@ -108,7 +109,16 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   }
 
   // Use our utility function for wave preparation
-  const waveLines = prepareWaveLines(waves, data);
+  const waveLines = useMemo(() => {
+    if (!waves || waves.length === 0) return [];
+
+    return waves.map(wave => ({
+      ...wave,
+      strokeWidth: wave === highlightedWave ? 3 : 1,
+      strokeOpacity: wave === highlightedWave ? 1 : 0.6,
+      isImpulse: typeof wave.number === 'number' ? wave.number % 2 === 1 : wave.number === 'A' || wave.number === 'C'
+    }));
+  }, [waves, highlightedWave]);
     
   // Extract wave numbers for the legend
   const waveNumbers = [...new Set(waves.map(w => w.number))];
@@ -141,17 +151,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     });
   };
 
-  // Update the wave lines to highlight the selected wave
-  const updatedWaveLines = useMemo(() => {
-    return waves.map(wave => ({
-      ...wave,
-      strokeWidth: wave === highlightedWave ? 3 : 1,
-      strokeOpacity: wave === highlightedWave ? 1 : 0.6
-    }));
-  }, [waves, highlightedWave]);
-
   return (
     <div className="w-full h-[500px] bg-chart-background rounded-lg p-4">
+      {/* Chart header */}
       <div className="flex justify-between items-start mb-4">
         <div>
           <h3 className="text-lg font-semibold">{symbol} - Elliott Wave Chart</h3>
@@ -170,199 +172,197 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         )}
       </div>
       
-      <ResponsiveContainer width="100%" height="85%">
-        <ComposedChart
-          data={displayData}
-          margin={{ top: 20, right: 50, left: 20, bottom: 20 }}
-          ref={chartRef}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-          <XAxis
-            dataKey="timestamp"
-            type="number"
-            domain={['dataMin', 'dataMax']}
-            scale="time"
-            tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
-            stroke="#94a3b8"
-            // Add these properties to fix the duplicate keys
-            ticks={processedChartData
-              .filter((_, index) => index % Math.ceil(processedChartData.length / 6) === 0)
-              .map(d => d.timestamp)}
-            interval="preserveStartEnd"
-            minTickGap={50}
-          />
-          <YAxis
-            domain={[minPrice, maxPrice]}
-            tickFormatter={(tick) => tick.toFixed(2)}
-            orientation="right"
-            stroke="#94a3b8"
-          />
-          
-          {/* Remove Tooltip component */}
-
-          {/* METHOD 1: Render price data as a line chart for simplicity */}
-          <Line
-            type="monotone"
-            dataKey="close"
-            stroke="rgba(255,255,255,0.5)"
-            dot={false}
-            activeDot={false}
-            isAnimationActive={false}
-          />
-          
-          {/* METHOD 2: Alternatively, use this for more advanced price chart */}
-          {/* 
-          <Area 
-            type="monotone"
-            dataKey="candleHeight"
-            stroke="none"
-            fill="url(#colorCandleStick)"
-            stackId="1"
-            baseValue={(d) => d.candleY}
-            fillOpacity={1}
-          />
-          <Line
-            type="monotone"
-            dataKey="high"
-            stroke="rgba(255,255,255,0.3)"
-            dot={false}
-            activeDot={false}
-            isAnimationActive={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="low"
-            stroke="rgba(255,255,255,0.3)"
-            dot={false}
-            activeDot={false}
-            isAnimationActive={false}
-          />
-          */}
-          
-          {/* Render fibonacci targets as horizontal lines */}
-          {fibTargets.map((target, index) => (
-            <ReferenceLine
-              key={`fib-${index}`}
-              y={target.price}
-              stroke={target.isExtension ? "#9c27b0" : "#3f51b5"}
-              strokeDasharray="3 3"
-              strokeOpacity={0.6}
-              label={{
-                position: 'right',
-                value: `${target.label}: $${target.price.toFixed(2)}`,
-                fill: target.isExtension ? "#9c27b0" : "#3f51b8",
-                fontSize: 10
-              }}
-            />
-          ))}
-          
-          {/* Render wave lines with labels */}
-          {updatedWaveLines.map((waveLine) => (
-            <Line
-              key={waveLine.id}
-              data={waveLine.data}
-              type="linear"
-              dataKey="value"
-              stroke={waveLine.color}
-              strokeWidth={2.5} // Make slightly thicker to stand out
-              strokeDasharray={waveLine.wave.isImpulse ? "0" : "5 5"}
-              activeDot={{
-                r: 6,
-                fill: waveLine.color,
-                stroke: "#fff",
-                strokeWidth: 1,
-                onMouseOver: () => setHoveredWave(waveLine.wave),
-                onMouseLeave: () => setHoveredWave(null)
-              }}
-              dot={{
-                r: 4,
-                fill: waveLine.color,
-                stroke: "#fff",
-                strokeWidth: 1
-              }}
-              label={({ x, y, index }) => {
-                // Only label the end point
-                if (index !== 1) return null;
-                
-                const waveNumber = waveLine.wave.number;
-                const isImpulse = waveLine.wave.isImpulse;
-                
-                // Position above for impulse waves, below for corrective
-                const yOffset = isImpulse ? -15 : 15;
-                
-                return (
-                  <g>
-                    {/* Optional: add background for better visibility */}
-                    <rect 
-                      x={x - 12}
-                      y={y + yOffset - 12}
-                      width={24}
-                      height={20}
-                      rx={4}
-                      fill="rgba(0,0,0,0.6)"
-                      opacity={0.7}
-                    />
-                    {/* The wave number label */}
-                    <text
-                      x={x}
-                      y={y + yOffset}
-                      fill={waveLine.color}
-                      fontSize={12}
-                      textAnchor="middle"
-                      fontWeight="bold"
-                    >
-                      {waveNumber}
-                    </text>
-                  </g>
-                );
-              }}
-            />
-          ))}
-          
-          {/* Highlight current wave */}
-          {currentWave && currentWave.number && (
-            <text
-              x="95%"
-              y="30"
-              fill={WAVE_COLORS[currentWave.number] || '#FFFFFF'}
-              fontSize={14}
-              textAnchor="end"
-              fontWeight="bold"
-            >
-              Current: Wave {currentWave.number}
-            </text>
-          )}
-
-          {/* Additional information about wave pattern */}
-          <text
-            x="50%"
-            y="30"
-            fill="#94a3b8"
-            fontSize={12}
-            textAnchor="middle"
+      {/* Main chart container */}
+      <div className="h-[400px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={displayData}
+            margin={{ top: 20, right: 50, left: 20, bottom: 20 }}
+            ref={chartRef}
           >
-            {getWavePatternDescription(waves)}
-          </text>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
+            <XAxis
+              dataKey="timestamp"
+              type="number"
+              domain={['dataMin', 'dataMax']}
+              scale="time"
+              tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+              stroke="#94a3b8"
+              // Add these properties to fix the duplicate keys
+              ticks={processedChartData
+                .filter((_, index) => index % Math.ceil(processedChartData.length / 6) === 0)
+                .map(d => d.timestamp)}
+              interval="preserveStartEnd"
+              minTickGap={50}
+            />
+            <YAxis
+              domain={[minPrice, maxPrice]}
+              tickFormatter={(tick) => tick.toFixed(2)}
+              orientation="right"
+              stroke="#94a3b8"
+            />
+            
+            {/* Remove Tooltip component */}
 
-          {/* Enhanced brush for better zooming */}
-          <Brush
-            dataKey="timestamp"
-            height={40}
-            stroke="#8884d8"
-            fill="rgba(136, 132, 216, 0.1)"
-            tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
-            startIndex={Math.max(0, processedChartData.length - 90)}
-            travellerWidth={10}
-            gap={1}
-            className="mt-4"
-            onChange={handleBrushChange}
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
-      <WaveSequencePagination 
-        waves={waves} 
-        onWaveSelect={handleWaveSelect} 
-      />
+            {/* METHOD 1: Render price data as a line chart for simplicity */}
+            <Line
+              type="monotone"
+              dataKey="close"
+              stroke="rgba(255,255,255,0.5)"
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+            
+            {/* METHOD 2: Alternatively, use this for more advanced price chart */}
+            {/* 
+            <Area 
+              type="monotone"
+              dataKey="candleHeight"
+              stroke="none"
+              fill="url(#colorCandleStick)"
+              stackId="1"
+              baseValue={(d) => d.candleY}
+              fillOpacity={1}
+            />
+            <Line
+              type="monotone"
+              dataKey="high"
+              stroke="rgba(255,255,255,0.3)"
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="low"
+              stroke="rgba(255,255,255,0.3)"
+              dot={false}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+            */}
+            
+            {/* Render fibonacci targets as horizontal lines */}
+            {fibTargets.map((target, index) => (
+              <ReferenceLine
+                key={`fib-${index}`}
+                y={target.price}
+                stroke={target.isExtension ? "#9c27b0" : "#3f51b5"}
+                strokeDasharray="3 3"
+                strokeOpacity={0.6}
+                label={{
+                  position: 'right',
+                  value: `${target.label}: $${target.price.toFixed(2)}`,
+                  fill: target.isExtension ? "#9c27b0" : "#3f51b8",
+                  fontSize: 10
+                }}
+              />
+            ))}
+            
+            {/* Render wave lines with labels */}
+            {waveLines.map((waveLine, index) => (
+              <Line
+                key={`wave-${index}-${waveLine.number}`}
+                data={displayData}
+                type="linear"
+                dataKey="close"
+                stroke={getWaveColor(waveLine.number)}
+                strokeWidth={waveLine.strokeWidth}
+                strokeOpacity={waveLine.strokeOpacity}
+                strokeDasharray={waveLine.isImpulse ? "0" : "5 5"}
+                activeDot={{
+                  r: 6,
+                  fill: getWaveColor(waveLine.number),
+                  stroke: "#fff",
+                  strokeWidth: 1,
+                  onMouseOver: () => setHoveredWave(waveLine),
+                  onMouseLeave: () => setHoveredWave(null)
+                }}
+                dot={{
+                  r: 4,
+                  fill: getWaveColor(waveLine.number),
+                  stroke: "#fff",
+                  strokeWidth: 1
+                }}
+                label={({ x, y, index }) => {
+                  // Only label the end point
+                  if (index !== displayData.length - 1) return null;
+                  
+                  const waveNumber = waveLine.number;
+                  const isImpulse = waveLine.isImpulse;
+                  
+                  // Position above for impulse waves, below for corrective
+                  const yOffset = isImpulse ? -15 : 15;
+                  
+                  return (
+                    <g>
+                      <rect 
+                        x={x - 12}
+                        y={y + yOffset - 12}
+                        width={24}
+                        height={20}
+                        rx={4}
+                        fill="rgba(0,0,0,0.6)"
+                        opacity={0.7}
+                      />
+                      <text
+                        x={x}
+                        y={y + yOffset}
+                        fill={getWaveColor(waveLine.number)}
+                        fontSize={12}
+                        textAnchor="middle"
+                        fontWeight="bold"
+                      >
+                        {waveNumber}
+                      </text>
+                    </g>
+                  );
+                }}
+              />
+            ))}
+            
+            {/* Highlight current wave */}
+            {currentWave && currentWave.number && (
+              <text
+                x="95%"
+                y="30"
+                fill={WAVE_COLORS[currentWave.number] || '#FFFFFF'}
+                fontSize={14}
+                textAnchor="end"
+                fontWeight="bold"
+              >
+                Current: Wave {currentWave.number}
+              </text>
+            )}
+
+            {/* Additional information about wave pattern */}
+            <text
+              x="50%"
+              y="30"
+              fill="#94a3b8"
+              fontSize={12}
+              textAnchor="middle"
+            >
+              {getWavePatternDescription(waves)}
+            </text>
+
+            {/* Enhanced brush for better zooming */}
+            <Brush
+              dataKey="timestamp"
+              height={40}
+              stroke="#8884d8"
+              fill="rgba(136, 132, 216, 0.1)"
+              tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+              startIndex={Math.max(0, processedChartData.length - 90)}
+              travellerWidth={10}
+              gap={1}
+              className="mt-4"
+              onChange={handleBrushChange}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 };

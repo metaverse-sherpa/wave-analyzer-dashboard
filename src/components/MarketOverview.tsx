@@ -15,7 +15,8 @@ const MarketOverview: React.FC = () => {
     const sentiments = { bullish: 0, bearish: 0, neutral: 0 };
     
     Object.values(analyses).forEach(analysis => {
-      if (analysis.trend) {
+      // Add null check
+      if (analysis && analysis.trend) {
         sentiments[analysis.trend]++;
       }
     });
@@ -38,11 +39,13 @@ const MarketOverview: React.FC = () => {
     };
     
     Object.entries(analyses).forEach(([key, analysis]) => {
-      if (analysis.trend && key.includes('_1d')) {
+      // Add null check here
+      if (analysis && analysis.trend && key.includes('_1d')) {
         const symbol = key.split('_')[0];
         categorized[analysis.trend].push({
           symbol,
-          waves: analysis.waves.length
+          // Add optional chaining here too
+          waves: analysis.waves?.length || 0
         });
       }
     });
