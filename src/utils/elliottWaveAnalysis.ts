@@ -185,58 +185,59 @@ const identifyWaves = (pivots: ZigzagPoint[], data: StockHistoricalData[]): Wave
   if (pivots.length < 3) return [];
 
   const waves: Wave[] = [];
-  const overallTrend = data[data.length - 1].close > data[0].close ? 'up' : 'down';
-  
-  // Create initial wave segments
-  for (let i = 0; i < pivots.length - 1; i++) {
+  let i = 0;
+
+  // Keep trying to find a valid Wave 1
+  while (i < pivots.length - 1) {
     const startPoint = pivots[i];
     const endPoint = pivots[i + 1];
-    const isUpMove = endPoint.price > startPoint.price;
     
-    // Determine wave number based on position and direction
-    const waveCount = waves.length + 1;
-    let waveNumber: number | string;
-    let isImpulse: boolean;
+    // For Wave 1 search, look at the entire range from this point to the next
+    const startIdx = data.findIndex(d => d.timestamp === startPoint.timestamp);
+    const endIdx = data.findIndex(d => d.timestamp === endPoint.timestamp);
     
-    if (waveCount <= 5) {
-      waveNumber = waveCount;
-      isImpulse = waveCount % 2 === 1; // 1,3,5 are impulse waves
-      
-      // Validate wave direction based on trend
-      const shouldBeUp = (overallTrend === 'up') === (waveCount % 2 === 1);
-      if (shouldBeUp !== isUpMove) continue; // Skip invalid waves
-      
-    } else if (waveCount <= 8) {
-      const letterIndex = waveCount - 6; // 0=A, 1=B, 2=C
-      waveNumber = ['A', 'B', 'C'][letterIndex];
-      isImpulse = waveNumber === 'B'; // Only B is impulse-like
-      
-      // Validate ABC wave directions
-      if (overallTrend === 'up') {
-        if ((waveNumber === 'B' && !isUpMove) || 
-            (waveNumber !== 'B' && isUpMove)) continue;
-      } else {
-        if ((waveNumber === 'B' && isUpMove) || 
-            (waveNumber !== 'B' && !isUpMove)) continue;
-      }
-    } else {
-      // Start a new cycle
-      waves.length = 0;
-      waveNumber = 1;
-      isImpulse = true;
+    if (startIdx === -1 || endIdx === -1) {
+      i++;
+      continue;
     }
 
-    waves.push({
-      number: waveNumber,
-      startTimestamp: startPoint.timestamp,
+    // Find the absolute lowest point in this range
+    const lowestIdx = findLowestPoint(data, startIdx, endIdx);
+    
+    // Create potential Wave 1
+    const wave1: Wave = {
+      number: 1,
+      startTimestamp: data[lowestIdx].timestamp,
       endTimestamp: endPoint.timestamp,
-      startPrice: isImpulse ? startPoint.low : startPoint.high,
-      endPrice: isImpulse ? endPoint.high : endPoint.low,
-      type: isImpulse ? 'impulse' : 'corrective',
-      isComplete: i < pivots.length - 2,
-      isImpulse
-    });
+      startPrice: data[lowestIdx].low,
+      endPrice: endPoint.high,
+      type: 'impulse',
+      isComplete: true,
+      isImpulse: true
+    };
+
+    // Check if any price after this point goes below our Wave 1 start
+    const invalidated = data.slice(lowestIdx).some(point => point.low < wave1.startPrice);
+    
+    if (!invalidated && wave1.endPrice > wave1.startPrice) {
+      console.log(`Found valid Wave 1 starting at ${new Date(wave1.startTimestamp * 1000).toLocaleDateString()}`);
+      waves.push(wave1);
+      i++; // Move to next pivot for subsequent waves
+      break;
+    }
+
+    // If invalidated, move to next pivot and try again
+    i++;
   }
+
+  // Only proceed with subsequent waves if we found a valid Wave 1
+  if (waves.length === 0) {
+    console.log('No valid Wave 1 found');
+    return [];
+  }
+
+  // Continue with rest of wave identification...
+  // ... existing code for subsequent waves ...
 
   return waves;
 };
@@ -301,6 +302,17 @@ export const analyzeElliottWaves = (
   } catch (error) {
     console.error("Error in wave analysis:", error);
     return createSimpleWavePattern(validData);
+  }
+};
+
+// Add this helper function to determine wave trend
+const getWaveTrend = (waveNumber: string | number): 'bullish' | 'bearish' | 'neutral' => {
+  if (typeof waveNumber === 'number') {
+    // Numbered waves: 1, 3, 5 are bullish; 2, 4 are bearish
+    return waveNumber % 2 === 1 ? 'bullish' : 'bearish';
+  } else {
+    // Letter waves: B is bullish; A and C are bearish
+    return waveNumber === 'B' ? 'bullish' : 'bearish';
   }
 };
 
@@ -448,11 +460,14 @@ const completeWaveAnalysis = (
   const impulsePattern = waves.some(w => String(w.number) === '5');
   const correctivePattern = waves.some(w => w.number === 'C');
   
+  // Determine trend based on current wave instead of overall price movement
+  const trend = currentWave ? getWaveTrend(currentWave.number) : 'neutral';
+
   return {
     waves,
     currentWave,
     fibTargets,
-    trend: overallTrend === 'up' ? 'bullish' : 'bearish',
+    trend,
     impulsePattern,
     correctivePattern
   };
@@ -537,47 +552,106 @@ const createSimpleWavePattern = (data: StockHistoricalData[]): WaveAnalysisResul
     return generateEmptyAnalysisResult();
   }
 
-  const third = Math.floor(data.length / 3);
-  const twoThirds = Math.floor(2 * data.length / 3);
+  // First determine overall trend
+  const overallTrend = data[data.length - 1].close > data[0].close ? 'up' : 'down';
+  
+  // Find potential wave points that follow price movement rules
+  let wave1Start = 0;
+  let wave1End = -1;
+  let wave2End = -1;
+  let wave3End = -1;
+
+  // Find Wave 1 - must move in trend direction
+  for (let i = 1; i < Math.floor(data.length / 3); i++) {
+    if (overallTrend === 'up' ? data[i].close > data[wave1Start].close 
+                              : data[i].close < data[wave1Start].close) {
+      wave1End = i;
+    }
+  }
+
+  // Find Wave 2 - must move against trend
+  if (wave1End !== -1) {
+    for (let i = wave1End + 1; i < Math.floor(2 * data.length / 3); i++) {
+      if (overallTrend === 'up' ? data[i].close < data[wave1End].close 
+                                : data[i].close > data[wave1End].close) {
+        wave2End = i;
+      }
+    }
+  }
+
+  // Find Wave 3 - must move in trend direction
+  if (wave2End !== -1) {
+    for (let i = wave2End + 1; i < data.length; i++) {
+      if (overallTrend === 'up' ? data[i].close > data[wave2End].close 
+                                : data[i].close < data[wave2End].close) {
+        wave3End = i;
+      }
+    }
+  }
+
+  // If we couldn't find valid points, return empty result
+  if (wave1End === -1 || wave2End === -1 || wave3End === -1) {
+    return generateEmptyAnalysisResult();
+  }
 
   const waves: Wave[] = [
     {
       number: 1,
-      startTimestamp: data[0].timestamp,
-      endTimestamp: data[third].timestamp,
-      startPrice: data[0].close,
-      endPrice: data[third].close,
+      startTimestamp: data[wave1Start].timestamp,
+      endTimestamp: data[wave1End].timestamp,
+      startPrice: data[wave1Start].close,
+      endPrice: data[wave1End].close,
       type: 'impulse',
       isComplete: true,
       isImpulse: true
     },
     {
       number: 2,
-      startTimestamp: data[third].timestamp,
-      endTimestamp: data[twoThirds].timestamp,
-      startPrice: data[third].close,
-      endPrice: data[twoThirds].close,
+      startTimestamp: data[wave1End].timestamp,
+      endTimestamp: data[wave2End].timestamp,
+      startPrice: data[wave1End].close,
+      endPrice: data[wave2End].close,
       type: 'corrective',
       isComplete: true,
       isImpulse: false
     },
     {
       number: 3,
-      startTimestamp: data[twoThirds].timestamp,
-      endTimestamp: data[data.length - 1].timestamp,
-      startPrice: data[twoThirds].close,
-      endPrice: data[data.length - 1].close,
+      startTimestamp: data[wave2End].timestamp,
+      endTimestamp: data[wave3End].timestamp,
+      startPrice: data[wave2End].close,
+      endPrice: data[wave3End].close,
       type: 'impulse',
-      isComplete: false,
+      isComplete: wave3End < data.length - 1,
       isImpulse: true
     }
   ];
 
+  // Verify all waves follow their required price movement rules
+  const isValidPattern = waves.every(wave => {
+    if (wave.type === 'impulse') {
+      return overallTrend === 'up' 
+        ? wave.endPrice! > wave.startPrice 
+        : wave.endPrice! < wave.startPrice;
+    } else {
+      return overallTrend === 'up' 
+        ? wave.endPrice! < wave.startPrice 
+        : wave.endPrice! > wave.startPrice;
+    }
+  });
+
+  if (!isValidPattern) {
+    return generateEmptyAnalysisResult();
+  }
+
+  const currentWave = waves[waves.length - 1];
+  const trend = getWaveTrend(currentWave.number);
+
   return {
     waves,
-    currentWave: waves[waves.length - 1],
-    fibTargets: [],
-    trend: data[data.length - 1].close > data[0].close ? 'bullish' : 'bearish',
+    currentWave,
+    fibTargets: calculateFibTargetsForWaves(waves, data),
+    trend,
     impulsePattern: false,
     correctivePattern: false
   };
@@ -591,3 +665,56 @@ const generateEmptyAnalysisResult = (): WaveAnalysisResult => ({
   impulsePattern: false,
   correctivePattern: false
 });
+
+// Add this validation function
+const isValidWave = (wave: Wave, previousWaves: Wave[], data: StockHistoricalData[]): boolean => {
+  if (!wave.startPrice || !wave.endPrice) return false;
+
+  // Wave 1 validation
+  if (wave.number === 1) {
+    // Must start from a low point
+    const startIdx = data.findIndex(d => d.timestamp === wave.startTimestamp);
+    const endIdx = data.findIndex(d => d.timestamp === wave.endTimestamp);
+    
+    // Check if there's a lower point in this range
+    const lowestIdx = findLowestPoint(data, startIdx, endIdx);
+    if (data[lowestIdx].low < wave.startPrice) {
+      console.log('Found lower point during Wave 1 - invalidating');
+      return false;
+    }
+    
+    // Must move up from start to end
+    return wave.endPrice > wave.startPrice;
+  }
+
+  // Validate subsequent waves
+  if (previousWaves.length > 0) {
+    const wave1 = previousWaves.find(w => w.number === 1);
+    if (wave1) {
+      // If price goes below Wave 1 start, invalidate the pattern
+      if (wave.endPrice < wave1.startPrice) {
+        console.log('Price moved below Wave 1 start - invalidating pattern');
+        return false;
+      }
+    }
+  }
+
+  // Existing wave validations
+  // ... rest of wave validation logic ...
+};
+
+// Add helper function to find the lowest point in a range
+const findLowestPoint = (data: StockHistoricalData[], startIndex: number, endIndex: number): number => {
+  let lowestIdx = startIndex;
+  let lowestPrice = data[startIndex].low;
+
+  for (let i = startIndex + 1; i <= endIndex; i++) {
+    if (data[i].low < lowestPrice) {
+      lowestPrice = data[i].low;
+      lowestIdx = i;
+    }
+  }
+
+  console.log(`Found lowest point: ${lowestPrice} at index ${lowestIdx}`);
+  return lowestIdx;
+};

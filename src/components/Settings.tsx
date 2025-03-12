@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import WaveAnalysis from '@/context/WaveAnalysisContext';
 import { useKillSwitch } from '@/context/KillSwitchContext';
+import { topStockSymbols } from '@/services/yahooFinanceService';
 
 const Settings: React.FC = () => {
   const { toast } = useToast();
@@ -62,33 +63,33 @@ const Settings: React.FC = () => {
   const refreshCurrentAnalysis = async () => {
     setIsRefreshing(true);
     try {
-      const currentStocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'];
+      const stocks = topStockSymbols.slice(0, 30); // Analyze top 30 stocks
       
       toast({
         title: "Starting Analysis Refresh",
-        description: "Please wait while we refresh the analysis...",
+        description: `Analyzing ${stocks.length} stocks...`,
       });
       
-      // Process one stock at a time
-      for (const symbol of currentStocks) {
+      // Process in batches of 5
+      for (let i = 0; i < stocks.length; i += 5) {
+        const batch = stocks.slice(i, i + 5);
+        
         try {
-          // Clear cache for this symbol
-          localStorage.removeItem(`wave_analysis_${symbol}_1d`);
-          
-          // Add a small delay before analysis
-          await new Promise(r => setTimeout(r, 500));
-          
-          // Force refresh analysis
-          await getAnalysis(symbol, '1d', true);
-          console.log(`Successfully refreshed analysis for ${symbol}`);
+          for (const symbol of batch) {
+            localStorage.removeItem(`wave_analysis_${symbol}_1d`);
+            await new Promise(r => setTimeout(r, 500));
+            await getAnalysis(symbol, '1d', true);
+          }
+          // Small delay between batches
+          await new Promise(r => setTimeout(r, 1000));
         } catch (err) {
-          console.error(`Failed to refresh ${symbol}:`, err);
+          console.error(`Failed to analyze batch: ${batch.join(', ')}`, err);
         }
       }
       
       toast({
         title: "Analysis Refreshed",
-        description: `Successfully refreshed analysis for ${currentStocks.length} stocks.`,
+        description: `Successfully analyzed ${stocks.length} stocks.`,
       });
       
       setOpen(false);

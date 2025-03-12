@@ -40,8 +40,8 @@ export const invalidateCache = (): void => {
   });
 };
 
-// Mock data for top stocks
-const topStockSymbols = [
+// Export the top stocks array
+export const topStockSymbols = [
   'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'LLY', 
   'JPM', 'V', 'AVGO', 'XOM', 'PG', 'MA', 'COST', 'HD', 'CVX', 'MRK', 
   'ABBV', 'KO', 'PEP', 'ADBE', 'WMT', 'BAC', 'CRM', 'TMO', 'CSCO', 'ACN', 

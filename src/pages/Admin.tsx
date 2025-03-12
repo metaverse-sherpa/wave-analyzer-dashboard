@@ -12,6 +12,7 @@ import { Progress } from '@/components/ui/progress';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { Wave } from '@/types/waves';
 import ApiStatusCheck from '@/components/ApiStatusCheck';
+import { topStockSymbols } from '@/services/yahooFinanceService';
 
 interface ActiveAnalysis {
   symbol: string;
@@ -58,16 +59,24 @@ const AdminDashboard = () => {
   const analyzeWaves = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const currentStocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'];
+      const stocks = topStockSymbols.slice(0, 30); // Analyze top 30 stocks
       
-      toast.success('Starting wave analysis...');
+      toast.success(`Starting wave analysis for ${stocks.length} stocks...`);
       
-      for (const symbol of currentStocks) {
+      // Process in smaller batches of 5 stocks each
+      for (let i = 0; i < stocks.length; i += 5) {
+        const batch = stocks.slice(i, i + 5);
+        console.log(`Processing batch ${Math.floor(i/5) + 1}: ${batch.join(', ')}`);
+        
         try {
-          await new Promise(r => setTimeout(r, 500));
-          await getAnalysis(symbol, '1d', true);
+          for (const symbol of batch) {
+            await new Promise(r => setTimeout(r, 500)); // Delay between stocks
+            await getAnalysis(symbol, '1d', true);
+          }
+          // Small delay between batches
+          await new Promise(r => setTimeout(r, 1000));
         } catch (err) {
-          console.error(`Failed to analyze ${symbol}:`, err);
+          console.error(`Failed to analyze batch: ${batch.join(', ')}`, err);
         }
       }
       
@@ -139,6 +148,10 @@ const AdminDashboard = () => {
         }
       }));
 
+      // Refresh cache data immediately when analysis completes
+      loadCacheData();
+
+      // Remove from active analyses after delay
       setTimeout(() => {
         setActiveAnalyses(prev => {
           const newState = { ...prev };
@@ -482,7 +495,12 @@ const AdminDashboard = () => {
             <TabsContent value="waves" className="border rounded-md p-4 min-h-[500px]">
               <h3 className="text-lg font-medium mb-2">Wave Analysis Data</h3>
               <ScrollArea className="h-[500px]">
-                {Object.keys(cacheData.waves).length === 0 ? (
+                {isRefreshing ? (
+                  <div className="p-4 text-center text-muted-foreground">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
+                    Updating wave analysis data...
+                  </div>
+                ) : Object.keys(cacheData.waves).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
                     No wave analysis cache data found
                   </div>
