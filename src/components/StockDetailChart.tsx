@@ -8,10 +8,12 @@ import {
   YAxis,
   CartesianGrid,
   ReferenceLine,
+  ReferenceArea, // Add this import
   Line,
   Area,
   Bar,
-  Brush
+  Brush,
+  Label
 } from 'recharts';
 
 // Make sure to include these imports
@@ -61,13 +63,10 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     [waves]
   );
 
-  // Filter data to start from most recent Wave 1
+  // Use all historical data for the base chart
   const baseData = useMemo(() => {
-    if (!mostRecentWave1 || !data.length) return data;
-    
-    // Find the index where the most recent Wave 1 starts
-    return data.filter(item => item.timestamp >= mostRecentWave1.startTimestamp);
-  }, [data, mostRecentWave1]);
+    return data;
+  }, [data]);
 
   // Format the filtered data for the chart
   const processedChartData = useMemo(() => {
@@ -110,15 +109,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 
   // Use our utility function for wave preparation
   const waveLines = useMemo(() => {
-    if (!waves || waves.length === 0) return [];
-
-    return waves.map(wave => ({
-      ...wave,
-      strokeWidth: wave === highlightedWave ? 3 : 1,
-      strokeOpacity: wave === highlightedWave ? 1 : 0.6,
-      isImpulse: typeof wave.number === 'number' ? wave.number % 2 === 1 : wave.number === 'A' || wave.number === 'C'
-    }));
-  }, [waves, highlightedWave]);
+    return prepareWaveLines(waves, data);
+  }, [waves, data]);
     
   // Extract wave numbers for the legend
   const waveNumbers = [...new Set(waves.map(w => w.number))];
@@ -260,67 +252,69 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               />
             ))}
             
-            {/* Render wave lines with labels */}
+            {/* Replace the wave lines section around line 260 */}
             {waveLines.map((waveLine, index) => (
               <Line
-                key={`wave-${index}-${waveLine.number}`}
-                data={displayData}
+                key={`wave-${index}-${waveLine.id}`}
+                data={waveLine.data}
                 type="linear"
-                dataKey="close"
-                stroke={getWaveColor(waveLine.number)}
-                strokeWidth={waveLine.strokeWidth}
-                strokeOpacity={waveLine.strokeOpacity}
-                strokeDasharray={waveLine.isImpulse ? "0" : "5 5"}
-                activeDot={{
-                  r: 6,
-                  fill: getWaveColor(waveLine.number),
-                  stroke: "#fff",
-                  strokeWidth: 1,
-                  onMouseOver: () => setHoveredWave(waveLine),
-                  onMouseLeave: () => setHoveredWave(null)
-                }}
+                dataKey="value"
+                stroke={waveLine.color}
+                strokeWidth={waveLine.wave === highlightedWave ? 3 : 1}
+                strokeOpacity={waveLine.wave === highlightedWave ? 1 : 0.6}
+                strokeDasharray={waveLine.wave.isImpulse ? "0" : "5 5"}
                 dot={{
                   r: 4,
-                  fill: getWaveColor(waveLine.number),
+                  fill: waveLine.color,
                   stroke: "#fff",
                   strokeWidth: 1
                 }}
-                label={({ x, y, index }) => {
-                  // Only label the end point
-                  if (index !== displayData.length - 1) return null;
-                  
-                  const waveNumber = waveLine.number;
-                  const isImpulse = waveLine.isImpulse;
-                  
-                  // Position above for impulse waves, below for corrective
-                  const yOffset = isImpulse ? -15 : 15;
-                  
-                  return (
-                    <g>
-                      <rect 
-                        x={x - 12}
-                        y={y + yOffset - 12}
-                        width={24}
-                        height={20}
-                        rx={4}
-                        fill="rgba(0,0,0,0.6)"
-                        opacity={0.7}
-                      />
-                      <text
-                        x={x}
-                        y={y + yOffset}
-                        fill={getWaveColor(waveLine.number)}
-                        fontSize={12}
-                        textAnchor="middle"
-                        fontWeight="bold"
-                      >
-                        {waveNumber}
-                      </text>
-                    </g>
-                  );
+                activeDot={{
+                  r: 6,
+                  fill: waveLine.color,
+                  stroke: "#fff",
+                  strokeWidth: 1,
+                  onMouseOver: () => setHoveredWave(waveLine.wave),
+                  onMouseLeave: () => setHoveredWave(null)
                 }}
+                connectNulls
+                isAnimationActive={false}
               />
             ))}
+            
+            {/* Wave number labels at the end point using explicit coordinates */}
+            {waveLines.map((waveLine, index) => {
+              if (waveLine.data.length === 0) return null;
+              
+              // Get the last data point (end of wave)
+              const endPoint = waveLine.data[waveLine.data.length - 1];
+              
+              return (
+                <ReferenceArea
+                  key={`wave-label-${index}`}
+                  x1={endPoint.timestamp}
+                  x2={endPoint.timestamp + 1} // Just a pixel wide
+                  y1={endPoint.value - 5}
+                  y2={endPoint.value + 5}
+                  shape={() => (
+                    <text
+                      x={endPoint.timestamp}
+                      y={endPoint.value}
+                      dx={10}
+                      dy={0}
+                      fill={waveLine.color}
+                      stroke="#000"
+                      strokeWidth={0.5}
+                      fontSize={16}
+                      fontWeight="bold"
+                    >
+                      {waveLine.wave.number}
+                    </text>
+                  )}
+                  isFront={true}
+                />
+              );
+            })}
             
             {/* Highlight current wave */}
             {currentWave && currentWave.number && (
@@ -354,7 +348,14 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               stroke="#8884d8"
               fill="rgba(136, 132, 216, 0.1)"
               tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
-              startIndex={Math.max(0, processedChartData.length - 90)}
+              // Show last 90 data points by default (typically 3 months of daily data)
+              // but expand view if we have a wave pattern starting earlier
+              startIndex={mostRecentWave1 
+                ? Math.min(
+                    Math.max(0, processedChartData.findIndex(d => d.timestamp >= mostRecentWave1.startTimestamp) - 10), 
+                    Math.max(0, processedChartData.length - 90)
+                  )
+                : Math.max(0, processedChartData.length - 90)}
               travellerWidth={10}
               gap={1}
               className="mt-4"

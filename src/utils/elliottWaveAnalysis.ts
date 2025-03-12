@@ -440,14 +440,54 @@ const completeWaveAnalysis = (
       if (wave.endPrice !== undefined && wave.startPrice !== undefined) {
         if (wave.endPrice <= wave.startPrice) {
           console.log("Wave 1 violated Elliott rule: must move upward in bullish patterns");
-          // Instead of skipping completely, mark it but still add to provide visualization
+          // Mark as invalid and restart wave counting
+          invalidationPoints.push(i);
           wave.type = 'corrective'; // Mark as invalid impulse
-          
-          // Add it to waves but don't increment wave count - will try to find another Wave 1
           waves.push(wave);
-          // Don't increment waveCount so we look for another Wave 1
-          continue; 
+          continue;
         }
+      }
+    }
+
+    // Rule: Wave 2 cannot retrace beyond the start of Wave 1
+    if (waveNumber === 2 && waves.length > 0) {
+      const wave1 = waves.find(w => w.number === 1);
+      if (wave1 && wave1.startPrice !== undefined && wave.endPrice !== undefined && 
+          wave.endPrice <= wave1.startPrice) {
+        console.log("Wave 2 violated Elliott rule: retraced beyond start of Wave 1");
+        invalidationPoints.push(i); // Mark this as a restart point
+        wave.type = 'corrective'; // Mark as invalid
+        waves.push(wave);
+        waveCount++;
+        continue;
+      }
+    }
+
+    // Rule: Wave 3 must extend beyond the end of Wave 1
+    if (waveNumber === 3 && waves.length > 0) {
+      const wave1 = waves.find(w => w.number === 1);
+      if (wave1 && wave1.endPrice !== undefined && wave.endPrice !== undefined && 
+          wave.endPrice <= wave1.endPrice) {
+        console.log("Wave 3 violated Elliott rule: must extend beyond the end of Wave 1");
+        invalidationPoints.push(i); // Mark this as a restart point
+        wave.type = 'corrective'; // Mark as invalid impulse
+        waves.push(wave);
+        waveCount++;
+        continue;
+      }
+    }
+
+    // NEW RULE: Wave 4 cannot retrace below the end of Wave 2
+    if (waveNumber === 4 && waves.length > 0) {
+      const wave2 = waves.find(w => w.number === 2);
+      if (wave2 && wave2.endPrice !== undefined && wave.endPrice !== undefined &&
+          wave.endPrice <= wave2.endPrice) {
+        console.log("Wave 4 violated Elliott rule: retraced below the end of Wave 2");
+        invalidationPoints.push(i); // Mark this as a restart point
+        wave.type = 'corrective'; // Mark as invalid impulse
+        waves.push(wave);
+        waveCount++;
+        continue;
       }
     }
 

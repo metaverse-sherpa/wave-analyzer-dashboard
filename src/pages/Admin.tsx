@@ -36,7 +36,7 @@ const AdminDashboard = () => {
   const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
 
   // Get context values with cancellation capability
-  const { analysisEvents, getAnalysis, cancelAllAnalyses } = useWaveAnalysis();
+  const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
@@ -286,9 +286,8 @@ const AdminDashboard = () => {
         // Cancel any running analyses first
         cancelAllAnalyses();
         
-        // Clear both caches
-        clearAllAnalyses();  // Clear localStorage
-        clearMemoCache();    // Clear in-memory cache
+        // Use the clearCache from the destructured hook at the top level
+        clearCache();
         
         loadCacheData();
         toast.success('Wave analysis cache cleared successfully');

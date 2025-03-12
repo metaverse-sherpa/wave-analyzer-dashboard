@@ -41,7 +41,7 @@ import Index from "./pages/Index";
 import StockDetails from "./pages/StockDetails";
 import NotFound from "./pages/NotFound";
 import Dashboard from './components/Dashboard';
-import WaveAnalysis from '@/context/WaveAnalysisContext';
+import WaveAnalysis, { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { HistoricalDataProvider } from '@/context/HistoricalDataContext';
 import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -49,6 +49,7 @@ import { KillSwitchProvider, useKillSwitch } from './context/KillSwitchContext';
 import DataInitializer from './context/DataInitializer';
 import AdminDashboard from "./pages/Admin";
 import { toast } from '@/lib/toast';
+import AnalysisStatusTracker from './components/AnalysisStatusTracker';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +80,7 @@ const emergencyFixHighCPU = () => {
 };
 
 const App = () => {
+  // 1. Move ALL hooks to the top, before any conditional returns
   const [calculationKillSwitch, setCalculationKillSwitch] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -89,6 +91,8 @@ const App = () => {
   // Check if we're experiencing consistent crashes
   const crashCount = parseInt(localStorage.getItem('crash-count') || '0');
   const safeMode = crashCount > 3;
+
+  // Add all your useEffect hooks here
   
   useEffect(() => {
     // Set a watchdog timer
@@ -106,33 +110,6 @@ const App = () => {
       localStorage.setItem('crash-count', '0');
     };
   }, []);
-  
-  if (safeMode) {
-    return (
-      <div className="p-8 max-w-md mx-auto mt-20">
-        <h1 className="text-2xl font-bold mb-4">Safe Mode Activated</h1>
-        <p className="mb-4">
-          We detected that the app was crashing repeatedly. 
-          We've loaded it in safe mode with minimal features.
-        </p>
-        <button
-          onClick={() => {
-            localStorage.setItem('crash-count', '0');
-            window.location.reload();
-          }}
-          className="px-4 py-2 bg-blue-600 text-white rounded"
-        >
-          Try Normal Mode
-        </button>
-        <button
-          onClick={emergencyFixHighCPU}
-          className="px-4 py-2 bg-red-600 text-white rounded ml-2"
-        >
-          Reset All Settings
-        </button>
-      </div>
-    );
-  }
 
   useEffect(() => {
     // Allow the initial data loading to happen before enabling CPU monitoring
@@ -176,39 +153,6 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    console.log('App component mounted');
-    
-    // Log the route
-    console.log('Current path:', window.location.pathname);
-    
-    // Log if providers are initialized
-    console.log('Providers ready:', {
-      queryClient: !!queryClient,
-      isEmergencyMode,
-      calculationKillSwitch
-    });
-    
-    // Check if DOM is ready
-    console.log('DOM ready state:', document.readyState);
-    
-    // Report any pending errors
-    console.log('Pending errors:', window.onerror);
-  }, []);
-
-  useEffect(() => {
-    // Check if data is loaded every second
-    const checkInterval = setInterval(() => {
-      const hasAnalysisData = Object.keys(localStorage).some(key => key.startsWith('wave_analysis_'));
-      if (hasAnalysisData) {
-        setDataLoaded(true);
-        clearInterval(checkInterval);
-      }
-    }, 1000);
-    
-    return () => clearInterval(checkInterval);
-  }, []);
-
-  useEffect(() => {
     const checkApi = async () => {
       try {
         // Check if the API is available
@@ -243,23 +187,35 @@ const App = () => {
     return () => clearTimeout(forceLoadTimeout);
   }, [loadState]);
 
-  // Add this component inside your App component
-  const AnalysisStatusTracker = () => {
-    // This component lives inside the WaveAnalysis.Provider
-    const { analyses } = WaveAnalysis.useWaveAnalysis();
-    
-    // Effect to track when analyses become available
-    useEffect(() => {
-      const analysesCount = Object.keys(analyses).length;
-      if (analysesCount > 0) {
-        console.log(`AnalysisStatusTracker: ${analysesCount} analyses loaded`);
-        // You could dispatch an event or call a function here
-      }
-    }, [analyses]);
-    
-    return null; // This component doesn't render anything
-  };
+  // 2. AFTER all hooks are declared, then do conditional rendering
+  if (safeMode) {
+    return (
+      <div className="p-8 max-w-md mx-auto mt-20">
+        <h1 className="text-2xl font-bold mb-4">Safe Mode Activated</h1>
+        <p className="mb-4">
+          We detected that the app was crashing repeatedly. 
+          We've loaded it in safe mode with minimal features.
+        </p>
+        <button
+          onClick={() => {
+            localStorage.setItem('crash-count', '0');
+            window.location.reload();
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded"
+        >
+          Try Normal Mode
+        </button>
+        <button
+          onClick={emergencyFixHighCPU}
+          className="px-4 py-2 bg-red-600 text-white rounded ml-2"
+        >
+          Reset All Settings
+        </button>
+      </div>
+    );
+  }
 
+  // 3. Regular render return
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
