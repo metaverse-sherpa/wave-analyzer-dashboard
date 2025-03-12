@@ -189,3 +189,10 @@ export const getWavePatternDescription = (waves: Wave[]): string => {
     return "Forming Wave Pattern";
   }
 };
+
+export const getWaveStyle = (wave: Wave, isHighlighted: boolean) => ({
+  stroke: getWaveColor(wave.number),
+  strokeWidth: isHighlighted ? 3 : 1,
+  strokeOpacity: isHighlighted ? 1 : 0.6,
+  // ...other existing styles...
+});

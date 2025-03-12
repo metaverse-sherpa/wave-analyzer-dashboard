@@ -1,73 +1,99 @@
-import { Wave } from '@/types/waves';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+import React, { useState } from 'react';
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Wave } from "@/types/waves";
 
 interface WaveSequencePaginationProps {
   waves: Wave[];
-  itemsPerPage?: number;
+  onWaveSelect?: (wave: Wave) => void;
 }
 
-const WaveSequencePagination = ({ 
-  waves, 
-  itemsPerPage = 5 
-}: WaveSequencePaginationProps) => {
+const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({ 
+  waves,
+  onWaveSelect 
+}) => {
   const [currentPage, setCurrentPage] = useState(0);
+  const wavesPerPage = 5;
+  const pageCount = Math.ceil(waves.length / wavesPerPage);
   
-  // Sort waves by timestamp in descending order (most recent first)
-  const sortedWaves = [...waves].sort((a, b) => 
-    (b.endTimestamp || 0) - (a.endTimestamp || 0)
-  );
-  
-  const totalPages = Math.ceil(sortedWaves.length / itemsPerPage);
-  const currentWaves = sortedWaves.slice(
-    currentPage * itemsPerPage, 
-    (currentPage + 1) * itemsPerPage
-  );
+  const startIndex = currentPage * wavesPerPage;
+  const displayedWaves = waves.slice(startIndex, startIndex + wavesPerPage);
+
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleDateString();
+  };
+
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2
+    }).format(price);
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        {currentWaves.map((wave, index) => (
-          <Badge 
+      {/* Wave List */}
+      <div className="space-y-1">
+        {displayedWaves.map((wave, index) => (
+          <div 
             key={`${wave.number}-${wave.startTimestamp}`}
-            variant={wave.isImpulse ? "default" : "secondary"}
-            className="text-sm"
+            className={`px-3 py-2 rounded-lg border flex items-center justify-between text-sm 
+              ${wave.type === 'impulse' ? 'border-green-500/20' : 'border-red-500/20'}
+              hover:bg-accent/50 cursor-pointer transition-colors`}
+            onClick={() => onWaveSelect?.(wave)}
+            role="button"
+            tabIndex={0}
           >
-            Wave {wave.number} 
-            {wave.isComplete ? '✓' : '...'}
-          </Badge>
+            <div className="flex items-center gap-3">
+              <span className={`font-medium ${
+                wave.type === 'impulse' ? 'text-green-500' : 'text-red-500'
+              }`}>
+                Wave {wave.number}
+              </span>
+              <span className="text-muted-foreground">
+                {formatDate(wave.startTimestamp)} ({formatPrice(wave.startPrice!)})
+              </span>
+              <span className="text-muted-foreground">→</span>
+              <span className="text-muted-foreground">
+                {formatDate(wave.endTimestamp)} ({formatPrice(wave.endPrice!)})
+              </span>
+            </div>
+            <span className={`text-xs px-2 py-1 rounded-full ${
+              wave.type === 'impulse' 
+                ? 'bg-green-500/10 text-green-500' 
+                : 'bg-red-500/10 text-red-500'
+            }`}>
+              {wave.type}
+            </span>
+          </div>
         ))}
       </div>
-      
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-            disabled={currentPage === 0}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Previous
-          </Button>
-          
-          <span className="text-sm text-muted-foreground">
-            Page {currentPage + 1} of {totalPages}
-          </span>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
-            disabled={currentPage === totalPages - 1}
-          >
-            Next
-            <ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
-        </div>
-      )}
+
+      {/* Pagination Controls */}
+      <div className="flex justify-between items-center pt-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+          disabled={currentPage === 0}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Previous
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          Page {currentPage + 1} of {pageCount}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage(p => Math.min(pageCount - 1, p + 1))}
+          disabled={currentPage === pageCount - 1}
+        >
+          Next
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 };

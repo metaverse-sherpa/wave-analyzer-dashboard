@@ -187,57 +187,99 @@ const identifyWaves = (pivots: ZigzagPoint[], data: StockHistoricalData[]): Wave
   const waves: Wave[] = [];
   let i = 0;
 
-  // Keep trying to find a valid Wave 1
+  // Keep searching for valid wave patterns
   while (i < pivots.length - 1) {
-    const startPoint = pivots[i];
-    const endPoint = pivots[i + 1];
-    
-    // For Wave 1 search, look at the entire range from this point to the next
-    const startIdx = data.findIndex(d => d.timestamp === startPoint.timestamp);
-    const endIdx = data.findIndex(d => d.timestamp === endPoint.timestamp);
-    
-    if (startIdx === -1 || endIdx === -1) {
+    // Look for potential Wave 1 start (a low pivot followed by upward movement)
+    const potentialWave1Start = pivots[i];
+    const nextPivot = pivots[i + 1];
+
+    // Skip if not moving up from a low
+    if (nextPivot.price <= potentialWave1Start.price) {
       i++;
       continue;
     }
 
-    // Find the absolute lowest point in this range
-    const lowestIdx = findLowestPoint(data, startIdx, endIdx);
-    
-    // Create potential Wave 1
+    // Found upward movement - potential Wave 1
     const wave1: Wave = {
       number: 1,
-      startTimestamp: data[lowestIdx].timestamp,
-      endTimestamp: endPoint.timestamp,
-      startPrice: data[lowestIdx].low,
-      endPrice: endPoint.high,
+      startTimestamp: potentialWave1Start.timestamp,
+      endTimestamp: nextPivot.timestamp,
+      startPrice: potentialWave1Start.low,
+      endPrice: nextPivot.high,
       type: 'impulse',
       isComplete: true,
       isImpulse: true
     };
 
-    // Check if any price after this point goes below our Wave 1 start
-    const invalidated = data.slice(lowestIdx).some(point => point.low < wave1.startPrice);
+    // Look ahead to validate the pattern
+    let currentIndex = i + 1;
+    const potentialWaves: Wave[] = [wave1];
     
-    if (!invalidated && wave1.endPrice > wave1.startPrice) {
-      console.log(`Found valid Wave 1 starting at ${new Date(wave1.startTimestamp * 1000).toLocaleDateString()}`);
-      waves.push(wave1);
-      i++; // Move to next pivot for subsequent waves
-      break;
+    // Try to identify subsequent waves
+    while (currentIndex < pivots.length - 1) {
+      const currentPivot = pivots[currentIndex];
+      const nextPivot = pivots[currentIndex + 1];
+      const lastWave = potentialWaves[potentialWaves.length - 1];
+      const waveCount = potentialWaves.length;
+
+      // Determine next wave number
+      let nextWaveNumber: number | string;
+      if (waveCount < 5) {
+        nextWaveNumber = waveCount + 1;
+      } else if (waveCount === 5) {
+        nextWaveNumber = 'A';
+      } else if (waveCount === 6) {
+        nextWaveNumber = 'B';
+      } else if (waveCount === 7) {
+        nextWaveNumber = 'C';
+      } else {
+        break; // Completed full pattern
+      }
+
+      // Create next wave
+      const nextWave: Wave = {
+        number: nextWaveNumber,
+        startTimestamp: currentPivot.timestamp,
+        endTimestamp: nextPivot.timestamp,
+        startPrice: typeof nextWaveNumber === 'number' && nextWaveNumber % 2 === 1 
+          ? currentPivot.low  // Odd numbered waves start from lows
+          : currentPivot.high, // Even numbered waves start from highs
+        endPrice: typeof nextWaveNumber === 'number' && nextWaveNumber % 2 === 1
+          ? nextPivot.high  // Odd numbered waves end at highs
+          : nextPivot.low,  // Even numbered waves end at lows
+        type: (typeof nextWaveNumber === 'number' && nextWaveNumber % 2 === 1) || nextWaveNumber === 'B'
+          ? 'impulse'
+          : 'corrective',
+        isComplete: true,
+        isImpulse: (typeof nextWaveNumber === 'number' && nextWaveNumber % 2 === 1) || nextWaveNumber === 'B'
+      };
+
+      // Validate wave based on its type
+      const isValidMove = nextWave.type === 'impulse' 
+        ? nextWave.endPrice! > nextWave.startPrice
+        : nextWave.endPrice! < nextWave.startPrice;
+
+      if (!isValidMove) {
+        break;
+      }
+
+      potentialWaves.push(nextWave);
+      currentIndex++;
+
+      // If we completed wave C, we're done with this pattern
+      if (nextWaveNumber === 'C') {
+        break;
+      }
     }
 
-    // If invalidated, move to next pivot and try again
-    i++;
+    // If we found at least 3 valid waves, add them to our collection
+    if (potentialWaves.length >= 3) {
+      waves.push(...potentialWaves);
+      i = currentIndex;
+    } else {
+      i++;
+    }
   }
-
-  // Only proceed with subsequent waves if we found a valid Wave 1
-  if (waves.length === 0) {
-    console.log('No valid Wave 1 found');
-    return [];
-  }
-
-  // Continue with rest of wave identification...
-  // ... existing code for subsequent waves ...
 
   return waves;
 };

@@ -50,6 +50,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   const chartRef = useRef<any>(null);
   const [hoveredWave, setHoveredWave] = useState<Wave | null>(null);
   const [zoomRange, setZoomRange] = useState<{start: number; end: number} | null>(null);
+  const [highlightedWave, setHighlightedWave] = useState<Wave | null>(null);
 
   // Find the most recent Wave 1
   const mostRecentWave1 = useMemo(() => 
@@ -125,6 +126,29 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       end: endIndex
     });
   };
+
+  const handleWaveSelect = (wave: Wave) => {
+    setHighlightedWave(wave);
+    
+    // Find the data point indices for the selected wave
+    const startIndex = processedChartData.findIndex(d => d.timestamp === wave.startTimestamp);
+    const endIndex = processedChartData.findIndex(d => d.timestamp === wave.endTimestamp);
+    
+    // Set zoom range to show the selected wave
+    setZoomRange({
+      start: Math.max(0, startIndex - 5),
+      end: Math.min(processedChartData.length - 1, endIndex + 5)
+    });
+  };
+
+  // Update the wave lines to highlight the selected wave
+  const updatedWaveLines = useMemo(() => {
+    return waves.map(wave => ({
+      ...wave,
+      strokeWidth: wave === highlightedWave ? 3 : 1,
+      strokeOpacity: wave === highlightedWave ? 1 : 0.6
+    }));
+  }, [waves, highlightedWave]);
 
   return (
     <div className="w-full h-[500px] bg-chart-background rounded-lg p-4">
@@ -233,7 +257,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           ))}
           
           {/* Render wave lines with labels */}
-          {waveLines.map((waveLine) => (
+          {updatedWaveLines.map((waveLine) => (
             <Line
               key={waveLine.id}
               data={waveLine.data}
@@ -335,6 +359,10 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           />
         </ComposedChart>
       </ResponsiveContainer>
+      <WaveSequencePagination 
+        waves={waves} 
+        onWaveSelect={handleWaveSelect} 
+      />
     </div>
   );
 };
