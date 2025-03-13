@@ -276,9 +276,12 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                   type="linear"
                   dataKey="value"
                   stroke={waveLine.color}
-                  strokeWidth={isSelected ? 4 : (waveLine.wave === highlightedWave ? 3 : 1)} // Make selected wave thicker
-                  strokeOpacity={isSelected ? 1 : (waveLine.wave === highlightedWave ? 1 : 0.6)} // Make selected wave fully opaque
-                  strokeDasharray={waveLine.wave.isImpulse ? "0" : "5 5"}
+                  strokeWidth={isSelected ? 4 : (waveLine.wave === highlightedWave ? 3 : 1)}
+                  strokeOpacity={isSelected ? 1 : (waveLine.wave === highlightedWave ? 1 : 0.6)}
+                  strokeDasharray={
+                    // Current wave gets dashed line, all others are solid
+                    currentWave && waveLine.wave.number === currentWave.number ? "5 5" : "0"
+                  }
                   dot={{
                     r: isSelected ? 6 : 4, // Make dots larger for selected wave
                     fill: waveLine.color,

@@ -215,6 +215,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                           <WaveSequencePagination 
                             waves={analysis.waves} 
                             selectedWave={selectedWave} // Pass the same selected wave here
+                            currentWave={analysis.currentWave} // Add this prop
+                            fibTargets={analysis.fibTargets}   // Add this prop
                             onWaveSelect={(wave) => {
                               // Compare startTimestamp instead of id
                               if (selectedWave && selectedWave.startTimestamp === wave.startTimestamp) {
