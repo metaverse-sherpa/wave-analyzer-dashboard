@@ -55,7 +55,14 @@ export const topStockSymbols = [
 ];
 
 // Replace yahooFinance imports with fetch calls to your backend
-const API_BASE_URL = 'http://localhost:3001/api'; // Changed to a relative URL
+const getApiBaseUrl = (): string => {
+  // For production environments, use relative URLs
+  // This will automatically use the same host/port as the UI
+  return '/api';
+};
+
+// Use the function to get the base URL
+const API_BASE_URL = getApiBaseUrl();
 
 const USE_MOCK_DATA = false; // Set to false when your backend is working
 

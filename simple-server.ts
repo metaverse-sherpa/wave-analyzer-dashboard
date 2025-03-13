@@ -1,13 +1,40 @@
+// Make sure imports are ESM-compatible
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import yahooFinance from 'yahoo-finance2';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
+// Suppress the deprecated method warning
+yahooFinance.suppressNotices(['ripHistorical']);
+
+// When using ESM, __dirname is not available, so create it
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 import { QueryOptions } from 'yahoo-finance2/dist/esm/src/modules/quote';
+dotenv.config();
 
 const app = express();
 
-// Enable CORS for all routes
-app.use(cors());
+// Environment variables with defaults
+const PORT = process.env.PORT || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const DIST_DIR = path.join(__dirname, 'dist'); // Assuming your frontend builds to 'dist'
+
+// CORS setup - only needed in development
+if (NODE_ENV === 'development') {
+  app.use(cors());
+} 
+
 app.use(express.json());
+
+// API routes
+app.use('/api', (req, res, next) => {
+  console.log(`API request: ${req.method} ${req.path}`);
+  next();
+});
 
 interface StockHistoricalData {
   timestamp: number;
@@ -19,8 +46,8 @@ interface StockHistoricalData {
 }
 
 // Define USE_MOCK_DATA flag to control data source
-const USE_MOCK_DATA = false;
-const USE_CACHE = true;
+const USE_MOCK_DATA = process.env.ENABLE_MOCK_DATA === 'true';
+const USE_CACHE = process.env.ENABLE_CACHING !== 'false';
 
 // Simple in-memory cache with TTL
 const cache: Record<string, { data: any, expires: number }> = {};
@@ -216,69 +243,102 @@ app.get('/api/historical', async (req, res) => {
       return res.json(data);
     }
     
-    // Map timeframe to yahoo-finance2 period parameters
-    let period: string;
-    let interval: string;
+    // Calculate period1 (start) and period2 (end) based on timeframe
+    const now = new Date();
+    const period2 = now; // End date is always now
+    let period1: Date; // Start date varies based on timeframe
     
+    // Calculate period1 based on timeframe - with more reasonable date ranges
     switch (timeframe) {
       case '1d':
-        period = '1d';
-        interval = '5m';
+        // For 1 day view, get 7 days of data
+        period1 = new Date(now);
+        period1.setDate(now.getDate() - 365);
         break;
       case '5d':
-        period = '5d';
-        interval = '15m';
+        // For 5 day view, get 14 days of data
+        period1 = new Date(now);
+        period1.setDate(now.getDate() - 365);
         break;
       case '1mo':
-        period = '1mo';
-        interval = '1d';
+        // 1 month ago
+        period1 = new Date(now);
+        period1.setMonth(now.getMonth() - 12);
         break;
       case '6mo':
-        period = '6mo';
-        interval = '1d';
-        break;
-      case '1y':
-        period = '1y';
-        interval = '1d';
-        break;
-      case '5y':
-        period = '5y';
-        interval = '1wk';
+        // 6 months ago
+        period1 = new Date(now);
+        period1.setMonth(now.getMonth() - 36);
         break;
       default:
-        period = '1y';
-        interval = '1d';
+        // Default to 1 year
+        period1 = new Date(now);
+        period1.setFullYear(now.getFullYear() - 1);
     }
     
     try {
       const fetchHistoricalData = async () => {
-        const queryOptions = {
-          period,
-          interval
+        console.log(`Requesting chart data for ${symbol} from ${period1.toISOString()} to ${period2.toISOString()}`);
+        
+        // Add different interval for short timeframes
+        const interval = (timeframe === '1d' || timeframe === '5d') ? '1d' : '1d';
+        
+        // Use chart() method with the appropriate options
+        const chartOptions = {
+          period1,
+          period2
         };
         
-        const result = await yahooFinance.historical(symbol, queryOptions);
+        console.log('Chart options:', chartOptions);
         
-        // Transform to expected format
-        return result.map(item => ({
-          timestamp: Math.floor(new Date(item.date).getTime() / 1000),
-          open: item.open,
-          high: item.high,
-          close: item.close,
-          low: item.low,
-          volume: item.volume
-        }));
+        try {
+          const result = await yahooFinance.chart(symbol, chartOptions);
+          
+          // Enhanced error logging
+          if (!result) {
+            console.error('Received empty result from Yahoo Finance');
+            throw new Error('Empty response from Yahoo Finance');
+          }
+          
+          console.log('Yahoo response structure:', Object.keys(result));
+          
+          if (!result.quotes) {
+            console.error('Missing quotes data in response:', result);
+            throw new Error('Missing quotes data in response');
+          }
+          
+          if (result.quotes.error) {
+            console.error('Quotes error:', result.quotes.error);
+            throw new Error(result.quotes.error.description || 'Quotes error');
+          }
+          
+          // Transform into the expected format
+          const data = result.quotes.map(quote => ({
+            timestamp: Math.floor(new Date(quote.date).getTime() / 1000),
+            open: quote.open ?? null,
+            high: quote.high ?? null,
+            close: quote.close ?? null,
+            low: quote.low ?? null,
+            volume: quote.volume ?? 0
+          }))
+          .filter(item => item.open !== null && item.high !== null && item.close !== null && item.low !== null);
+          
+          console.log(`Transformed to ${data.length} valid data points`);
+          return data;
+        } catch (error) {
+          console.error('Error in chart request:', error);
+          throw error;
+        }
       };
       
       // Get historical data with caching
-      // Use shorter cache for shorter timeframes
       const cacheTTL = timeframe === '1d' ? 15 : (timeframe === '5d' ? 30 : 60);
-      const data = await getCachedData(`historical_${symbol}_${timeframe}`, fetchHistoricalData, cacheTTL);
+      const data = await getCachedData(`chart_${symbol}_${timeframe}`, fetchHistoricalData, cacheTTL);
       
-      console.log(`Returning ${data.length} real historical data points for ${symbol}`);
+      console.log(`Returning ${data.length} real chart data points for ${symbol}`);
       return res.json(data);
     } catch (yahooError) {
-      console.error('Failed to get historical data from Yahoo Finance:', yahooError);
+      console.error('Failed to get chart data from Yahoo Finance:', yahooError);
       console.log('Falling back to mock data');
       
       // Fall back to mock data
@@ -292,14 +352,24 @@ app.get('/api/historical', async (req, res) => {
   }
 });
 
+// In production, serve the frontend static files
+if (NODE_ENV === 'production') {
+  console.log(`Serving static files from: ${DIST_DIR}`);
+  
+  // Serve static files
+  app.use(express.static(DIST_DIR));
+  
+  // For all non-API routes, serve the index.html file
+  app.get('*', (req, res, next) => {
+    // Skip API routes
+    if (req.path.startsWith('/api/')) return next();
+    
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
+
 // Start server
-const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`Simple API server running at http://localhost:${PORT}`);
-  console.log('Available endpoints:');
-  console.log('  - GET /api/health');
-  console.log('  - GET /api/stocks?symbols=AAPL,MSFT,GOOGL');
-  console.log('  - GET /api/historical?symbol=AAPL&timeframe=1d');
-  console.log(`Using ${USE_MOCK_DATA ? 'MOCK' : 'REAL'} data from Yahoo Finance`);
-  console.log(`Caching is ${USE_CACHE ? 'ENABLED' : 'DISABLED'}`);
+  console.log(`Server running in ${NODE_ENV} mode at http://localhost:${PORT}`);
+  console.log(`API available at ${NODE_ENV === 'production' ? '' : 'http://localhost:' + PORT}/api`);
 });

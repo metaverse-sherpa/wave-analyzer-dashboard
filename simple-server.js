@@ -37,16 +37,62 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 var express_1 = require("express");
+var path_1 = require("path");
 var cors_1 = require("cors");
-var child_process_1 = require("child_process");
-var util_1 = require("util");
-var execAsync = (0, util_1.promisify)(child_process_1.exec);
+var yahoo_finance2_1 = require("yahoo-finance2");
+var dotenv_1 = require("dotenv");
+dotenv_1.default.config();
 var app = (0, express_1.default)();
-// Enable CORS for all routes
-app.use((0, cors_1.default)());
+// Environment variables with defaults
+var PORT = process.env.PORT || 3001;
+var NODE_ENV = process.env.NODE_ENV || 'development';
+var DIST_DIR = path_1.default.join(__dirname, 'dist'); // Assuming your frontend builds to 'dist'
+// CORS setup - only needed in development
+if (NODE_ENV === 'development') {
+    app.use((0, cors_1.default)());
+}
 app.use(express_1.default.json());
+// API routes
+app.use('/api', function (req, res, next) {
+    console.log("API request: ".concat(req.method, " ").concat(req.path));
+    next();
+});
 // Define USE_MOCK_DATA flag to control data source
-var USE_MOCK_DATA = false;
+var USE_MOCK_DATA = process.env.ENABLE_MOCK_DATA === 'true';
+var USE_CACHE = process.env.ENABLE_CACHING !== 'false';
+// Simple in-memory cache with TTL
+var cache = {};
+// Function to get cached data or fetch new data
+function getCachedData(key_1, fetchFn_1) {
+    return __awaiter(this, arguments, void 0, function (key, fetchFn, ttlMinutes) {
+        var now, data;
+        if (ttlMinutes === void 0) { ttlMinutes = 60; }
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    now = Date.now();
+                    // Return cached data if it exists and hasn't expired
+                    if (USE_CACHE && cache[key] && cache[key].expires > now) {
+                        console.log("Cache hit for ".concat(key));
+                        return [2 /*return*/, cache[key].data];
+                    }
+                    // Fetch new data
+                    console.log("Cache miss for ".concat(key, ", fetching fresh data"));
+                    return [4 /*yield*/, fetchFn()];
+                case 1:
+                    data = _a.sent();
+                    // Store in cache with expiration
+                    if (USE_CACHE) {
+                        cache[key] = {
+                            data: data,
+                            expires: now + (ttlMinutes * 60 * 1000)
+                        };
+                    }
+                    return [2 /*return*/, data];
+            }
+        });
+    });
+}
 // Generate mock historical data (keep for fallback)
 var generateMockHistoricalData = function (symbol, days) {
     if (days === void 0) { days = 300; }
@@ -86,17 +132,17 @@ app.get('/api/health', function (req, res) {
 });
 // Stocks endpoint
 app.get('/api/stocks', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var symbols, quotes, _a, stdout, stderr, quotes, pythonError_1, quotes, error_1;
-    var _b;
-    return __generator(this, function (_c) {
-        switch (_c.label) {
+    var symbols_1, quotes, fetchQuotes, quotes, yahooError_1, quotes, error_1;
+    var _a;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
             case 0:
-                _c.trys.push([0, 5, , 6]);
+                _b.trys.push([0, 5, , 6]);
                 console.log('Stock request received:', req.query);
-                symbols = (((_b = req.query.symbols) === null || _b === void 0 ? void 0 : _b.toString()) || '').split(',');
-                console.log("Fetching data for ".concat(symbols.length, " symbols"));
+                symbols_1 = (((_a = req.query.symbols) === null || _a === void 0 ? void 0 : _a.toString()) || '').split(',');
+                console.log("Fetching data for ".concat(symbols_1.length, " symbols"));
                 if (USE_MOCK_DATA) {
-                    quotes = symbols.map(function (symbol) { return ({
+                    quotes = symbols_1.map(function (symbol) { return ({
                         symbol: symbol,
                         shortName: "".concat(symbol, " Inc."),
                         regularMarketPrice: 100 + Math.random() * 100,
@@ -114,24 +160,69 @@ app.get('/api/stocks', function (req, res) { return __awaiter(void 0, void 0, vo
                     console.log("Returning ".concat(quotes.length, " mock stock quotes"));
                     return [2 /*return*/, res.json(quotes)];
                 }
-                _c.label = 1;
+                _b.label = 1;
             case 1:
-                _c.trys.push([1, 3, , 4]);
-                return [4 /*yield*/, execAsync("python yahoo_finance.py stocks ".concat(symbols.join(',')))];
+                _b.trys.push([1, 3, , 4]);
+                fetchQuotes = function () { return __awaiter(void 0, void 0, void 0, function () {
+                    var options, results, _i, symbols_2, symbol, quote, error_2;
+                    return __generator(this, function (_a) {
+                        switch (_a.label) {
+                            case 0:
+                                options = {
+                                    fields: [
+                                        'shortName', 'regularMarketPrice', 'regularMarketChange',
+                                        'regularMarketChangePercent', 'regularMarketVolume', 'averageDailyVolume3Month',
+                                        'marketCap', 'fiftyTwoWeekLow', 'fiftyTwoWeekHigh', 'trailingPE',
+                                        'forwardPE', 'trailingAnnualDividendYield'
+                                    ]
+                                };
+                                results = [];
+                                _i = 0, symbols_2 = symbols_1;
+                                _a.label = 1;
+                            case 1:
+                                if (!(_i < symbols_2.length)) return [3 /*break*/, 8];
+                                symbol = symbols_2[_i];
+                                _a.label = 2;
+                            case 2:
+                                _a.trys.push([2, 6, , 7]);
+                                if (!(results.length > 0)) return [3 /*break*/, 4];
+                                return [4 /*yield*/, new Promise(function (resolve) { return setTimeout(resolve, 100); })];
+                            case 3:
+                                _a.sent();
+                                _a.label = 4;
+                            case 4: return [4 /*yield*/, yahoo_finance2_1.default.quote(symbol, options)];
+                            case 5:
+                                quote = _a.sent();
+                                results.push(quote);
+                                return [3 /*break*/, 7];
+                            case 6:
+                                error_2 = _a.sent();
+                                console.error("Error fetching quote for ".concat(symbol, ":"), error_2);
+                                // Add a placeholder for failed requests
+                                results.push({
+                                    symbol: symbol,
+                                    shortName: "".concat(symbol, " Inc."),
+                                    regularMarketPrice: 0,
+                                    error: error_2.message
+                                });
+                                return [3 /*break*/, 7];
+                            case 7:
+                                _i++;
+                                return [3 /*break*/, 1];
+                            case 8: return [2 /*return*/, results];
+                        }
+                    });
+                }); };
+                return [4 /*yield*/, getCachedData("stocks_".concat(symbols_1.join('_')), fetchQuotes, 15)];
             case 2:
-                _a = _c.sent(), stdout = _a.stdout, stderr = _a.stderr;
-                if (stderr) {
-                    console.error('Error from Python script:', stderr);
-                    throw new Error(stderr);
-                }
-                quotes = JSON.parse(stdout);
+                quotes = _b.sent();
                 console.log("Returning ".concat(quotes.length, " real stock quotes from Yahoo Finance"));
                 return [2 /*return*/, res.json(quotes)];
             case 3:
-                pythonError_1 = _c.sent();
-                console.error('Failed to get data from Yahoo Finance:', pythonError_1);
+                yahooError_1 = _b.sent();
+                console.error('Failed to get data from Yahoo Finance:', yahooError_1);
                 console.log('Falling back to mock data');
-                quotes = symbols.map(function (symbol) { return ({
+                quotes = symbols_1.map(function (symbol) { return ({
                     symbol: symbol,
                     shortName: "".concat(symbol, " Inc."),
                     regularMarketPrice: 100 + Math.random() * 100,
@@ -149,7 +240,7 @@ app.get('/api/stocks', function (req, res) { return __awaiter(void 0, void 0, vo
                 return [2 /*return*/, res.json(quotes)];
             case 4: return [3 /*break*/, 6];
             case 5:
-                error_1 = _c.sent();
+                error_1 = _b.sent();
                 console.error('Error in /api/stocks:', error_1);
                 res.status(500).json({ error: 'Server error', message: error_1.message });
                 return [3 /*break*/, 6];
@@ -159,86 +250,117 @@ app.get('/api/stocks', function (req, res) { return __awaiter(void 0, void 0, vo
 }); });
 // Historical data endpoint
 app.get('/api/historical', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var symbol, timeframe, data, period, interval, _a, stdout, stderr, data, pythonError_2, data, error_2;
-    var _b, _c;
-    return __generator(this, function (_d) {
-        switch (_d.label) {
+    var symbol_1, timeframe, data, period_1, interval_1, fetchHistoricalData, cacheTTL, data, yahooError_2, data, error_3;
+    var _a, _b;
+    return __generator(this, function (_c) {
+        switch (_c.label) {
             case 0:
-                _d.trys.push([0, 5, , 6]);
-                symbol = (_b = req.query.symbol) === null || _b === void 0 ? void 0 : _b.toString();
-                timeframe = ((_c = req.query.timeframe) === null || _c === void 0 ? void 0 : _c.toString()) || '1d';
-                console.log("Historical data request for ".concat(symbol, " (").concat(timeframe, ")"));
-                if (!symbol) {
+                _c.trys.push([0, 5, , 6]);
+                symbol_1 = (_a = req.query.symbol) === null || _a === void 0 ? void 0 : _a.toString();
+                timeframe = ((_b = req.query.timeframe) === null || _b === void 0 ? void 0 : _b.toString()) || '1d';
+                console.log("Historical data request for ".concat(symbol_1, " (").concat(timeframe, ")"));
+                if (!symbol_1) {
                     return [2 /*return*/, res.status(400).json({ error: 'Symbol is required' })];
                 }
                 if (USE_MOCK_DATA) {
-                    data = generateMockHistoricalData(symbol, 500);
-                    console.log("Generated ".concat(data.length, " mock data points for ").concat(symbol));
+                    data = generateMockHistoricalData(symbol_1, 500);
+                    console.log("Generated ".concat(data.length, " mock data points for ").concat(symbol_1));
                     return [2 /*return*/, res.json(data)];
                 }
-                period = "1y";
-                interval = "1d";
-                if (timeframe === "1d") {
-                    period = "2d";
-                    interval = "1h";
+                switch (timeframe) {
+                    case '1d':
+                        period_1 = '1d';
+                        interval_1 = '5m';
+                        break;
+                    case '5d':
+                        period_1 = '5d';
+                        interval_1 = '15m';
+                        break;
+                    case '1mo':
+                        period_1 = '1mo';
+                        interval_1 = '1d';
+                        break;
+                    case '6mo':
+                        period_1 = '6mo';
+                        interval_1 = '1d';
+                        break;
+                    case '1y':
+                        period_1 = '1y';
+                        interval_1 = '1d';
+                        break;
+                    case '5y':
+                        period_1 = '5y';
+                        interval_1 = '1wk';
+                        break;
+                    default:
+                        period_1 = '1y';
+                        interval_1 = '1d';
                 }
-                else if (timeframe === "5d") {
-                    period = "5d";
-                    interval = "1h";
-                }
-                else if (timeframe === "1mo") {
-                    period = "1mo";
-                    interval = "1d";
-                }
-                else if (timeframe === "6mo") {
-                    period = "6mo";
-                    interval = "1d";
-                }
-                else if (timeframe === "1y") {
-                    period = "1y";
-                    interval = "1d";
-                }
-                else if (timeframe === "5y") {
-                    period = "5y";
-                    interval = "1wk";
-                }
-                _d.label = 1;
+                _c.label = 1;
             case 1:
-                _d.trys.push([1, 3, , 4]);
-                return [4 /*yield*/, execAsync("python yahoo_finance.py historical ".concat(symbol, " ").concat(period, " ").concat(interval))];
+                _c.trys.push([1, 3, , 4]);
+                fetchHistoricalData = function () { return __awaiter(void 0, void 0, void 0, function () {
+                    var queryOptions, result;
+                    return __generator(this, function (_a) {
+                        switch (_a.label) {
+                            case 0:
+                                queryOptions = {
+                                    period: period_1,
+                                    interval: interval_1
+                                };
+                                return [4 /*yield*/, yahoo_finance2_1.default.historical(symbol_1, queryOptions)];
+                            case 1:
+                                result = _a.sent();
+                                // Transform to expected format
+                                return [2 /*return*/, result.map(function (item) { return ({
+                                        timestamp: Math.floor(new Date(item.date).getTime() / 1000),
+                                        open: item.open,
+                                        high: item.high,
+                                        close: item.close,
+                                        low: item.low,
+                                        volume: item.volume
+                                    }); })];
+                        }
+                    });
+                }); };
+                cacheTTL = timeframe === '1d' ? 15 : (timeframe === '5d' ? 30 : 60);
+                return [4 /*yield*/, getCachedData("historical_".concat(symbol_1, "_").concat(timeframe), fetchHistoricalData, cacheTTL)];
             case 2:
-                _a = _d.sent(), stdout = _a.stdout, stderr = _a.stderr;
-                if (stderr) {
-                    console.error('Error from Python script:', stderr);
-                    throw new Error(stderr);
-                }
-                data = JSON.parse(stdout);
-                console.log("Received ".concat(data.length, " real data points from Yahoo Finance for ").concat(symbol));
+                data = _c.sent();
+                console.log("Returning ".concat(data.length, " real historical data points for ").concat(symbol_1));
                 return [2 /*return*/, res.json(data)];
             case 3:
-                pythonError_2 = _d.sent();
-                console.error('Failed to get historical data from Yahoo Finance:', pythonError_2);
+                yahooError_2 = _c.sent();
+                console.error('Failed to get historical data from Yahoo Finance:', yahooError_2);
                 console.log('Falling back to mock data');
-                data = generateMockHistoricalData(symbol, 500);
-                console.log("Generated ".concat(data.length, " mock data points for ").concat(symbol, " (fallback)"));
+                data = generateMockHistoricalData(symbol_1, 500);
+                console.log("Generated ".concat(data.length, " mock data points for ").concat(symbol_1, " (fallback)"));
                 return [2 /*return*/, res.json(data)];
             case 4: return [3 /*break*/, 6];
             case 5:
-                error_2 = _d.sent();
-                console.error('Error in /api/historical:', error_2);
-                res.status(500).json({ error: 'Server error', message: error_2.message });
+                error_3 = _c.sent();
+                console.error('Error in /api/historical:', error_3);
+                res.status(500).json({ error: 'Server error', message: error_3.message });
                 return [3 /*break*/, 6];
             case 6: return [2 /*return*/];
         }
     });
 }); });
+// In production, serve the frontend static files
+if (NODE_ENV === 'production') {
+    console.log("Serving static files from: ".concat(DIST_DIR));
+    // Serve static files
+    app.use(express_1.default.static(DIST_DIR));
+    // For all non-API routes, serve the index.html file
+    app.get('*', function (req, res, next) {
+        // Skip API routes
+        if (req.path.startsWith('/api/'))
+            return next();
+        res.sendFile(path_1.default.join(DIST_DIR, 'index.html'));
+    });
+}
 // Start server
-var PORT = process.env.PORT || 3001;
 app.listen(PORT, function () {
-    console.log("Simple API server running at http://localhost:".concat(PORT));
-    console.log('Available endpoints:');
-    console.log('  - GET /api/health');
-    console.log('  - GET /api/stocks?symbols=AAPL,MSFT,GOOGL');
-    console.log('  - GET /api/historical?symbol=AAPL&timeframe=1d');
-    console.log("Using ".concat(USE_MOCK_DATA ? 'MOCK' : 'REAL', " data from Yahoo Finance"));
+    console.log("Server running in ".concat(NODE_ENV, " mode at http://localhost:").concat(PORT));
+    console.log("API available at ".concat(NODE_ENV === 'production' ? '' : 'http://localhost:' + PORT, "/api"));
 });
