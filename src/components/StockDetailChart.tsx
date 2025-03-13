@@ -103,6 +103,19 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     };
   }, [displayData]);
 
+  // 2. Add a function to calculate the extended domain at the component level
+  const extendedDomain = useMemo(() => {
+    if (!processedChartData.length) return ['dataMin', 'dataMax'];
+    
+    // Get the last timestamp
+    const lastTimestamp = processedChartData[processedChartData.length - 1].timestamp;
+    
+    // Add 30 days (30 * 24 * 60 * 60 * 1000 milliseconds)
+    const extendedTimestamp = lastTimestamp + (30 * 24 * 60 * 60 * 1000);
+    
+    return ['dataMin', extendedTimestamp];
+  }, [processedChartData]);
+
   // Return early if no data available
   if (!data || data.length === 0) {
     return (
@@ -181,14 +194,15 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             <XAxis
               dataKey="timestamp"
               type="number"
-              domain={['dataMin', 'dataMax']}
+              domain={extendedDomain}
               scale="time"
               tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
               stroke="#94a3b8"
-              // Add these properties to fix the duplicate keys
-              ticks={processedChartData
+              ticks={[...processedChartData
                 .filter((_, index) => index % Math.ceil(processedChartData.length / 6) === 0)
-                .map(d => d.timestamp)}
+                .map(d => d.timestamp), 
+                // Add an additional tick for the extended date
+                extendedDomain[1]]}
               interval="preserveStartEnd"
               minTickGap={50}
             />
@@ -240,22 +254,55 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             />
             */}
             
-            {/* Render fibonacci targets as horizontal lines */}
-            {fibTargets.map((target, index) => (
-              <ReferenceLine
-                key={`fib-${index}`}
-                y={target.price}
-                stroke={target.isExtension ? "#9c27b0" : "#3f51b5"}
-                strokeDasharray="3 3"
-                strokeOpacity={0.6}
-                label={{
-                  position: 'right',
-                  value: `${target.label}: $${target.price.toFixed(2)}`,
-                  fill: target.isExtension ? "#9c27b0" : "#3f51b8",
-                  fontSize: 10
-                }}
-              />
-            ))}
+            {/* First, add a debug statement to check if you have Fibonacci targets */}
+            console.log("FibTargets:", fibTargets);
+            console.log("Current Wave:", currentWave);
+
+            {/* Then, modify the Fibonacci targets section: */}
+            {/* Fibonacci targets */}
+            {currentWave && fibTargets && fibTargets.length > 0 ? (
+              fibTargets
+                .filter(target => {
+                  // Make sure we have valid price data
+                  if (!target || !target.price || !currentWave || !currentWave.endPrice) return false;
+                  
+                  const currentPrice = currentWave.endPrice;
+                  if (currentWave.type === 'impulse') {
+                    // For impulsive waves, show only targets above current price
+                    return target.price > currentPrice;
+                  } else {
+                    // For corrective waves, show only targets below current price
+                    return target.price < currentPrice;
+                  }
+                })
+                .map((target, index) => (
+                  <ReferenceLine
+                    key={`fib-${index}`}
+                    y={target.price}
+                    stroke={target.isExtension ? "#9c27b0" : "#3f51b5"}
+                    strokeDasharray="3 3"
+                    strokeOpacity={0.8} // Increased opacity for better visibility
+                    label={{
+                      position: 'right',
+                      value: `${target.label} ${currentWave.type === 'impulse' ? '▲' : '▼'}: $${target.price.toFixed(2)}`,
+                      fill: target.isExtension ? "#9c27b0" : "#3f51b8",
+                      fontSize: 11,
+                      fontWeight: 'bold'
+                    }}
+                  />
+                ))
+            ) : (
+              // Optional: Show a message when no targets are available
+              <text
+                x="50%"
+                y="50"
+                fill="#94a3b8"
+                fontSize={12}
+                textAnchor="middle"
+              >
+                No Fibonacci targets available
+              </text>
+            )}
             
             {/* Render wave lines */}
             {waveLines.map((waveLine, index) => {

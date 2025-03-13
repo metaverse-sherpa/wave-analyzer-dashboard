@@ -89,21 +89,37 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
               {/* Fibonacci Targets Table - Only show for current wave */}
               {isCurrent && fibTargets.length > 0 && (
                 <div className="mt-2 mb-4 pl-4 pr-2 py-3 bg-secondary/30 rounded-lg border border-border/50">
-                  <h4 className="text-xs font-medium text-muted-foreground mb-2">Fibonacci Targets:</h4>
+                  <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                    Fibonacci {wave.type === 'impulse' ? 'Extension' : 'Retracement'} Targets:
+                  </h4>
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    {fibTargets.map((target, i) => (
-                      <div 
-                        key={`${target.label}-${i}`} 
-                        className="flex justify-between items-center"
-                      >
-                        <span className={`${target.isExtension ? 'text-purple-400' : 'text-blue-400'}`}>
-                          {target.label}:
-                        </span>
-                        <span className="font-medium">
-                          {formatPrice(target.price)}
-                        </span>
-                      </div>
-                    ))}
+                    {fibTargets
+                      // Filter targets based on wave type
+                      .filter(target => {
+                        const currentPrice = wave.endPrice || 0;
+                        if (wave.type === 'impulse') {
+                          // For impulsive waves, show only targets above current price
+                          return target.price > currentPrice;
+                        } else {
+                          // For corrective waves, show only targets below current price
+                          return target.price < currentPrice;
+                        }
+                      })
+                      .map((target, i) => (
+                        <div 
+                          key={`${target.label}-${i}`} 
+                          className="flex justify-between items-center"
+                        >
+                          <span className={`${target.isExtension ? 'text-purple-400' : 'text-blue-400'}`}>
+                            {target.label}:
+                          </span>
+                          <span className={`font-medium ${
+                            target.price > (wave.endPrice || 0) ? 'text-bullish' : 'text-bearish'
+                          }`}>
+                            {formatPrice(target.price)}
+                          </span>
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}
