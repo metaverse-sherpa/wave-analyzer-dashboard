@@ -5,12 +5,14 @@ import { Wave } from "@/types/waves";
 
 interface WaveSequencePaginationProps {
   waves: Wave[];
-  onWaveSelect?: (wave: Wave) => void;
+  onWaveSelect: (wave: Wave) => void;
+  selectedWave: Wave | null; // Add this prop
 }
 
 const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({ 
   waves,
-  onWaveSelect 
+  onWaveSelect,
+  selectedWave
 }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const wavesPerPage = 5;
@@ -39,39 +41,46 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        {displayedWaves.map((wave, index) => (
-          <div 
-            key={`${wave.number}-${wave.startTimestamp}`}
-            className={`px-3 py-2 rounded-lg border flex items-center justify-between text-sm 
-              ${wave.type === 'impulse' ? 'border-green-500/20' : 'border-red-500/20'}
-              hover:bg-accent/50 cursor-pointer transition-colors`}
-            onClick={() => onWaveSelect?.(wave)}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="flex items-center gap-3">
-              <span className={`font-medium ${
-                wave.type === 'impulse' ? 'text-green-500' : 'text-red-500'
+        {displayedWaves.map((wave, index) => {
+          // Use startTimestamp for comparison instead of id
+          const isSelected = selectedWave && wave.startTimestamp === selectedWave.startTimestamp;
+          
+          return (
+            <div 
+              key={`${wave.number}-${wave.startTimestamp}`}
+              className={`px-3 py-2 rounded-lg border flex items-center justify-between text-sm 
+                ${wave.type === 'impulse' ? 'border-green-500/20' : 'border-red-500/20'}
+                ${isSelected 
+                  ? 'bg-primary/20 border-2 border-yellow-400' 
+                  : 'hover:bg-accent/50 cursor-pointer transition-colors'}`}
+              onClick={() => onWaveSelect(wave)}
+              role="button"
+              tabIndex={0}
+            >
+              <div className="flex items-center gap-3">
+                <span className={`font-medium ${
+                  wave.type === 'impulse' ? 'text-green-500' : 'text-red-500'
+                }`}>
+                  Wave {wave.number}
+                </span>
+                <span className={`text-muted-foreground ${isSelected ? 'font-medium' : ''}`}>
+                  {formatDate(wave.startTimestamp)} ({formatPrice(wave.startPrice!)})
+                </span>
+                <span className="text-muted-foreground">→</span>
+                <span className={`text-muted-foreground ${isSelected ? 'font-medium' : ''}`}>
+                  {formatDate(wave.endTimestamp)} ({formatPrice(wave.endPrice!)})
+                </span>
+              </div>
+              <span className={`text-xs px-2 py-1 rounded-full ${
+                wave.type === 'impulse' 
+                  ? 'bg-green-500/10 text-green-500' 
+                  : 'bg-red-500/10 text-red-500'
               }`}>
-                Wave {wave.number}
-              </span>
-              <span className="text-muted-foreground">
-                {formatDate(wave.startTimestamp)} ({formatPrice(wave.startPrice!)})
-              </span>
-              <span className="text-muted-foreground">→</span>
-              <span className="text-muted-foreground">
-                {formatDate(wave.endTimestamp)} ({formatPrice(wave.endPrice!)})
+                {wave.type}
               </span>
             </div>
-            <span className={`text-xs px-2 py-1 rounded-full ${
-              wave.type === 'impulse' 
-                ? 'bg-green-500/10 text-green-500' 
-                : 'bg-red-500/10 text-red-500'
-            }`}>
-              {wave.type}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="flex justify-between items-center pt-2">
         <Button

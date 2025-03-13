@@ -58,6 +58,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [loading, setLoading] = useState(true);
   const { getAnalysis } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
+  const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
   
   useEffect(() => {
     const loadData = async () => {
@@ -179,6 +180,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 waves={analysis.waves}
                 currentWave={analysis.currentWave}
                 fibTargets={analysis.fibTargets}
+                selectedWave={selectedWave} // Pass the selected wave to the chart
+                onClearSelection={() => setSelectedWave(null)} // Allow clearing selection
               />
             ) : null}
           </div>
@@ -211,9 +214,14 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                         <div className="mt-4">
                           <WaveSequencePagination 
                             waves={analysis.waves} 
+                            selectedWave={selectedWave} // Pass the same selected wave here
                             onWaveSelect={(wave) => {
-                              // You can implement highlighting if needed
-                              console.log("Selected wave:", wave);
+                              // Compare startTimestamp instead of id
+                              if (selectedWave && selectedWave.startTimestamp === wave.startTimestamp) {
+                                setSelectedWave(null);
+                              } else {
+                                setSelectedWave(wave);
+                              }
                             }} 
                           />
                         </div>

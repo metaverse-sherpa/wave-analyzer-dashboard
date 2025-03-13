@@ -40,8 +40,10 @@ interface StockDetailChartProps {
   symbol: string;
   data: StockHistoricalData[];
   waves: Wave[];
-  currentWave: Wave;
+  currentWave: Wave | null;
   fibTargets: FibTarget[];
+  selectedWave: Wave | null; // Add this prop
+  onClearSelection: () => void; // Add this prop
 }
 
 const StockDetailChart: React.FC<StockDetailChartProps> = ({
@@ -49,7 +51,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   data,
   waves,
   currentWave,
-  fibTargets
+  fibTargets,
+  selectedWave, // Add this prop
+  onClearSelection // Add this prop
 }) => {
   const chartRef = useRef<any>(null);
   const [hoveredWave, setHoveredWave] = useState<Wave | null>(null);
@@ -255,8 +259,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             
             {/* Render wave lines */}
             {waveLines.map((waveLine, index) => {
-              // Only process waves with valid data
-              if (!waveLine.data || waveLine.data.length === 0) return null;
+              // Use startTimestamp for comparison instead of id
+              const isSelected = selectedWave && waveLine.wave.startTimestamp === selectedWave.startTimestamp;
               
               // Determine label position
               const isImpulsiveWave = 
@@ -272,20 +276,20 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                   type="linear"
                   dataKey="value"
                   stroke={waveLine.color}
-                  strokeWidth={waveLine.wave === highlightedWave ? 3 : 1}
-                  strokeOpacity={waveLine.wave === highlightedWave ? 1 : 0.6}
+                  strokeWidth={isSelected ? 4 : (waveLine.wave === highlightedWave ? 3 : 1)} // Make selected wave thicker
+                  strokeOpacity={isSelected ? 1 : (waveLine.wave === highlightedWave ? 1 : 0.6)} // Make selected wave fully opaque
                   strokeDasharray={waveLine.wave.isImpulse ? "0" : "5 5"}
                   dot={{
-                    r: 4,
+                    r: isSelected ? 6 : 4, // Make dots larger for selected wave
                     fill: waveLine.color,
-                    stroke: "#fff",
-                    strokeWidth: 1
+                    stroke: isSelected ? "#fff" : "#fff",
+                    strokeWidth: isSelected ? 2 : 1
                   }}
                   activeDot={{
-                    r: 6,
+                    r: isSelected ? 8 : 6,
                     fill: waveLine.color,
                     stroke: "#fff",
-                    strokeWidth: 1,
+                    strokeWidth: isSelected ? 2 : 1,
                     onMouseOver: () => setHoveredWave(waveLine.wave),
                     onMouseLeave: () => setHoveredWave(null)
                   }}
@@ -302,10 +306,10 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                           x={x}
                           y={y + (isImpulsiveWave ? -15 : 15)}
                           textAnchor="middle"
-                          fill="#FFFFFF"
+                          fill={isSelected ? "#FFFF00" : "#FFFFFF"} // Highlight selected wave label in yellow
                           stroke="#000000"
-                          strokeWidth={0.5}
-                          fontSize={12}
+                          strokeWidth={isSelected ? 0.8 : 0.5} // Thicker outline for selected wave
+                          fontSize={isSelected ? 14 : 12} // Larger font for selected wave
                           fontWeight="bold"
                         >
                           {waveLine.wave.number}
@@ -361,6 +365,20 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               gap={1}
               className="mt-4"
               onChange={handleBrushChange}
+            />
+
+            {/* Add selection highlight cancel on chart click */}
+            <rect
+              x={0}
+              y={0}
+              width="100%"
+              height="100%"
+              fill="transparent"
+              onClick={() => {
+                if (selectedWave) {
+                  onClearSelection();
+                }
+              }}
             />
           </ComposedChart>
         </ResponsiveContainer>
