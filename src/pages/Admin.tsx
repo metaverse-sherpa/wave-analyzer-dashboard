@@ -23,6 +23,12 @@ interface ActiveAnalysis {
   status: 'running' | 'completed' | 'error';
 }
 
+// Add this utility function at the top of your component or in a separate utils file
+const normalizeTimestamp = (timestamp: number): number => {
+  // If timestamp is in seconds (before year 2001), convert to milliseconds
+  return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+};
+
 const AdminDashboard = () => {
   // State and context hooks remain at the top
   const [cacheData, setCacheData] = useState<{
@@ -630,8 +636,8 @@ const AdminDashboard = () => {
                               
                               {data.historicalData.length > 0 && (
                                 <span className="text-xs text-muted-foreground">
-                                  {new Date(data.historicalData[0].timestamp * 1000).toLocaleDateString()} - 
-                                  {new Date(data.historicalData[data.historicalData.length-1].timestamp * 1000).toLocaleDateString()}
+                                  {new Date(normalizeTimestamp(data.historicalData[0].timestamp)).toLocaleDateString()} - 
+                                  {new Date(normalizeTimestamp(data.historicalData[data.historicalData.length-1].timestamp)).toLocaleDateString()}
                                 </span>
                               )}
                             </div>

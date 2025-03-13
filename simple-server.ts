@@ -314,7 +314,7 @@ app.get('/api/historical', async (req, res) => {
           
           // Transform into the expected format
           const data = result.quotes.map(quote => ({
-            timestamp: Math.floor(new Date(quote.date).getTime() / 1000),
+            timestamp: quote.date ? new Date(quote.date): null,
             open: quote.open ?? null,
             high: quote.high ?? null,
             close: quote.close ?? null,

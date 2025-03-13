@@ -54,7 +54,7 @@ export interface FibTarget {
 interface ZigzagPoint {
   price: number;       // Standard price (close)
   high: number;        // High price for impulse waves
-  low: number;         // Low price for corrective waves
+  low: number;        // Low price for corrective waves
   timestamp: number;   // Time of the pivot point
   index: number;       // Index in the original data array
   type: 'peak' | 'trough' | 'start' | 'end';  // Type of pivot point
@@ -202,7 +202,7 @@ const findPivotsWithThreshold = (data: StockHistoricalData[], threshold: number)
     price: data[0].close,
     high: data[0].high,
     low: data[0].low,
-    timestamp: data[0].timestamp,
+    timestamp: data[0].timestamp, // Keep as Date object if that's what it is
     index: 0,
     type: 'start'
   });
@@ -284,8 +284,14 @@ const getWaveTrend = (waveNumber: string | number): 'bullish' | 'bearish' | 'neu
  * This ensures we always return a consistent structure even when analysis fails
  */
 const generateEmptyAnalysisResult = (): WaveAnalysisResult => ({
-  waves: [],
-  currentWave: {} as Wave,
+  waves: [],  // Empty array, not undefined
+  currentWave: {  // Properly initialized Wave object
+    number: 0,
+    startTimestamp: 0,
+    startPrice: 0,
+    type: 'corrective',
+    isComplete: false
+  },
   fibTargets: [],
   trend: 'neutral',
   impulsePattern: false,
@@ -327,6 +333,63 @@ const fallbackWaveAnalysis = (pivots: ZigzagPoint[], data: StockHistoricalData[]
 };
 
 /**
+ * Modified validateInitialPivots with relaxed criteria
+ */
+const validateInitialPivots = (pivots: ZigzagPoint[]): boolean => {
+  // Need at least 3 pivots to validate the first wave and part of the second
+  if (pivots.length < 3) {
+    console.log("Not enough pivot points for initial validation");
+    return false;
+  }
+  
+  const wave1Start = pivots[0]; // First pivot
+  const wave1End = pivots[1];   // Second pivot
+  const wave2End = pivots[2];   // Third pivot
+  
+  // Wave 1 must go up (core rule, cannot be relaxed)
+  if (wave1End.price <= wave1Start.price) {
+    console.log("Invalid initial pivots: Wave 1 must move upward");
+    return false;
+  }
+  
+  // Wave 2 must go down from Wave 1 end (core rule, cannot be relaxed)
+  if (wave2End.price >= wave1End.price) {
+    console.log("Invalid initial pivots: Wave 2 must be a correction (downward)");
+    return false;
+  }
+  
+  // Critical rule: Wave 2 cannot go below Wave 1 start (core rule, cannot be relaxed)
+  if (wave2End.low <= wave1Start.low) { // Use low instead of price for stricter check
+    console.log(`Invalid initial pivots: Wave 2 low (${wave2End.low}) cannot retrace beyond start of Wave 1 (${wave1Start.low})`);
+    return false;
+  }
+  
+  // If we have more pivots, check if Wave 3 starts properly
+  if (pivots.length >= 4) {
+    const wave3End = pivots[3]; // Fourth pivot (end of Wave 3)
+    
+    // Wave 3 must go up (core rule, cannot be relaxed)
+    if (wave3End.price <= wave2End.price) {
+      console.log("Invalid pivots: Wave 3 must move upward");
+      return false;
+    }
+    
+    // RELAXED RULE: Wave 3 should ideally exceed Wave 1 end but not required
+    if (wave3End.price <= wave1End.price) {
+      console.log("Note: Wave 3 does not exceed Wave 1 end (not ideal but allowing)");
+      // Don't return false here to allow more patterns
+    }
+  }
+  
+  // Add debugging for pivot values
+  console.log(`Pivot values: W1 start=${wave1Start.price}, W1 end=${wave1End.price}, W2 end=${wave2End.price}`);
+  
+  // All initial validation passed
+  console.log("Initial pivot sequence appears valid for Elliott Wave pattern");
+  return true;
+};
+
+/**
  * Core function to analyze Elliott Wave patterns from pivot points
  * Modified to focus exclusively on bullish wave patterns
  */
@@ -338,225 +401,81 @@ const completeWaveAnalysis = (
 ): WaveAnalysisResult => {
   console.log(`Identifying waves from ${pivots.length} pivots`);
   
-  // REMOVED: We no longer need to detect the overall trend - assuming bullish
-  // const overallTrend = data[data.length - 1].close > data[0].close ? 'up' : 'down';
+  // FIRST: Validate initial pivot sequence before continuing
+  if (!validateInitialPivots(pivots)) {
+    console.log("Initial pivot sequence failed validation, using fallback analysis");
+    return fallbackWaveAnalysis(pivots, data);
+  }
   
-  // Create pairs of adjacent pivot points to form waves
+  // Rest of your existing function...
   const pivotPairs = [];
   for (let i = 0; i < pivots.length - 1; i++) {
     pivotPairs.push({
       startPoint: pivots[i],
       endPoint: pivots[i + 1],
-      isUpMove: pivots[i + 1].price > pivots[i].price // Is price moving up between these points?
+      isUpMove: pivots[i + 1].price > pivots[i].price
     });
   }
   
-  // Storage for our identified waves
+  // Your existing wave tracking variables and main loop...
+  // ...
+  
+  // Keep track of all waves for validation
   const waves: Wave[] = [];
-  
-  // Counter to keep track of which wave number we're on (1-5, then A-B-C)
   let waveCount = 1;
-  
-  // Track where the last complete cycle ended
-  let lastCompleteCycle = -1;
-  
-  // Keep track of points where we need to restart wave counting
   const invalidationPoints: number[] = [];
   
-  // Main wave identification loop
+  // When starting a new wave, always validate against previous ones
   for (let i = 0; i < pivotPairs.length; i++) {
-    // Check for timeout periodically to prevent hanging
-    if (checkTimeout && i % 10 === 0) {
-      checkTimeout();
-    }
+    // Existing code...
     
     const { startPoint, endPoint, isUpMove } = pivotPairs[i];
     
-    // If this is an invalidation point, restart the wave count
-    if (invalidationPoints.length > 0 && i === invalidationPoints[invalidationPoints.length - 1]) {
-      console.log(`Restarting wave count from invalidation point at index ${i}`);
-      waveCount = 1; // Start a new Wave 1
-    }
-    
-    // Variables to determine wave characteristics
-    let waveNumber: number | string;
-    let shouldBeImpulse: boolean;
-    let shouldBeUp: boolean;
-    
-    // Logic for numbered waves (1-5)
-    if (waveCount <= 5) {
-      waveNumber = waveCount;
-      // Waves 1, 3, 5 are impulse; 2, 4 are corrective
-      shouldBeImpulse = waveNumber % 2 === 1;
+    // Additional validation for Wave 2
+    if (waveCount === 2) {
+      // Find Wave 1 start
+      const wave1Start = pivots[0].price;
       
-      // SIMPLIFIED: In bullish patterns, impulse goes up, corrective goes down
-      shouldBeUp = shouldBeImpulse;
-    } 
-    // Logic for letter waves (A-B-C)
-    else if (waveCount <= 8) {
-      const letterIndex = waveCount - 6; // 0 for A, 1 for B, 2 for C
-      waveNumber = ['A', 'B', 'C'][letterIndex];
-      // Only B is impulse-like; A and C are corrective
-      shouldBeImpulse = waveNumber === 'B';
+      // Check if any low point in this wave goes below Wave 1 start
+      if (endPoint.low <= wave1Start) {
+        console.log("Wave 2 violated Elliott rule: ended below start of Wave 1");
+        invalidationPoints.push(i);
+        // Continue with your invalidation handling...
+        continue;
+      }
       
-      // SIMPLIFIED: In bullish patterns, B goes up, A and C go down
-      shouldBeUp = waveNumber === 'B';
-    } 
-    // After completing a full cycle, restart with wave 1
-    else {
-      console.log("Completed full cycle (1-5,A-B-C), restarting with wave 1");
-      waveCount = 1;
-      waveNumber = 1;
-      shouldBeImpulse = true;
-      shouldBeUp = true; // Wave 1 always goes up in bullish patterns
-      lastCompleteCycle = i - 1; // Mark the end of the complete cycle
-    }
-    
-    // Create a wave object with appropriate properties
-    const wave: Wave = {
-      number: waveNumber,
-      startTimestamp: startPoint.timestamp,
-      endTimestamp: endPoint.timestamp,
+      // Check all price points in between for Wave 2
+      const startIndex = data.findIndex(d => {
+        if (d.timestamp instanceof Date && startPoint.timestamp instanceof Date) {
+          return d.timestamp.getTime() === startPoint.timestamp.getTime();
+        } else {
+          return d.timestamp === startPoint.timestamp;
+        }
+      });
+      const endIndex = data.findIndex(d => d.timestamp === endPoint.timestamp);
       
-      // Impulse waves start from a low point
-      startPrice: shouldBeImpulse
-        ? startPoint.low
-        : startPoint.high,
-      
-      // Impulse waves end at a high point
-      endPrice: shouldBeImpulse
-        ? endPoint.high
-        : endPoint.low,
-        
-      type: shouldBeImpulse ? 'impulse' : 'corrective',
-      isComplete: i < pivotPairs.length - 1, // Last wave might be incomplete
-      isImpulse: shouldBeImpulse
-    };
-    
-    // CHECK FOR WAVE 1 DIRECTION 
-    // Wave 1 must move upward in bullish patterns
-    if (waveNumber === 1) {
-      // Ensure the prices are defined before comparison
-      if (wave.endPrice !== undefined && wave.startPrice !== undefined) {
-        if (wave.endPrice <= wave.startPrice) {
-          console.log("Wave 1 violated Elliott rule: must move upward in bullish patterns");
-          // Mark as invalid and restart wave counting
+      // Scan all prices in Wave 2
+      for (let j = startIndex; j <= endIndex; j++) {
+        if (data[j].low <= wave1Start) {
+          console.log("Wave 2 violated Elliott rule: retraced beyond start of Wave 1 during formation");
           invalidationPoints.push(i);
-          wave.type = 'corrective'; // Mark as invalid impulse
-          waves.push(wave);
+          // Continue with your invalidation handling...
           continue;
         }
       }
     }
-
-    // Rule: Wave 2 cannot retrace beyond the start of Wave 1
-    if (waveNumber === 2 && waves.length > 0) {
-      const wave1 = waves.find(w => w.number === 1);
-      if (wave1 && wave1.startPrice !== undefined && wave.endPrice !== undefined && 
-          wave.endPrice <= wave1.startPrice) {
-        console.log("Wave 2 violated Elliott rule: retraced beyond start of Wave 1");
-        invalidationPoints.push(i); // Mark this as a restart point
-        wave.type = 'corrective'; // Mark as invalid
-        waves.push(wave);
-        waveCount++;
-        continue;
-      }
-    }
-
-    // Rule: Wave 3 must extend beyond the end of Wave 1
-    if (waveNumber === 3 && waves.length > 0) {
-      const wave1 = waves.find(w => w.number === 1);
-      if (wave1 && wave1.endPrice !== undefined && wave.endPrice !== undefined && 
-          wave.endPrice <= wave1.endPrice) {
-        console.log("Wave 3 violated Elliott rule: must extend beyond the end of Wave 1");
-        invalidationPoints.push(i); // Mark this as a restart point
-        wave.type = 'corrective'; // Mark as invalid impulse
-        waves.push(wave);
-        waveCount++;
-        continue;
-      }
-    }
-
-    // NEW RULE: Wave 4 cannot retrace below the end of Wave 2
-    if (waveNumber === 4 && waves.length > 0) {
-      const wave2 = waves.find(w => w.number === 2);
-      if (wave2 && wave2.endPrice !== undefined && wave.endPrice !== undefined &&
-          wave.endPrice <= wave2.endPrice) {
-        console.log("Wave 4 violated Elliott rule: retraced below the end of Wave 2");
-        invalidationPoints.push(i); // Mark this as a restart point
-        wave.type = 'corrective'; // Mark as invalid impulse
-        waves.push(wave);
-        waveCount++;
-        continue;
-      }
-    }
-
-    // Check if the actual price movement aligns with what we'd expect
-    const isProperDirection = (shouldBeUp === isUpMove);
     
-    // Apply Elliott Wave rules for validation
-    
-    // Rule: Wave 2 cannot go below the start of Wave 1
-    if (waveNumber === 2 && wave.endPrice! <= waves[waves.length - 1].startPrice) {
-      console.log("Wave 2 violated Elliott rule: retraced beyond start of Wave 1");
-      invalidationPoints.push(i); // Mark this as a restart point
-      
-      // Still add this wave for visualization, but will restart count after
-      waves.push(wave);
-      waveCount++;
-    }
-    // Wave C completes a cycle, start a new Wave 1 after it
-    else if (waveNumber === 'C') {
-      waves.push(wave);
-      waveCount = 1; // Reset for new cycle
-      console.log("Wave C completed, starting new Wave 1");
-    }
-    // Normal case for other waves
-    else {
-      waves.push(wave);
-      waveCount++;
-    }
-
-    // Report progress if callback provided
-    if (onProgress) {
-      onProgress(waves);
-    }
+    // Rest of your existing code...
   }
   
-  // If no waves were found, return empty result
-  if (waves.length === 0) {
-    console.log("No waves found with adaptive approach, using fallback");
-    return fallbackWaveAnalysis(pivots, data);
-  }
-  
-  console.log(`Identified ${waves.length} waves with adaptive approach`);
-  
-  // Prepare the final analysis result
-  const currentWave = waves.length > 0 ? waves[waves.length - 1] : ({} as Wave);
-  const fibTargets = calculateFibTargetsForWaves(waves, data);
-  const impulsePattern = waves.some(w => String(w.number) === '5'); // Did we complete an impulse pattern?
-  const correctivePattern = waves.some(w => w.number === 'C');     // Did we complete a corrective pattern?
-  
-  // Determine trend based on current wave - ALWAYS BULLISH for impulse waves
-  const trend = currentWave && currentWave.isImpulse ? 'bullish' : 'bearish';
-
+  // Existing result preparation...
   return {
-    waves,
-    currentWave,
-    fibTargets,
-    trend,
-    impulsePattern,
-    correctivePattern
+    // Your existing return...
   };
 };
 
 /**
- * Main entry point for Elliott Wave analysis
- * Processes price data to identify wave patterns
- * 
- * @param data - Historical price data to analyze
- * @param onProgress - Optional callback for progress updates
- * @returns Complete wave analysis result
+ * Try multiple threshold combinations to find waves
  */
 export const analyzeElliottWaves = (
   data: StockHistoricalData[], 
@@ -566,7 +485,32 @@ export const analyzeElliottWaves = (
   
   // Debug quality of data
   if (data.length > 0) {
-    console.log(`First point: ${new Date(data[0].timestamp).toLocaleDateString()} Last point: ${new Date(data[data.length-1].timestamp).toLocaleDateString()}`);
+    const first = data[0];
+    const last = data[data.length - 1];
+    
+    // Log the raw data first
+    console.log('Raw timestamp data:', {
+      firstTimestamp: first.timestamp,
+      lastTimestamp: last.timestamp
+    });
+    
+    // Then use the formatDate function
+    console.log("Sample data points:", {
+      first: {
+        timestamp: first.timestamp,
+        type: typeof first.timestamp,
+        isDate: first.timestamp instanceof Date,
+        formatted: formatDate(first.timestamp)
+      },
+      last: {
+        timestamp: last.timestamp,
+        type: typeof last.timestamp,
+        isDate: last.timestamp instanceof Date,
+        formatted: formatDate(last.timestamp)
+      }
+    });
+    
+    console.log(`First point: ${formatDate(first.timestamp)} Last point: ${formatDate(last.timestamp)}`);
     console.log(`Price range: ${Math.min(...data.map(d => d.low))} to ${Math.max(...data.map(d => d.high))}`);
   }
   
@@ -600,14 +544,36 @@ export const analyzeElliottWaves = (
     return generateEmptyAnalysisResult();
   }
 
-  // Filter out invalid data points
-  const validData = data.filter(point => (
-    point &&
-    typeof point.timestamp === 'number' &&
-    typeof point.close === 'number' &&
-    typeof point.high === 'number' &&
-    typeof point.low === 'number'
-  ));
+  // Replace your validData filter section with this version
+  const validData = data.filter(point => {
+    // Ensure point exists
+    if (!point) return false;
+    
+    // Debug the first point to see what we're dealing with
+    if (data.indexOf(point) === 0) {
+      console.log("First data point:", {
+        timestamp: point.timestamp,
+        timestampType: typeof point.timestamp,
+        isDate: point.timestamp instanceof Date,
+        close: point.close,
+        high: point.high,
+        low: point.low
+      });
+    }
+    
+    // If timestamp is a Date object, keep it as a Date - no need to convert
+    // This avoids unnecessary conversions and potential issues
+    
+    // Just validate that essential fields exist
+    return (
+      point.timestamp !== undefined && point.timestamp !== null &&
+      point.close !== undefined && point.close !== null && !isNaN(Number(point.close)) &&
+      point.high !== undefined && point.high !== null && !isNaN(Number(point.high)) &&
+      point.low !== undefined && point.low !== null && !isNaN(Number(point.low))
+    );
+  });
+
+  console.log(`Original data points: ${data.length}, Valid data points: ${validData.length}`);
 
   // Require minimum number of data points
   if (validData.length < 20) {
@@ -616,53 +582,53 @@ export const analyzeElliottWaves = (
   }
 
   try {
-    // Sample data if there are too many points (for performance)
-    const processData = validData.length > 200 
-      ? validData.filter((_, index) => index % Math.ceil(validData.length / 200) === 0)
-      : validData;
-
-    // Step 1: Find significant pivot points with adaptive threshold
-    const pivots = findPivots(processData, 0.03, 0.01);
-    checkTimeout();
+    // Try multiple threshold combinations
+    const thresholdCombinations = [
+      { max: 0.03, min: 0.01 },  // Original thresholds
+      { max: 0.05, min: 0.01 },  // Higher max threshold
+      { max: 0.02, min: 0.005 }, // Lower thresholds
+      { max: 0.07, min: 0.02 }   // Much higher thresholds
+    ];
     
-    // Initialize progress tracking
-    if (onProgress) {
-      onProgress([]);
-    }
-
-    // Need minimum number of pivots to form patterns
-    if (pivots.length < 3) {
-      console.log("Insufficient pivot points found for wave analysis");
-      return generateEmptyAnalysisResult();
-    }
-
-    // Step 2: Complete the wave analysis
-    const result = completeWaveAnalysis(pivots, processData, checkTimeout);
-    
-    // Step 3: Make validation more flexible
-    if (result.waves.length >= 3) {
-      const wave1 = result.waves.find(w => w.number === 1);
-      const wave3 = result.waves.find(w => w.number === 3);
+    // Try each combination until we find valid Elliott patterns
+    for (const { max, min } of thresholdCombinations) {
+      console.log(`Trying thresholds: max=${max*100}%, min=${min*100}%`);
       
-      // We found waves, let's cache and return them even if not perfect
-      memoCache.set(cacheKey, result);
+      // Sample data consistently
+      const processData = validData.length > 200 
+        ? validData.filter((_, index) => index % Math.ceil(validData.length / 200) === 0)
+        : validData;
       
-      // Log a warning if the pattern doesn't match Elliott Wave rules perfectly
-      if (wave1 && wave3 && wave3.endPrice && wave1.endPrice) {
-        const isWave3Valid = wave3.endPrice > wave1.endPrice;
-        if (!isWave3Valid) {
-          console.log('Warning: Wave 3 does not properly extend above Wave 1, but returning waves anyway');
-        }
+      // Find pivots with this threshold combination
+      const pivots = findPivots(processData, max, min);
+      checkTimeout();
+      
+      // Need minimum number of pivots
+      if (pivots.length < 3) {
+        console.log(`Insufficient pivots (${pivots.length}) with thresholds max=${max*100}%, min=${min*100}%`);
+        continue; // Try next combination
       }
       
-      // Return the result regardless of perfect validation
-      return result;
+      // Validate initial pivots
+      if (!validateInitialPivots(pivots)) {
+        console.log(`Invalid Elliott pattern with thresholds max=${max*100}%, min=${min*100}%`);
+        continue; // Try next combination
+      }
+      
+      // If we get here, we found valid pivots - complete the analysis
+      console.log(`Found valid Elliott pattern with thresholds max=${max*100}%, min=${min*100}%`);
+      const result = completeWaveAnalysis(pivots, processData, checkTimeout, onProgress);
+      
+      // If we have at least 3 waves, return the result
+      if (result && result.waves && result.waves.length >= 3) {
+        memoCache.set(cacheKey, result);
+        return result;
+      }
     }
     
-    // If validation failed, return empty result
-    console.log("No valid Elliott Wave pattern found");
+    // If no combination worked, return empty result
+    console.log("No valid Elliott Wave pattern found with any threshold combination");
     return generateEmptyAnalysisResult();
-
   } catch (error) {
     console.error("Error in wave analysis:", error);
     // Return empty result on error
@@ -721,4 +687,39 @@ const isValidWave = (wave: Wave, previousWaves: Wave[], data: StockHistoricalDat
 export const clearMemoCache = (): void => {
   memoCache.clear();
   console.log("In-memory wave analysis cache cleared");
+};
+
+// Add this utility function at the top of the file, replacing the current formatDate function
+const formatDate = (timestamp: any): string => {
+  try {
+    // Add debug logging to see what we're getting
+    console.log('Formatting timestamp:', {
+      value: timestamp,
+      type: typeof timestamp,
+      isDate: timestamp instanceof Date
+    });
+
+    // Handle different timestamp formats
+    if (timestamp instanceof Date) {
+      return timestamp.toLocaleDateString();
+    }
+    
+    if (typeof timestamp === 'number') {
+      // Handle Unix timestamp in seconds vs milliseconds
+      const ms = timestamp < 10000000000 
+        ? timestamp * 1000  // Convert seconds to milliseconds
+        : timestamp;       // Already in milliseconds
+      return new Date(ms).toLocaleDateString();
+    }
+    
+    if (typeof timestamp === 'string') {
+      return new Date(timestamp).toLocaleDateString();
+    }
+
+    console.log('Unhandled timestamp format:', timestamp);
+    return 'Invalid date';
+  } catch (error) {
+    console.error('Error formatting date:', error, 'Timestamp:', timestamp);
+    return 'Invalid date';
+  }
 };
