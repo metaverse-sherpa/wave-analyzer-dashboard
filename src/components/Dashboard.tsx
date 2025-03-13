@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StockCard } from './StockCard';
 import { Input } from "@/components/ui/input";
 import { useDebounce } from '@/hooks/useDebounce';
@@ -30,6 +30,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   analyses = {}, 
   stockWaves = {} 
 }) => {
+  // Add isLoadingRef to track loading state without causing re-renders
+  const isLoadingRef = useRef(false);
   const [stocks, setStocks] = useState<StockData[]>(initialStocks);
   const [filteredStocks, setFilteredStocks] = useState<StockData[]>(initialStocks);
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,20 +72,21 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   }, []);
   
-  // Load stocks only once on mount or when dependencies change
+  // Fixed loadStocks function without problematic dependencies
   const loadStocks = useCallback(async () => {
-    if (loading) return; // Prevent multiple simultaneous loads
+    // Use ref instead of state for the loading check
+    if (isLoadingRef.current) return;
     
+    isLoadingRef.current = true;
     setLoading(true);
+    
     try {
       const data = await fetchTopStocks(100);
       setStocks(data);
-      // Only update filtered stocks if no search query is active
-      if (!debouncedQuery) {
-        setFilteredStocks(data);
-      }
       
-      // Preload data for top stocks
+      // DON'T set filteredStocks here at all
+      
+      // Preload data for top 10 stocks
       const symbols = data.slice(0, 10).map(stock => stock.symbol);
       await preloadHistoricalData(symbols);
       await preloadAnalyses(symbols);
@@ -95,24 +98,32 @@ const Dashboard: React.FC<DashboardProps> = ({
       });
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
-  }, [preloadAnalyses, preloadHistoricalData, debouncedQuery]);
+  }, [preloadAnalyses, preloadHistoricalData]); // Remove loading dependency
   
-  // Initial load & refresh timer
+  // Initial load - use empty dependency array to only run ONCE
   useEffect(() => {
     loadStocks();
     
-    // Refresh data every 5 minutes
+    // Set up refresh interval
     const intervalId = setInterval(() => {
       loadStocks();
     }, 5 * 60 * 1000);
     
     return () => clearInterval(intervalId);
+  }, []); // Empty dependency array
+  
+  // Move loadStocks to a ref to avoid dependency issues
+  const loadStocksRef = useRef(loadStocks);
+  
+  // Update ref when loadStocks changes
+  useEffect(() => {
+    loadStocksRef.current = loadStocks;
   }, [loadStocks]);
   
-  // Handle search filtering - memoize the filtered results
+  // Handle search filtering in a separate effect
   useEffect(() => {
-    // Skip if stocks aren't loaded yet
     if (stocks.length === 0) return;
     
     const filtered = debouncedQuery ? 
@@ -120,7 +131,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       stocks;
       
     setFilteredStocks(filtered);
-    setCurrentPage(1); // Reset to first page when search changes
+    setCurrentPage(1);
   }, [debouncedQuery, stocks, filterStocks]);
 
   // Filter stocks based on selected wave using the context's analyses
