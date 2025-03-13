@@ -95,14 +95,13 @@ const AdminDashboard = () => {
     try {
       // Only select 5 stocks instead of 30
       const stocks = topStockSymbols.slice(0, 5); 
-      
       toast.success(`Starting wave analysis for ${stocks.length} stocks...`);
       
       // Process stocks one by one with a small delay between them
       for (const symbol of stocks) {
         console.log(`Analyzing ${symbol}...`);
         try {
-          await getAnalysis(symbol, '1d', true);
+          await getAnalysis(symbol, '1d', true); // Force refresh for admin analysis
           // Small delay between stocks
           await new Promise(r => setTimeout(r, 500));
         } catch (err) {
@@ -377,15 +376,15 @@ const AdminDashboard = () => {
 
   // Add this in loadCacheData or somewhere appropriate
   const debugStorageContents = () => {
-    console.log("===== DEBUG: localStorage contents =====");
+    //console.log("===== DEBUG: localStorage contents =====");
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('wave_analysis_')) {
         const data = localStorage.getItem(key);
         const parsed = JSON.parse(data || '{}');
-        console.log(`${key}: ${parsed.waves?.length || 0} waves`);
+        //console.log(`${key}: ${parsed.waves?.length || 0} waves`);
       }
     });
-    console.log("======================================");
+    //console.log("======================================");
   };
 
   // Call it after loadCacheData()

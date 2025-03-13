@@ -47,7 +47,7 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
       
       try {
         // Check API health first
-        console.log("DataInitializer: Checking API health");
+        //console.log("DataInitializer: Checking API health");
         const healthResponse = await fetch('/api/health');
         const apiWorking = healthResponse.ok;
         
@@ -60,7 +60,7 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
           return;
         }
         
-        console.log("DataInitializer: API health check passed, initializing...");
+        //console.log("DataInitializer: API health check passed, initializing...");
         
         // Try to load data from cache first
         const cachedAnalysis = localStorage.getItem('wave_analysis_AAPL_1d');
@@ -107,7 +107,7 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
     
     // Cleanup
     return () => {
-      console.log("DataInitializer: Component unmounting");
+      //console.log("DataInitializer: Component unmounting");
       // No need to clean up initialization state as that's handled by refs
     };
   }, [getAnalysis, initialized, onDataLoaded, onError, preloadAnalyses]);

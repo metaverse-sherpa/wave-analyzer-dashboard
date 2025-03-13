@@ -38,9 +38,21 @@ const findMostRecentWave1Index = (waves: Wave[]): number => {
   return -1;
 };
 
+// Add this function before prepareWaveLines
+export const getTimestampValue = (timestamp: any): number => {
+  if (timestamp instanceof Date) {
+    return timestamp.getTime();
+  } else if (typeof timestamp === 'number') {
+    return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+  } else if (typeof timestamp === 'string') {
+    return new Date(timestamp).getTime();
+  }
+  return 0;
+};
+
 // Update the prepareWaveLines function
-export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalData[]) => {
-  if (!waves || waves.length === 0 || !historicalData || historicalData.length === 0) return [];
+export const prepareWaveLines = (waves: Wave[], chartData: StockHistoricalData[]): WaveLine[] => {
+  if (!waves || waves.length === 0 || !chartData || chartData.length === 0) return [];
   
   // Find the index of the most recent Wave 1
   const mostRecentWave1Index = findMostRecentWave1Index(waves);
@@ -49,7 +61,7 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
   // Filter waves to only include those after the most recent Wave 1
   const relevantWaves = waves.slice(mostRecentWave1Index);
   
-  console.log(`Preparing wave lines for ${relevantWaves.length} waves (from most recent Wave 1)`);
+  console.log(`Preparing wave lines for ${relevantWaves.length} waves`);
   
   const waveLines = [];
   
@@ -60,42 +72,38 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
     // Skip if we don't have start timestamp
     if (!wave.startTimestamp) continue;
     
-    console.log(`Processing wave ${wave.number} with timestamps: ${wave.startTimestamp} to ${wave.endTimestamp || 'now'}`);
+    console.log(`Processing wave ${wave.number} with timestamps:`, {
+      start: wave.startTimestamp instanceof Date ? wave.startTimestamp.toISOString() : wave.startTimestamp,
+      end: wave.endTimestamp ? (wave.endTimestamp instanceof Date ? wave.endTimestamp.toISOString() : wave.endTimestamp) : 'now'
+    });
     
-    // Find the closest data points instead of requiring exact matches
-    let startDataPoint = findClosestDataPoint(historicalData, wave.startTimestamp);
+    // Find the closest data points
+    let startDataPoint = findClosestDataPoint(chartData, wave.startTimestamp);
     let endDataPoint;
     
     if (wave.endTimestamp) {
-      // For completed waves
-      endDataPoint = findClosestDataPoint(historicalData, wave.endTimestamp);
+      endDataPoint = findClosestDataPoint(chartData, wave.endTimestamp);
     } else {
-      // For the last, incomplete wave, use the latest data point
-      endDataPoint = historicalData[historicalData.length - 1];
+      endDataPoint = chartData[chartData.length - 1];
     }
     
     // Skip if we couldn't find the start or end points
     if (!startDataPoint || !endDataPoint) {
-      console.warn(`Could not find data points for wave ${wave.number}`, {
-        startTimestamp: wave.startTimestamp,
-        endTimestamp: wave.endTimestamp,
-        dataRangeStart: historicalData[0].timestamp,
-        dataRangeEnd: historicalData[historicalData.length-1].timestamp
-      });
+      console.warn(`Could not find data points for wave ${wave.number}`);
       
       // Use wave's own price data as fallback
       if (wave.startPrice !== undefined && wave.endPrice !== undefined) {
         console.log(`Using wave's own price data as fallback for wave ${wave.number}`);
         
         // Create custom data points using wave's price data
-        const data = [
+        const waveDataPoints = [
           {
-            timestamp: wave.startTimestamp * 1000,
+            timestamp: getTimestampValue(wave.startTimestamp),
             value: wave.startPrice,
             waveNumber: wave.number
           },
           {
-            timestamp: (wave.endTimestamp || historicalData[historicalData.length-1].timestamp) * 1000,
+            timestamp: getTimestampValue(wave.endTimestamp || chartData[chartData.length-1].timestamp),
             value: wave.endPrice,
             waveNumber: wave.number
           }
@@ -105,9 +113,9 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
           id: `wave-${wave.number}-${i}`,
           wave: {
             ...wave,
-            isImpulse: isImpulseWave(wave.number)  // Add this for the label positioning
+            isImpulse: isImpulseWave(wave.number)
           },
-          data,
+          data: waveDataPoints,
           color: getWaveColor(wave.number)
         });
       }
@@ -116,14 +124,14 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
     }
     
     // Create line data structure for Recharts
-    const data = [
+    const dataPoints = [
       {
-        timestamp: startDataPoint.timestamp * 1000, // Convert to milliseconds
+        timestamp: getTimestampValue(startDataPoint.timestamp),
         value: startDataPoint.close,
         waveNumber: wave.number
       },
       {
-        timestamp: endDataPoint.timestamp * 1000, // Convert to milliseconds
+        timestamp: getTimestampValue(endDataPoint.timestamp),
         value: endDataPoint.close,
         waveNumber: wave.number
       }
@@ -133,39 +141,41 @@ export const prepareWaveLines = (waves: Wave[], historicalData: StockHistoricalD
       id: `wave-${wave.number}-${i}`,
       wave: {
         ...wave,
-        isImpulse: isImpulseWave(wave.number)  // Add this for the label positioning
+        isImpulse: isImpulseWave(wave.number)
       },
-      data,
+      data: dataPoints,
       color: getWaveColor(wave.number)
     });
   }
   
-  console.log(`Created ${waveLines.length} wave lines from most recent Wave 1`);
+  console.log(`Created ${waveLines.length} wave lines`);
   return waveLines;
 };
 
-// Helper function to find closest data point by timestamp
-const findClosestDataPoint = (data: StockHistoricalData[], timestamp: number): StockHistoricalData | null => {
+// Update the findClosestDataPoint function to use getTimestampValue
+const findClosestDataPoint = (data: StockHistoricalData[], timestamp: any): StockHistoricalData | null => {
   if (!data || data.length === 0) return null;
   
+  const targetTimestamp = getTimestampValue(timestamp);
+  
   // First check if we have an exact match
-  const exactMatch = data.find(d => d.timestamp === timestamp);
+  const exactMatch = data.find(d => getTimestampValue(d.timestamp) === targetTimestamp);
   if (exactMatch) return exactMatch;
   
   // Find closest match by minimizing the time difference
   let closestPoint = data[0];
-  let minDifference = Math.abs(data[0].timestamp - timestamp);
+  let minDifference = Math.abs(getTimestampValue(data[0].timestamp) - targetTimestamp);
   
   for (let i = 1; i < data.length; i++) {
-    const difference = Math.abs(data[i].timestamp - timestamp);
+    const difference = Math.abs(getTimestampValue(data[i].timestamp) - targetTimestamp);
     if (difference < minDifference) {
       minDifference = difference;
       closestPoint = data[i];
     }
   }
   
-  // Only accept if the difference is within a reasonable range (7 days in seconds)
-  const maxAllowableDifference = 7 * 24 * 60 * 60; // 7 days in seconds
+  // Only accept if the difference is within a reasonable range (7 days in ms)
+  const maxAllowableDifference = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
   if (minDifference <= maxAllowableDifference) {
     return closestPoint;
   }
@@ -188,6 +198,31 @@ export const getWavePatternDescription = (waves: Wave[]): string => {
   } else {
     return "Forming Wave Pattern";
   }
+  
+  // If you format dates in this function
+  const formatDate = (timestamp: any): string => {
+    if (!timestamp) return 'N/A';
+    
+    try {
+      // Handle different timestamp formats
+      if (timestamp instanceof Date) {
+        return timestamp.toLocaleDateString();
+      }
+      if (typeof timestamp === 'number') {
+        const ms = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+        return new Date(ms).toLocaleDateString();
+      }
+      if (typeof timestamp === 'string') {
+        return new Date(timestamp).toLocaleDateString();
+      }
+      return 'Invalid date';
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
+  };
+  
+  // ... use formatDate where needed ...
 };
 
 export const getWaveStyle = (wave: Wave, isHighlighted: boolean) => ({

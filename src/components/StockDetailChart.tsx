@@ -24,6 +24,39 @@ import WaveLegend from './chart/WaveLegend';
 import { getWaveColor, prepareWaveLines, getWavePatternDescription } from './chart/waveChartUtils';
 import WaveSequencePagination from './WaveSequencePagination'; // Add this import
 
+// Add this helper function at the top of your file after imports
+const getTimestampValue = (timestamp: any): number => {
+  if (typeof timestamp === 'number') {
+    return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+  }
+  if (timestamp instanceof Date) {
+    return timestamp.getTime();
+  }
+  if (typeof timestamp === 'string') {
+    return new Date(timestamp).getTime();
+  }
+  return 0;
+};
+
+const formatDateDisplay = (timestamp: any): string => {
+  if (!timestamp) return 'N/A';
+  
+  try {
+    if (timestamp instanceof Date) {
+      return timestamp.toLocaleDateString();
+    } else if (typeof timestamp === 'number') {
+      const ms = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+      return new Date(ms).toLocaleDateString();
+    } else if (typeof timestamp === 'string') {
+      return new Date(timestamp).toLocaleDateString();
+    }
+    return 'Invalid date';
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'Invalid date';
+  }
+};
+
 // Define wave colors
 const WAVE_COLORS = {
   1: '#4CAF50', // Green
@@ -63,7 +96,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   // Find the most recent Wave 1
   const mostRecentWave1 = useMemo(() => 
     [...waves]
-      .sort((a, b) => b.startTimestamp - a.startTimestamp) // Sort by most recent first
+      .sort((a, b) => getTimestampValue(b.startTimestamp) - getTimestampValue(a.startTimestamp))
       .find(wave => wave.number === 1),
     [waves]
   );
@@ -75,16 +108,17 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 
   // Format the filtered data for the chart
   const processedChartData = useMemo(() => {
-    const formattedData = formatChartData(baseData);
-    return formattedData.map(d => ({
+    return data.map(d => ({
       ...d,
-      candleHeight: Math.abs(d.close - d.open),
-      candleY: Math.min(d.open, d.close),
-      candleColor: d.close >= d.open ? 'var(--bullish)' : 'var(--bearish)',
-      highValue: d.high,
-      lowValue: d.low
+      // Handle timestamp conversion properly
+      timestamp: getTimestampValue(d.timestamp),
+      close: d.close,
+      open: d.open,
+      high: d.high,
+      low: d.low,
+      value: d.close
     }));
-  }, [baseData]);
+  }, [data]);
 
   // Update display data based on zoom
   const displayData = useMemo(() => 
@@ -107,10 +141,10 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   const extendedDomain = useMemo(() => {
     if (!processedChartData.length) return ['dataMin', 'dataMax'];
     
-    // Get the last timestamp
+    // Get the last timestamp (already converted to number)
     const lastTimestamp = processedChartData[processedChartData.length - 1].timestamp;
     
-    // Add 30 days (30 * 24 * 60 * 60 * 1000 milliseconds)
+    // Add 30 days in milliseconds
     const extendedTimestamp = lastTimestamp + (30 * 24 * 60 * 60 * 1000);
     
     return ['dataMin', extendedTimestamp];
@@ -150,9 +184,13 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   const handleWaveSelect = (wave: Wave) => {
     setHighlightedWave(wave);
     
-    // Find the data point indices for the selected wave
-    const startIndex = processedChartData.findIndex(d => d.timestamp === wave.startTimestamp);
-    const endIndex = processedChartData.findIndex(d => d.timestamp === wave.endTimestamp);
+    // Find the data point indices for the selected wave using getTimestampValue
+    const startIndex = processedChartData.findIndex(
+      d => getTimestampValue(d.timestamp) === getTimestampValue(wave.startTimestamp)
+    );
+    const endIndex = processedChartData.findIndex(
+      d => getTimestampValue(d.timestamp) === getTimestampValue(wave.endTimestamp)
+    );
     
     // Set zoom range to show the selected wave
     setZoomRange({
@@ -169,7 +207,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           <h3 className="text-lg font-semibold">{symbol} - Elliott Wave Chart</h3>
           <p className="text-xs text-muted-foreground">
             {mostRecentWave1 
-              ? `Showing Elliott Wave sequence starting from Wave 1 (${new Date(mostRecentWave1.startTimestamp * 1000).toLocaleDateString()})` 
+              ? `Showing Elliott Wave sequence starting from Wave 1 (${formatDateDisplay(mostRecentWave1.startTimestamp)})` 
               : `No wave patterns detected`
             }
           </p>
@@ -196,13 +234,13 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               type="number"
               domain={extendedDomain}
               scale="time"
+              // Update tickFormatter to handle numeric timestamps
               tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
               stroke="#94a3b8"
-              ticks={[...processedChartData
+              ticks={processedChartData
                 .filter((_, index) => index % Math.ceil(processedChartData.length / 6) === 0)
-                .map(d => d.timestamp), 
-                // Add an additional tick for the extended date
-                extendedDomain[1]]}
+                .map(d => d.timestamp)
+                .concat(extendedDomain[1])}
               interval="preserveStartEnd"
               minTickGap={50}
             />
@@ -215,44 +253,43 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             
             {/* Remove Tooltip component */}
 
-            {/* METHOD 1: Render price data as a line chart for simplicity */}
-            <Line
+            {/* Price data area chart */}
+            <defs>
+              <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="rgba(148,189,255,0.3)" stopOpacity={0.8}/>
+                <stop offset="95%" stopColor="rgba(148,189,255,0.1)" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+
+            {/* Main price area */}
+            <Area
               type="monotone"
               dataKey="close"
-              stroke="rgba(255,255,255,0.5)"
-              dot={false}
-              activeDot={false}
+              stroke="rgba(255,255,255,0.8)"
+              strokeWidth={1.5}
+              fill="url(#priceGradient)"
+              fillOpacity={1}
               isAnimationActive={false}
             />
-            
-            {/* METHOD 2: Alternatively, use this for more advanced price chart */}
-            {/* 
-            <Area 
-              type="monotone"
-              dataKey="candleHeight"
-              stroke="none"
-              fill="url(#colorCandleStick)"
-              stackId="1"
-              baseValue={(d) => d.candleY}
-              fillOpacity={1}
-            />
-            <Line
+
+            {/* Price range area */}
+            <Area
               type="monotone"
               dataKey="high"
-              stroke="rgba(255,255,255,0.3)"
-              dot={false}
-              activeDot={false}
+              stroke="transparent"
+              fill="rgba(255,255,255,0.05)"
+              fillOpacity={0.3}
               isAnimationActive={false}
             />
-            <Line
+            <Area
               type="monotone"
               dataKey="low"
-              stroke="rgba(255,255,255,0.3)"
-              dot={false}
-              activeDot={false}
+              stroke="transparent"
+              baseLine={data => data.high}
+              fill="rgba(255,255,255,0.05)"
+              fillOpacity={0.3}
               isAnimationActive={false}
             />
-            */}
             
             {/* First, add a debug statement to check if you have Fibonacci targets */}
             console.log("FibTargets:", fibTargets);
@@ -306,8 +343,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             
             {/* Render wave lines */}
             {waveLines.map((waveLine, index) => {
-              // Use startTimestamp for comparison instead of id
-              const isSelected = selectedWave && waveLine.wave.startTimestamp === selectedWave.startTimestamp;
+              // Use getTimestampValue for comparison
+              const isSelected = selectedWave && 
+                getTimestampValue(waveLine.wave.startTimestamp) === getTimestampValue(selectedWave.startTimestamp);
               
               // Determine label position
               const isImpulsiveWave = 
@@ -407,7 +445,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               // but expand view if we have a wave pattern starting earlier
               startIndex={mostRecentWave1 
                 ? Math.min(
-                    Math.max(0, processedChartData.findIndex(d => d.timestamp >= mostRecentWave1.startTimestamp) - 10), 
+                    Math.max(0, processedChartData.findIndex(d => 
+                      getTimestampValue(d.timestamp) >= getTimestampValue(mostRecentWave1.startTimestamp)
+                    ) - 10), 
                     Math.max(0, processedChartData.length - 90)
                   )
                 : Math.max(0, processedChartData.length - 90)}

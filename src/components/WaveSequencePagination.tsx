@@ -21,17 +21,33 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
   const [currentPage, setCurrentPage] = useState(0);
   const wavesPerPage = 5;
   
-  // Sort waves by start time (most recent first)
-  const sortedWaves = useMemo(() => {
-    return [...waves].sort((a, b) => b.startTimestamp - a.startTimestamp);
-  }, [waves]);
-  
-  const pageCount = Math.ceil(sortedWaves.length / wavesPerPage);
-  const startIndex = currentPage * wavesPerPage;
-  const displayedWaves = sortedWaves.slice(startIndex, startIndex + wavesPerPage);
-
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleDateString();
+  // Update the date formatting function to handle either Date objects or timestamps
+  const formatDate = (timestamp: any): string => {
+    if (!timestamp) return 'N/A';
+    
+    try {
+      // If it's already a Date object
+      if (timestamp instanceof Date) {
+        return timestamp.toLocaleDateString();
+      }
+      
+      // If it's a timestamp number
+      if (typeof timestamp === 'number') {
+        // Handle both seconds and milliseconds formats
+        const ms = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+        return new Date(ms).toLocaleDateString();
+      }
+      
+      // If it's an ISO string
+      if (typeof timestamp === 'string') {
+        return new Date(timestamp).toLocaleDateString();
+      }
+      
+      return 'Invalid date';
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
   };
 
   const formatPrice = (price: number) => {
@@ -41,6 +57,32 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
       minimumFractionDigits: 2
     }).format(price);
   };
+
+  // Update the sorting function to handle Date objects
+  const sortedWaves = useMemo(() => {
+    return [...waves].sort((a, b) => {
+      // Get timestamps in milliseconds for comparison
+      const getTimeValue = (timestamp: any): number => {
+        if (timestamp instanceof Date) {
+          return timestamp.getTime();
+        }
+        if (typeof timestamp === 'number') {
+          return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+        }
+        if (typeof timestamp === 'string') {
+          return new Date(timestamp).getTime();
+        }
+        return 0;
+      };
+      
+      // Sort by start date descending (newest first)
+      return getTimeValue(b.startTimestamp) - getTimeValue(a.startTimestamp);
+    });
+  }, [waves]);
+  
+  const pageCount = Math.ceil(sortedWaves.length / wavesPerPage);
+  const startIndex = currentPage * wavesPerPage;
+  const displayedWaves = sortedWaves.slice(startIndex, startIndex + wavesPerPage);
 
   return (
     <div className="space-y-4">
@@ -75,6 +117,9 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                   <span className="text-muted-foreground">→</span>
                   <span className={`text-muted-foreground ${isSelected ? 'font-medium' : ''}`}>
                     {formatDate(wave.endTimestamp)} ({formatPrice(wave.endPrice!)})
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDate(wave.startTimestamp)} - {wave.endTimestamp ? formatDate(wave.endTimestamp) : 'Present'}
                   </span>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full ${

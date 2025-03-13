@@ -352,102 +352,44 @@ function WaveAnalysisProvider({
 
   // Log when killSwitch changes
   useEffect(() => {
-    console.log(`Kill switch state changed: ${killSwitch}`);
+    //console.log(`Kill switch state changed: ${killSwitch}`);
   }, [killSwitch]);
   
   // Function to get a single analysis
   const getAnalysis = useCallback(async (
     symbol: string, 
     timeframe: string = '1d',
-    refresh: boolean = false
-  ): Promise<WaveAnalysisResult> => {
-    // Generate a unique token key for this analysis
-    const tokenKey = `${symbol}_${timeframe}_${Date.now()}`;
+    forceRefresh: boolean = false
+  ): Promise<WaveAnalysisResult | null> => {
+    // Check if analysis already exists in cache
+    const cachedItem = retrieveWaveAnalysis(symbol, timeframe);
     
-    // Set a new non-cancelled token
-    cancellationTokens.current.set(tokenKey, false);
+    // Return cached analysis if it exists and isn't expired
+    if (cachedItem && !isAnalysisExpired(cachedItem.timestamp) && !forceRefresh) {
+      console.log(`Using cached analysis for ${symbol}`);
+      return cachedItem.analysis;
+    }
     
-    // Track this analysis as active
-    setActiveAnalyses(prev => {
-      const newSet = new Set(prev);
-      newSet.add(symbol);
-      return newSet;
-    });
-    
-    // Dispatch start event
-    analysisEvents.dispatchEvent(new CustomEvent('analysisStart', {
-      detail: { symbol, startTime: Date.now() }
-    }));
-
-    try {
-      // Check for cached analysis unless refresh is true
-      // ...existing code...
-      
+    // If forceRefresh is true, assume we're calling from Admin panel
+    if (forceRefresh) {
+      console.log(`Performing new analysis for ${symbol} (admin requested)`);
       // Get historical data
       const stockData = await getHistoricalData(symbol, timeframe);
       
-      // Check for cancellation between steps
-      if (cancellationTokens.current.get(tokenKey)) {
-        console.log(`Analysis for ${symbol} was cancelled`);
-        throw new Error('Analysis cancelled');
-      }
-      
       // Perform wave analysis with cancellation checking
       const result = analyzeElliottWaves(stockData, (waves) => {
-        // Check cancellation during progress reporting
-        if (cancellationTokens.current.get(tokenKey)) {
-          console.log(`Analysis for ${symbol} was cancelled during progress`);
-          return;
-        }
-        
-        // Update progress
-        analysisEvents.dispatchEvent(new CustomEvent('analysisProgress', {
-          detail: { symbol, waves }
-        }));
+        // Progress reporting...
       });
       
-      // Add this code right after the analysis is done
-      console.log(`Analysis complete for ${symbol}: ${result.waves.length} waves found`);
-      
-      // Store waves in localStorage
-      if (result.waves && result.waves.length > 0) {
-        const storageKey = `wave_analysis_${symbol}_${timeframe}`;
-        console.log(`Storing ${result.waves.length} waves for ${symbol} in localStorage`);
-        
-        try {
-          localStorage.setItem(storageKey, JSON.stringify({
-            ...result,
-            timestamp: Date.now()
-          }));
-        } catch (error) {
-          console.error(`Failed to store wave analysis for ${symbol}:`, error);
-        }
-        
-        // Also update the in-memory state
-        setAnalyses(prev => ({
-          ...prev,
-          [`${symbol}_${timeframe}`]: result
-        }));
-      } else {
-        console.log(`No waves found for ${symbol}, nothing to store`);
-      }
-      
-      // Dispatch completion event and return result
-      analysisEvents.dispatchEvent(new CustomEvent('complete', { detail: { symbol } }));
+      // Store results and return
+      storeWaveAnalysis(symbol, timeframe, result);
       return result;
-      
-    } catch (error) {
-      // ...existing error handling...
-    } finally {
-      // Clean up the token and active analysis tracking
-      cancellationTokens.current.delete(tokenKey);
-      setActiveAnalyses(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(symbol);
-        return newSet;
-      });
     }
-  }, [analysisEvents, getHistoricalData]);
+    
+    // Otherwise just return null or cached result
+    console.log(`No analysis available for ${symbol} and not performing new analysis`);
+    return cachedItem?.analysis || null;
+  }, [getHistoricalData]);
 
   // Function to preload analyses for multiple symbols
   const preloadAnalyses = async (symbols: string[]) => {
