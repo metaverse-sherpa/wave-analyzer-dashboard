@@ -13,7 +13,8 @@ import {
   Area,
   Bar,
   Brush,
-  Label
+  Label,
+  ReferenceDot, // Add this import
 } from 'recharts';
 
 // Make sure to include these imports
@@ -252,66 +253,66 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               />
             ))}
             
-            {/* Replace the wave lines section around line 260 */}
-            {waveLines.map((waveLine, index) => (
-              <Line
-                key={`wave-${index}-${waveLine.id}`}
-                data={waveLine.data}
-                type="linear"
-                dataKey="value"
-                stroke={waveLine.color}
-                strokeWidth={waveLine.wave === highlightedWave ? 3 : 1}
-                strokeOpacity={waveLine.wave === highlightedWave ? 1 : 0.6}
-                strokeDasharray={waveLine.wave.isImpulse ? "0" : "5 5"}
-                dot={{
-                  r: 4,
-                  fill: waveLine.color,
-                  stroke: "#fff",
-                  strokeWidth: 1
-                }}
-                activeDot={{
-                  r: 6,
-                  fill: waveLine.color,
-                  stroke: "#fff",
-                  strokeWidth: 1,
-                  onMouseOver: () => setHoveredWave(waveLine.wave),
-                  onMouseLeave: () => setHoveredWave(null)
-                }}
-                connectNulls
-                isAnimationActive={false}
-              />
-            ))}
-            
-            {/* Wave number labels at the end point using explicit coordinates */}
+            {/* Render wave lines */}
             {waveLines.map((waveLine, index) => {
-              if (waveLine.data.length === 0) return null;
+              // Only process waves with valid data
+              if (!waveLine.data || waveLine.data.length === 0) return null;
               
-              // Get the last data point (end of wave)
-              const endPoint = waveLine.data[waveLine.data.length - 1];
+              // Determine label position
+              const isImpulsiveWave = 
+                waveLine.wave.number === 1 || 
+                waveLine.wave.number === 3 || 
+                waveLine.wave.number === 5 || 
+                waveLine.wave.number === 'B';
               
               return (
-                <ReferenceArea
-                  key={`wave-label-${index}`}
-                  x1={endPoint.timestamp}
-                  x2={endPoint.timestamp + 1} // Just a pixel wide
-                  y1={endPoint.value - 5}
-                  y2={endPoint.value + 5}
-                  shape={() => (
-                    <text
-                      x={endPoint.timestamp}
-                      y={endPoint.value}
-                      dx={10}
-                      dy={0}
-                      fill={waveLine.color}
-                      stroke="#000"
-                      strokeWidth={0.5}
-                      fontSize={16}
-                      fontWeight="bold"
-                    >
-                      {waveLine.wave.number}
-                    </text>
-                  )}
-                  isFront={true}
+                <Line
+                  key={`wave-${index}-${waveLine.id}`}
+                  data={waveLine.data}
+                  type="linear"
+                  dataKey="value"
+                  stroke={waveLine.color}
+                  strokeWidth={waveLine.wave === highlightedWave ? 3 : 1}
+                  strokeOpacity={waveLine.wave === highlightedWave ? 1 : 0.6}
+                  strokeDasharray={waveLine.wave.isImpulse ? "0" : "5 5"}
+                  dot={{
+                    r: 4,
+                    fill: waveLine.color,
+                    stroke: "#fff",
+                    strokeWidth: 1
+                  }}
+                  activeDot={{
+                    r: 6,
+                    fill: waveLine.color,
+                    stroke: "#fff",
+                    strokeWidth: 1,
+                    onMouseOver: () => setHoveredWave(waveLine.wave),
+                    onMouseLeave: () => setHoveredWave(null)
+                  }}
+                  connectNulls
+                  isAnimationActive={false}
+                  label={(props) => {
+                    // Only show label at end point (index 1 in a 2-point line)
+                    const { x, y, index: dataIndex, value, width, height, ...rest } = props;
+                    if (dataIndex !== 1) return null; // Only show at end point
+                    
+                    return (
+                      <g>
+                        <text
+                          x={x}
+                          y={y + (isImpulsiveWave ? -15 : 15)}
+                          textAnchor="middle"
+                          fill="#FFFFFF"
+                          stroke="#000000"
+                          strokeWidth={0.5}
+                          fontSize={12}
+                          fontWeight="bold"
+                        >
+                          {waveLine.wave.number}
+                        </text>
+                      </g>
+                    );
+                  }}
                 />
               );
             })}
