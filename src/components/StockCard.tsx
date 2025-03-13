@@ -1,31 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardTitle } from "@/components/ui/card";
-import { LineChart, Line, ResponsiveContainer } from 'recharts';
-import { ArrowUpRight, ArrowDownRight, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { StockData, fetchHistoricalData, StockHistoricalData } from "@/services/yahooFinanceService";
-import { analyzeElliottWaves, Wave, WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
-import { storeWaveAnalysis } from "@/services/databaseService";
-import { LightweightChart } from '@/components/LightweightChart';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { formatCurrency, formatPercentage, highlightMatch } from '@/utils/formatters';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
-import WaveAnalysis from '@/context/WaveAnalysisContext';
+import { ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
+import { cn } from '@/utils/cn';
+import LightweightChart from '@/components/LightweightChart';
+import type { StockData, StockHistoricalData, WaveAnalysisResult } from '@/types/shared';
 
 interface StockCardProps {
   stock: StockData;
-  onClick: (stock: StockData, waveAnalysis?: WaveAnalysisResult) => void;
-  searchQuery: string;
+  historicalData?: any[];
+  onSelect?: (symbol: string) => void;
+  searchQuery?: string;
 }
 
-const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) => {
-  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
+export const StockCard = ({ stock, historicalData = [], onSelect, searchQuery = '' }: StockCardProps & { searchQuery?: string }) => {
+  const { analyses } = useWaveAnalysis();
+  const cacheKey = `${stock.symbol}:1d`;
+  const waveAnalysis = analyses[cacheKey] as WaveAnalysisResult | undefined;
+
   const [chartData, setChartData] = useState<StockHistoricalData[]>([]);
   const [loading, setLoading] = useState(true);
   const { getHistoricalData } = useHistoricalData();
   
   // Get currentWave and waveAnalysis from context
-  const cacheKey = `${stock.symbol}_1d`;
-  const waveAnalysis = analyses[cacheKey];
   const currentWave = waveAnalysis?.currentWave;
   
   useEffect(() => {
@@ -71,20 +71,7 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
   const handleCardClick = () => {
     // Pass the stock to the onClick handler - we don't need to pass waveAnalysis
     // as it's already in the shared context
-    onClick(stock);
-  };
-  
-  const highlightMatch = (text: string, query: string) => {
-    if (!query) return text;
-    
-    const regex = new RegExp(`(${query})`, 'gi');
-    return text.split(regex).map((part, index) =>
-      part.toLowerCase() === query.toLowerCase() ? (
-        <span key={index} className="bg-yellow-200">{part}</span>
-      ) : (
-        part
-      )
-    );
+    onSelect(stock.symbol);
   };
   
   return (
@@ -148,5 +135,3 @@ const StockCard: React.FC<StockCardProps> = ({ stock, onClick, searchQuery }) =>
     </Card>
   );
 };
-
-export default StockCard;

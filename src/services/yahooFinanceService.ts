@@ -1,30 +1,13 @@
 import { toast } from "@/lib/toast";
+import type { 
+  StockData as SharedStockData, 
+  StockHistoricalData as SharedStockHistoricalData, 
+  BackendHealthCheck 
+} from '@/types/shared';
 
-// Types for our Yahoo Finance API
-export interface StockData {
-  symbol: string;
-  shortName: string;
-  regularMarketPrice: number;
-  regularMarketChange: number;
-  regularMarketChangePercent: number;
-  regularMarketVolume: number;
-  averageVolume: number;
-  marketCap: number;
-  fiftyTwoWeekLow: number;
-  fiftyTwoWeekHigh: number;
-  trailingPE?: number;
-  forwardPE?: number;
-  dividendYield?: number;
-}
-
-export interface StockHistoricalData {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+// Re-export the types to maintain compatibility
+export type StockData = SharedStockData;
+export type StockHistoricalData = SharedStockHistoricalData;
 
 // Cache for API responses
 const apiCache: Record<string, { data: unknown; timestamp: number }> = {};
@@ -66,80 +49,125 @@ const API_BASE_URL = getApiBaseUrl();
 
 const USE_MOCK_DATA = false; // Set to false when your backend is working
 
-// Function to fetch top stocks
-export const fetchTopStocks = async (limit: number = 50): Promise<StockData[]> => {
-  if (USE_MOCK_DATA) {
-    console.log(`Using mock data for top ${limit} stocks`);
-    return topStockSymbols.slice(0, limit).map(symbol => ({
-      symbol,
-      shortName: `${symbol} Inc.`,
-      regularMarketPrice: 100 + Math.random() * 100,
-      regularMarketChange: (Math.random() * 10) - 5,
-      regularMarketChangePercent: (Math.random() * 10) - 5,
-      regularMarketVolume: Math.floor(Math.random() * 10000000),
-      averageVolume: Math.floor(Math.random() * 5000000),
-      marketCap: Math.floor(Math.random() * 1000000000000),
-      fiftyTwoWeekLow: 50 + Math.random() * 50,
-      fiftyTwoWeekHigh: 150 + Math.random() * 50,
-      trailingPE: 15 + Math.random() * 20,
-      forwardPE: 12 + Math.random() * 15,
-      dividendYield: Math.random() * 0.05,
-    }));
-  }
+// Add cache utility functions at the top of the file
 
-  const cacheKey = `topStocks_${limit}`;
-  
-  // Check cache
-  if (apiCache[cacheKey] && Date.now() - apiCache[cacheKey].timestamp < CACHE_DURATION) {
-    return apiCache[cacheKey].data as StockData[];
-  }
-
+// Generic function to get data from cache
+function getFromCache<T>(key: string): T | null {
   try {
-    const symbols = topStockSymbols.slice(0, limit);
-    const response = await fetch(`${API_BASE_URL}/stocks?symbols=${symbols.join(',')}`);
+    const item = localStorage.getItem(key);
+    if (!item) return null;
     
-    if (!response.ok) {
-      throw new Error('Failed to fetch stock data');
+    const parsed = JSON.parse(item);
+    
+    // Check if the cache has expired
+    if (parsed.timestamp && Date.now() - parsed.timestamp > parsed.duration) {
+      localStorage.removeItem(key);
+      return null;
     }
-
-    const quotes = await response.json();
     
-    // Transform API response to our StockData format
-    const stocks: StockData[] = quotes.map(quote => ({
+    return parsed.data as T;
+  } catch (error) {
+    console.error(`Error retrieving ${key} from cache:`, error);
+    return null;
+  }
+}
+
+// Generic function to save data to cache
+function saveToCache<T>(key: string, data: T, duration: number): void {
+  try {
+    const item = {
+      data,
+      timestamp: Date.now(),
+      duration
+    };
+    localStorage.setItem(key, JSON.stringify(item));
+  } catch (error) {
+    console.error(`Error saving ${key} to cache:`, error);
+  }
+}
+
+// Function to fetch top stocks
+export const fetchTopStocks = async (limit: number = 100): Promise<StockData[]> => {
+  const cacheKey = 'top-stocks';
+  
+  // Try to get from cache first
+  const cached = getFromCache<StockData[]>(cacheKey);
+  if (cached) return cached;
+  
+  try {
+    const response = await fetch('/api/stocks/top');
+    const contentType = response.headers.get('content-type');
+    
+    // Check if response is JSON before parsing
+    if (!contentType || !contentType.includes('application/json')) {
+      // Return fallback data when API returns non-JSON
+      console.warn('API returned non-JSON response, using fallback data');
+      const fallbackData = getFallbackStockData();
+      saveToCache(cacheKey, fallbackData, CACHE_DURATION);
+      return fallbackData;
+    }
+    
+    const data = await response.json();
+    
+    if (!Array.isArray(data)) {
+      throw new Error('API returned unexpected format');
+    }
+    
+    const stocks: StockData[] = data.map(quote => ({
       symbol: quote.symbol,
-      shortName: quote.shortName || '',
+      name: quote.shortName || quote.longName || quote.symbol,
+      shortName: quote.shortName || quote.symbol,
+      price: quote.regularMarketPrice || 0,
+      change: quote.regularMarketChange || 0,
+      changePercent: quote.regularMarketChangePercent || 0,
+      volume: quote.regularMarketVolume || 0,
+      marketCap: quote.marketCap || 0,
+      averageVolume: quote.averageVolume || quote.averageDailyVolume3Month || 0,
       regularMarketPrice: quote.regularMarketPrice || 0,
       regularMarketChange: quote.regularMarketChange || 0,
       regularMarketChangePercent: quote.regularMarketChangePercent || 0,
-      regularMarketVolume: quote.regularMarketVolume || 0,
-      averageVolume: quote.averageDailyVolume3Month || 0,
-      marketCap: quote.marketCap || 0,
-      fiftyTwoWeekLow: quote.fiftyTwoWeekLow || 0,
-      fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh || 0,
-      trailingPE: quote.trailingPE,
-      forwardPE: quote.forwardPE,
-      dividendYield: quote.trailingAnnualDividendYield
+      regularMarketVolume: quote.regularMarketVolume || 0
     }));
-
-    // Cache the response
-    apiCache[cacheKey] = {
-      data: stocks,
-      timestamp: Date.now()
-    };
-
+    
+    saveToCache(cacheKey, stocks, CACHE_DURATION);
     return stocks;
   } catch (error) {
     console.error('Error fetching top stocks:', error);
-    toast.error('Failed to fetch stock data');
-    return [];
+    
+    // Use fallback data when API fails
+    const fallbackData = getFallbackStockData();
+    saveToCache(cacheKey, fallbackData, CACHE_DURATION);
+    return fallbackData;
   }
 };
+
+// Add helper function for fallback data
+function getFallbackStockData(): StockData[] {
+  // Return a small set of major stocks as fallback
+  const topSymbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NVDA', 'V', 'JPM', 'WMT'];
+  
+  return topSymbols.map(symbol => ({
+    symbol,
+    name: symbol,
+    shortName: symbol,
+    price: 100,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    marketCap: 0,
+    averageVolume: 0,
+    regularMarketPrice: 100,
+    regularMarketChange: 0,
+    regularMarketChangePercent: 0,
+    regularMarketVolume: 0
+  }));
+}
 
 // Function to fetch historical data with improved caching
 export const fetchHistoricalData = async (
   symbol: string,
   timeframe: string = '1d'
-): Promise<{ symbol: string; historicalData: StockHistoricalData[] }> => {
+): Promise<{ symbol: string; historicalData: SharedStockHistoricalData[] }> => {
   // If using mock data, bypass API calls entirely
   if (USE_MOCK_DATA) {
     console.log(`Using mock data for ${symbol} (${timeframe})`);
@@ -210,8 +238,8 @@ export const fetchHistoricalData = async (
 };
 
 // Add this helper function to generate mock data
-function generateMockHistoricalData(symbol: string, days: number): StockHistoricalData[] {
-  const mockData: StockHistoricalData[] = [];
+function generateMockHistoricalData(symbol: string, days: number): SharedStockHistoricalData[] {
+  const mockData: SharedStockHistoricalData[] = [];
   const today = new Date();
   let price = 100 + (symbol.charCodeAt(0) % 50); // Base price on first letter of symbol
   
@@ -240,4 +268,42 @@ function generateMockHistoricalData(symbol: string, days: number): StockHistoric
   
   return mockData;
 }
+
+// Update the health check function to use the proper type
+export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
+  try {
+    const response = await fetch('/api/health');
+    const data = await response.json();
+    return {
+      status: data.status,
+      message: data.message,
+      version: data.version,
+      timestamp: new Date(data.timestamp) // Timestamp is now expected in the type
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date() // Timestamp is now expected in the type
+    };
+  }
+};
+
+// Fix the quotes mapping
+export const getTopStocks = async (): Promise<SharedStockData[]> => {
+  const response = await fetch('/api/stocks/top');
+  const quotes = await response.json();
+  
+  const stocks: SharedStockData[] = quotes.map((quote: any) => ({
+    symbol: quote.symbol,
+    name: quote.shortName || quote.longName || quote.symbol,
+    price: quote.regularMarketPrice,
+    change: quote.regularMarketChange,
+    changePercent: quote.regularMarketChangePercent,
+    marketCap: quote.marketCap,
+    volume: quote.regularMarketVolume
+  }));
+  
+  return stocks;
+};
 

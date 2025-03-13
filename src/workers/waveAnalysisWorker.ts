@@ -1,6 +1,12 @@
-import { analyzeElliottWaves } from '../utils/elliottWaveAnalysis';
-import type { StockHistoricalData } from '../services/yahooFinanceService';
-import type { WaveAnalysisResult } from '../types/waves';
+import type { Wave, StockHistoricalData, WaveAnalysisResult, FibTarget } from '@/types/shared';
+// Import functions from our utility file
+import { 
+  analyzeWaves, 
+  calculateFibTargets,
+  determineTrend,
+  hasImpulsePattern,
+  hasCorrectivePattern
+} from '@/utils/waveAnalysis';
 
 // Define the expected message structure
 interface WorkerMessage {
@@ -25,7 +31,7 @@ interface WorkerErrorResponse {
 }
 
 // Add memory monitoring and chunked processing
-let heartbeatInterval: number;
+let heartbeatInterval: ReturnType<typeof setInterval>;
 const CHUNK_SIZE = 500;
 const HEARTBEAT_INTERVAL = 1000; // 1 second
 
@@ -90,7 +96,7 @@ self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
 
     // Process chunks and analyze
     processDataChunks().then(chunks => {
-      const result = analyzeElliottWaves(data, (waves) => {
+      const result = analyzeWaves(data, (waves) => {
         // Report wave progress
         self.postMessage({
           type: 'progress',
@@ -125,35 +131,23 @@ self.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
 
 // Helper function to finalize analysis
 function completeAnalysis(waves: Wave[], data: StockHistoricalData[]): WaveAnalysisResult {
-  // Determine trend based on overall price movement
-  const trend = data[data.length - 1].close > data[0].close ? 'bullish' : 'bearish';
-  
-  // Determine current wave
-  const currentWave = waves.length > 0 ? waves[waves.length - 1] : ({} as Wave);
-  
-  // Calculate Fibonacci targets
+  const currentWave = waves.length > 0 ? waves[waves.length - 1] : null;
   let fibTargets: FibTarget[] = [];
   
+  // Calculate Fibonacci targets if we have a completed wave 1 and 2
   if (waves.length >= 2) {
-    const wave1 = waves.find(w => w.number === 1);
-    const wave2 = waves.find(w => w.number === 2);
-    
-    if (wave1 && wave2) {
-      fibTargets = calculateFibonacciTargets(wave1, wave2);
-    }
+    const wave1 = waves[0];
+    const wave2 = waves[1];
+    fibTargets = calculateFibTargets(wave1, wave2);
   }
-  
-  // Determine if we have an impulse or corrective pattern
-  const impulsePattern = waves.some(w => typeof w.number === 'number' && w.number === 5);
-  const correctivePattern = waves.some(w => w.number === 'C');
   
   return {
     waves,
     currentWave,
     fibTargets,
-    trend,
-    impulsePattern,
-    correctivePattern
+    trend: determineTrend(waves),
+    impulsePattern: hasImpulsePattern(waves),
+    correctivePattern: hasCorrectivePattern(waves)
   };
 }
 

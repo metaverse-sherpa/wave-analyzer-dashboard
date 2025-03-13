@@ -48,7 +48,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { KillSwitchProvider, useKillSwitch } from './context/KillSwitchContext';
 import DataInitializer from './context/DataInitializer';
 import AdminDashboard from "./pages/Admin";
-import { toast } from '@/lib/toast';
+import { toast } from "@/components/ui/use-toast";
 import AnalysisStatusTracker from './components/AnalysisStatusTracker';
 
 const queryClient = new QueryClient({
@@ -172,14 +172,15 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    // Force the app to continue after 20 seconds regardless of loading state
     const forceLoadTimeout = setTimeout(() => {
       if (loadState === 'loading') {
         console.log('Forcing app to load after timeout');
         setLoadState('success');
+        
         toast({
+          variant: "destructive",
           title: "Loading timeout",
-          description: "Data loading timed out, but app will continue. Some features may be limited."
+          description: "The operation took too long to complete."
         });
       }
     }, 20000);
@@ -246,7 +247,11 @@ const App = () => {
                         <button
                           onClick={() => {
                             setLoadState('success');
-                            toast.warning('Data loading bypassed. Some features may be limited.');
+                            toast({
+                              title: "Limited Functionality",
+                              description: 'Data loading bypassed. Some features may be limited.',
+                              variant: "default" // Changed from "warning"
+                            });
                           }}
                           className="mt-4 px-4 py-2 bg-muted text-muted-foreground rounded"
                         >

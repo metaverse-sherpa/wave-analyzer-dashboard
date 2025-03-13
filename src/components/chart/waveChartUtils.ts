@@ -1,20 +1,16 @@
-import { Wave } from '@/utils/elliottWaveAnalysis';
-import { StockHistoricalData } from '@/services/yahooFinanceService';
+import { Wave, StockHistoricalData, ChartPoint } from '@/types/shared';
+import { WAVE_COLORS } from '@/types/shared';
+
+export interface WaveLine {
+  id: string;
+  wave: Wave;
+  data: ChartPoint[];
+  color: string;
+}
 
 // Define wave colors for consistency
 export const getWaveColor = (waveNumber: string | number): string => {
-  const colorMap = {
-    1: '#4CAF50', // Green
-    2: '#FF9800', // Orange
-    3: '#2196F3', // Blue
-    4: '#F44336', // Red
-    5: '#9C27B0', // Purple
-    'A': '#FFEB3B', // Yellow
-    'B': '#795548', // Brown
-    'C': '#00BCD4',  // Cyan
-  };
-  
-  return colorMap[waveNumber] || '#FFFFFF';
+  return WAVE_COLORS[waveNumber] || '#FFFFFF';
 };
 
 // Update this to determine if a wave is impulse or corrective
@@ -40,10 +36,10 @@ const findMostRecentWave1Index = (waves: Wave[]): number => {
 
 // Add this function before prepareWaveLines
 export const getTimestampValue = (timestamp: any): number => {
-  if (timestamp instanceof Date) {
+  if (typeof timestamp === 'object' && timestamp instanceof Date) {
     return timestamp.getTime();
   } else if (typeof timestamp === 'number') {
-    return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+    return timestamp;
   } else if (typeof timestamp === 'string') {
     return new Date(timestamp).getTime();
   }
@@ -52,104 +48,41 @@ export const getTimestampValue = (timestamp: any): number => {
 
 // Update the prepareWaveLines function
 export const prepareWaveLines = (waves: Wave[], chartData: StockHistoricalData[]): WaveLine[] => {
-  if (!waves || waves.length === 0 || !chartData || chartData.length === 0) return [];
-  
-  // Find the index of the most recent Wave 1
-  const mostRecentWave1Index = findMostRecentWave1Index(waves);
-  if (mostRecentWave1Index === -1) return [];
-  
-  // Filter waves to only include those after the most recent Wave 1
-  const relevantWaves = waves.slice(mostRecentWave1Index);
-  
-  console.log(`Preparing wave lines for ${relevantWaves.length} waves`);
-  
-  const waveLines = [];
-  
-  // Process each relevant wave
-  for (let i = 0; i < relevantWaves.length; i++) {
-    const wave = relevantWaves[i];
-    
-    // Skip if we don't have start timestamp
-    if (!wave.startTimestamp) continue;
-    
-    console.log(`Processing wave ${wave.number} with timestamps:`, {
-      start: wave.startTimestamp instanceof Date ? wave.startTimestamp.toISOString() : wave.startTimestamp,
-      end: wave.endTimestamp ? (wave.endTimestamp instanceof Date ? wave.endTimestamp.toISOString() : wave.endTimestamp) : 'now'
-    });
-    
-    // Find the closest data points
-    let startDataPoint = findClosestDataPoint(chartData, wave.startTimestamp);
-    let endDataPoint;
-    
-    if (wave.endTimestamp) {
-      endDataPoint = findClosestDataPoint(chartData, wave.endTimestamp);
-    } else {
-      endDataPoint = chartData[chartData.length - 1];
-    }
-    
-    // Skip if we couldn't find the start or end points
-    if (!startDataPoint || !endDataPoint) {
-      console.warn(`Could not find data points for wave ${wave.number}`);
+  if (!waves || !chartData || waves.length === 0 || chartData.length === 0) {
+    return [];
+  }
+
+  return waves.map((wave): WaveLine => {
+    // Don't use instanceof, cast to ensure correct type
+    const startTimestamp = typeof wave.startTimestamp === 'object' 
+      ? getTimestampValue(wave.startTimestamp)
+      : wave.startTimestamp;
       
-      // Use wave's own price data as fallback
-      if (wave.startPrice !== undefined && wave.endPrice !== undefined) {
-        console.log(`Using wave's own price data as fallback for wave ${wave.number}`);
-        
-        // Create custom data points using wave's price data
-        const waveDataPoints = [
-          {
-            timestamp: getTimestampValue(wave.startTimestamp),
-            value: wave.startPrice,
-            waveNumber: wave.number
-          },
-          {
-            timestamp: getTimestampValue(wave.endTimestamp || chartData[chartData.length-1].timestamp),
-            value: wave.endPrice,
-            waveNumber: wave.number
-          }
-        ];
-        
-        waveLines.push({
-          id: `wave-${wave.number}-${i}`,
-          wave: {
-            ...wave,
-            isImpulse: isImpulseWave(wave.number)
-          },
-          data: waveDataPoints,
-          color: getWaveColor(wave.number)
-        });
-      }
-      
-      continue;
-    }
-    
-    // Create line data structure for Recharts
-    const dataPoints = [
+    const endTimestamp = wave.endTimestamp
+      ? (typeof wave.endTimestamp === 'object' ? getTimestampValue(wave.endTimestamp) : wave.endTimestamp)
+      : Date.now();
+
+    // Ensure waveNumber is always present
+    const data: ChartPoint[] = [
       {
-        timestamp: getTimestampValue(startDataPoint.timestamp),
-        value: startDataPoint.close,
+        timestamp: startTimestamp,
+        value: wave.startPrice,
         waveNumber: wave.number
       },
       {
-        timestamp: getTimestampValue(endDataPoint.timestamp),
-        value: endDataPoint.close,
+        timestamp: endTimestamp,
+        value: wave.endPrice || wave.startPrice,
         waveNumber: wave.number
       }
     ];
-    
-    waveLines.push({
-      id: `wave-${wave.number}-${i}`,
-      wave: {
-        ...wave,
-        isImpulse: isImpulseWave(wave.number)
-      },
-      data: dataPoints,
-      color: getWaveColor(wave.number)
-    });
-  }
-  
-  console.log(`Created ${waveLines.length} wave lines`);
-  return waveLines;
+
+    return {
+      id: `wave-${wave.number}-${startTimestamp}`,
+      wave,
+      data,
+      color: WAVE_COLORS[wave.number] || '#FFFFFF'
+    };
+  });
 };
 
 // Update the findClosestDataPoint function to use getTimestampValue

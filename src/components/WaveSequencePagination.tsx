@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Wave, FibTarget } from "@/types/waves"; // Make sure this path is correct
+import { Wave, FibTarget } from "@/types/shared"; // Make sure this path is correct
 
 interface WaveSequencePaginationProps {
   waves: Wave[];

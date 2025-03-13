@@ -10,7 +10,7 @@ import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity } fr
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
-import { Wave } from '@/types/waves';
+import { Wave } from '@/types/shared';
 import ApiStatusCheck from '@/components/ApiStatusCheck';
 import { topStockSymbols } from '@/services/yahooFinanceService';
 import { clearMemoCache } from '@/utils/elliottWaveAnalysis';

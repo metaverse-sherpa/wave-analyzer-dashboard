@@ -3,21 +3,22 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { visualizer } from 'rollup-plugin-visualizer';
+import type { ProxyOptions } from 'vite';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "::",
+    host: "localhost",
     port: 3000,
     hmr: {
       overlay: false, // Disable the error overlay which can be CPU intensive
     },
-    proxy: process.env.MOCK_API ? {} : {
+    proxy: process.env.MOCK_API ? undefined : {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path,
+        rewrite: (path: string) => path.replace(/^\/api/, ''),
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
             console.log('Proxy error:', err);
@@ -29,14 +30,14 @@ export default defineConfig(({ mode }) => ({
             console.log('Received Response:', proxyRes.statusCode, req.url);
           });
         },
-      },
+      } as ProxyOptions,
     },
   },
   plugins: [
     react(),
     mode === 'development' && componentTagger(),
     visualizer({
-      open: false,
+      open: true,
       gzipSize: true,
     }),
   ].filter(Boolean),

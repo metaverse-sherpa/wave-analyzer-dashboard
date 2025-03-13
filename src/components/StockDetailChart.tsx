@@ -8,13 +8,13 @@ import {
   YAxis,
   CartesianGrid,
   ReferenceLine,
-  ReferenceArea, // Add this import
+  ReferenceArea,
   Line,
   Area,
   Bar,
   Brush,
   Label,
-  ReferenceDot, // Add this import
+  ReferenceDot
 } from 'recharts';
 
 // Make sure to include these imports
@@ -139,7 +139,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 
   // 2. Add a function to calculate the extended domain at the component level
   const extendedDomain = useMemo(() => {
-    if (!processedChartData.length) return ['dataMin', 'dataMax'];
+    if (!processedChartData.length) return [0, 0];
     
     // Get the last timestamp (already converted to number)
     const lastTimestamp = processedChartData[processedChartData.length - 1].timestamp;
@@ -147,8 +147,14 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     // Add 30 days in milliseconds
     const extendedTimestamp = lastTimestamp + (30 * 24 * 60 * 60 * 1000);
     
-    return ['dataMin', extendedTimestamp];
+    return [processedChartData[0].timestamp, extendedTimestamp];
   }, [processedChartData]);
+
+  // Fix the domain type error
+  const domain = [
+    Math.min(...processedChartData.map(d => d.timestamp)),
+    Math.max(...processedChartData.map(d => d.timestamp))
+  ];
 
   // Return early if no data available
   if (!data || data.length === 0) {
@@ -232,7 +238,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             <XAxis
               dataKey="timestamp"
               type="number"
-              domain={extendedDomain}
+              domain={domain}
               scale="time"
               // Update tickFormatter to handle numeric timestamps
               tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
@@ -285,7 +291,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               type="monotone"
               dataKey="low"
               stroke="transparent"
-              baseLine={data => data.high}
+              baseLine={0}
               fill="rgba(255,255,255,0.05)"
               fillOpacity={0.3}
               isAnimationActive={false}
@@ -383,27 +389,14 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                   }}
                   connectNulls
                   isAnimationActive={false}
-                  label={(props) => {
-                    // Only show label at end point (index 1 in a 2-point line)
-                    const { x, y, index: dataIndex, value, width, height, ...rest } = props;
-                    if (dataIndex !== 1) return null; // Only show at end point
-                    
-                    return (
-                      <g>
-                        <text
-                          x={x}
-                          y={y + (isImpulsiveWave ? -15 : 15)}
-                          textAnchor="middle"
-                          fill={isSelected ? "#FFFF00" : "#FFFFFF"} // Highlight selected wave label in yellow
-                          stroke="#000000"
-                          strokeWidth={isSelected ? 0.8 : 0.5} // Thicker outline for selected wave
-                          fontSize={isSelected ? 14 : 12} // Larger font for selected wave
-                          fontWeight="bold"
-                        >
-                          {waveLine.wave.number}
-                        </text>
-                      </g>
-                    );
+                  label={{
+                    position: 'top',
+                    value: String(waveLine.wave.number),
+                    fill: '#FFFFFF',
+                    fontSize: 10,
+                    fontWeight: 'bold',
+                    stroke: '#000000',
+                    strokeWidth: 0.5
                   }}
                 />
               );

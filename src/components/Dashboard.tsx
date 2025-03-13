@@ -1,37 +1,48 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { StockCard } from './StockCard';
+import { Input } from "@/components/ui/input";
+import { useDebounce } from '@/hooks/useDebounce';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { toast } from "@/components/ui/use-toast";
+import { fetchTopStocks } from '@/services/yahooFinanceService';
+import type { StockData } from '@/types/shared';
 import { useNavigate } from 'react-router-dom';
-import StockCard from './StockCard';
-import { StockData, fetchTopStocks } from '@/services/yahooFinanceService';
-import { WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
-import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { useDebounce } from '@/hooks/useDebounce';
-import { toast } from '@/lib/toast';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'; // Add these missing Lucide icon imports
-import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
-import { useHistoricalData } from '@/context/HistoricalDataContext';
 import WaveAnalysis from '@/context/WaveAnalysisContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import StockTrendList from './StockTrendList';
 import WavePatternChart from './WavePatternChart';
 import MarketOverview from './MarketOverview';
 import Settings from './Settings'; // Import the new Settings component
+import type { WaveAnalysisResult } from '@/types/shared';
 
-const Dashboard: React.FC = () => {
-  const navigate = useNavigate();
-  const [stocks, setStocks] = useState<StockData[]>([]);
-  const [stockWaves, setStockWaves] = useState<Record<string, WaveAnalysisResult>>({});
-  const [filteredStocks, setFilteredStocks] = useState<StockData[]>([]);
+interface DashboardProps {
+  stocks?: StockData[];
+  analyses?: Record<string, any>;
+  stockWaves?: Record<string, any>;
+}
+
+const Dashboard: React.FC<DashboardProps> = ({ 
+  stocks: initialStocks = [], 
+  analyses = {}, 
+  stockWaves = {} 
+}) => {
+  const [stocks, setStocks] = useState<StockData[]>(initialStocks);
+  const [filteredStocks, setFilteredStocks] = useState<StockData[]>(initialStocks);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const debouncedQuery = useDebounce(searchQuery, 300);
+  
+  const { preloadHistoricalData } = useHistoricalData();
+  const { preloadAnalyses } = useWaveAnalysis();
+  const navigate = useNavigate();
   const [itemsPerPage, setItemsPerPage] = useState(12);
   const [selectedWave, setSelectedWave] = useState<number | 'all'>('all');
   
-  const debouncedQuery = useDebounce(searchQuery, 300);
-  
-  // Add these missing variables and functions
   const itemsPerPageOptions = [
     { value: 12, label: '12' },
     { value: 24, label: '24' },
@@ -50,38 +61,48 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const { analyses, preloadAnalyses } = useWaveAnalysis();
-  const { preloadHistoricalData } = useHistoricalData();
-
-  // Use useCallback for functions
+  // Memoize the filter function to prevent recreating it on every render
+  const filterStocks = useCallback((stockList: StockData[], query: string) => {
+    const lowerCaseQuery = query.toLowerCase();
+    return stockList.filter(stock => 
+      stock.symbol.toLowerCase().includes(lowerCaseQuery) ||
+      (stock.name || '').toLowerCase().includes(lowerCaseQuery)
+    );
+  }, []);
+  
+  // Load stocks only once on mount or when dependencies change
   const loadStocks = useCallback(async () => {
+    if (loading) return; // Prevent multiple simultaneous loads
+    
     setLoading(true);
     try {
-      // Limit the number of stocks to analyze
-      const topStocks = await fetchTopStocks();
-      setStocks(topStocks.slice(0, 20)); // Only load top 20
+      const data = await fetchTopStocks(100);
+      setStocks(data);
+      // Only update filtered stocks if no search query is active
+      if (!debouncedQuery) {
+        setFilteredStocks(data);
+      }
       
-      // Stagger loading to prevent CPU spikes
-      setTimeout(() => {
-        preloadHistoricalData(topStocks.slice(0, 20).map(s => s.symbol));
-      }, 1000);
-      
-      setTimeout(() => {
-        preloadAnalyses(topStocks.slice(0, 20).map(s => s.symbol));
-      }, 2000);
+      // Preload data for top stocks
+      const symbols = data.slice(0, 10).map(stock => stock.symbol);
+      await preloadHistoricalData(symbols);
+      await preloadAnalyses(symbols);
     } catch (error) {
-      console.error('Error loading stocks:', error);
-      toast.error('Failed to load stocks data');
+      console.error('Failed to load stocks:', error);
+      toast({
+        description: 'Failed to load stocks data',
+        variant: 'destructive'
+      });
     } finally {
       setLoading(false);
     }
-  }, [preloadAnalyses, preloadHistoricalData]);
+  }, [preloadAnalyses, preloadHistoricalData, debouncedQuery]);
   
-  // Use a more conservative approach to refresh
+  // Initial load & refresh timer
   useEffect(() => {
     loadStocks();
     
-    // Refresh data only every 5 minutes instead of continuously
+    // Refresh data every 5 minutes
     const intervalId = setInterval(() => {
       loadStocks();
     }, 5 * 60 * 1000);
@@ -89,20 +110,18 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [loadStocks]);
   
-  // Filter stocks based on search query
+  // Handle search filtering - memoize the filtered results
   useEffect(() => {
-    if (debouncedQuery) {
-      const lowerCaseQuery = debouncedQuery.toLowerCase();
-      const filtered = stocks.filter(stock => 
-        stock.symbol.toLowerCase().includes(lowerCaseQuery) ||
-        stock.shortName.toLowerCase().includes(lowerCaseQuery)
-      );
-      setFilteredStocks(filtered);
-      setCurrentPage(1); // Reset to first page when search changes
-    } else {
-      setFilteredStocks(stocks);
-    }
-  }, [debouncedQuery, stocks]);
+    // Skip if stocks aren't loaded yet
+    if (stocks.length === 0) return;
+    
+    const filtered = debouncedQuery ? 
+      filterStocks(stocks, debouncedQuery) : 
+      stocks;
+      
+    setFilteredStocks(filtered);
+    setCurrentPage(1); // Reset to first page when search changes
+  }, [debouncedQuery, stocks, filterStocks]);
 
   // Filter stocks based on selected wave using the context's analyses
   const filteredStocksByWave = useMemo(() => {
@@ -130,6 +149,11 @@ const Dashboard: React.FC = () => {
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = filteredStocksByWave.slice(indexOfFirstItem, indexOfLastItem);
   const totalPages = Math.ceil(filteredStocksByWave.length / itemsPerPage);
+
+  // Type-safe access to analyses
+  const getAnalysis = (symbol: string): WaveAnalysisResult | undefined => {
+    return analyses[symbol] || stockWaves[symbol];
+  };
 
   return (
     <div className="container mx-auto p-4">

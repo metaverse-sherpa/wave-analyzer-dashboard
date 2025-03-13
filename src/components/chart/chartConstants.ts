@@ -1,3 +1,5 @@
+import type { TooltipProps } from '@/types/chart';
+
 // Wave colors for visualization - alternating colors for waves
 export const waveColors = [
   '#4CAF50', // Green for Wave 1
@@ -11,7 +13,7 @@ export const waveColors = [
 ];
 
 // Format tooltip values
-export const tooltipFormatter = (value, name, props) => {
+export const tooltipFormatter = (value: number, name: string, props: TooltipProps) => {
   if (name === 'close') {
     return [`$${value.toFixed(2)}`, 'Price'];
   }

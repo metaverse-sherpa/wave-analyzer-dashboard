@@ -1,72 +1,74 @@
-import React, { useEffect, useRef } from 'react';
-import { createChart } from 'lightweight-charts';
-import { CandlestickSeries } from 'lightweight-charts';
-import { StockHistoricalData } from '@/services/yahooFinanceService';
+import React, { useRef, useEffect } from 'react';
+// Import the necessary types
+import { createChart, ColorType } from 'lightweight-charts';
+import type { StockHistoricalData } from '@/types/shared';
 
 interface LightweightChartProps {
   data: StockHistoricalData[];
+  height?: number;
 }
 
-export const LightweightChart: React.FC<LightweightChartProps> = ({ data }) => {
+const LightweightChart: React.FC<LightweightChartProps> = ({ data, height = 300 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-
+  
   useEffect(() => {
-    if (!chartContainerRef.current || data.length === 0) return;
+    if (chartContainerRef.current && data.length > 0) {
+      // Create the chart with proper options
+      const chart = createChart(chartContainerRef.current, {
+        height,
+        layout: {
+          background: { 
+            type: ColorType.Solid, // Use the enum instead of string literal
+            color: 'transparent' 
+          },
+          textColor: '#DDD',
+        },
+        grid: {
+          vertLines: { color: 'rgba(42, 46, 57, 0.2)' },
+          horzLines: { color: 'rgba(42, 46, 57, 0.2)' }
+        }
+      });
+      
+      // Use type assertion for the series creation
+      // This handles different versions of lightweight-charts
+      const series = (chart as any).addCandlestickSeries ? 
+        (chart as any).addCandlestickSeries({
+          upColor: '#4CAF50',
+          downColor: '#F44336',
+          borderVisible: false,
+          wickUpColor: '#4CAF50',
+          wickDownColor: '#F44336'
+        }) : 
+        // For newer versions, use the proper type
+        chart.addSeries({
+          type: 'candlestick',
+          upColor: '#4CAF50',
+          downColor: '#F44336',
+          borderVisible: false,
+          wickUpColor: '#4CAF50',
+          wickDownColor: '#F44336'
+        } as any);
+      
+      // Format data for the chart
+      const formattedData = data.map(d => ({
+        time: d.timestamp / 1000, // Convert to seconds if needed
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close
+      }));
+      
+      series.setData(formattedData);
+      
+      return () => {
+        chart.remove();
+      };
+    }
+  }, [data, height]);
+  
+  return (
+    <div ref={chartContainerRef} style={{ width: '100%' }} />
+  );
+};
 
-    // Initialize the chart
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        textColor: 'white',
-        background: { type: 'solid', color: 'transparent' },
-      },
-      watermark: {
-        visible: false,
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: 100,
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
-      },
-    });
-
-    // Add candlestick series
-    const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderVisible: false,
-      wickUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-    });
-
-    // Format data for the chart
-    const chartData = data.map(d => ({
-      time: d.timestamp / 1000, // Convert to seconds
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close,
-    }));
-
-    // Set the data
-    candlestickSeries.setData(chartData);
-
-    // Fit the chart to the data
-    chart.timeScale().fitContent();
-
-    // Cleanup on unmount
-    return () => {
-      chart.remove();
-    };
-  }, [data]);
-
-  if (data.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-24 text-muted-foreground">
-        No chart data available
-      </div>
-    );
-  }
-
-  return <div ref={chartContainerRef} className="h-24 w-full" />;
-}; 
+export default LightweightChart;

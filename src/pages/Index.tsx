@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import StockCard from '@/components/StockCard';
+import { StockCard } from '@/components/StockCard';
 import DashboardHeader from '@/components/DashboardHeader';
 import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
 import { toast } from '@/lib/toast';
