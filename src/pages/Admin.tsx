@@ -14,6 +14,7 @@ import { Wave } from '@/types/waves';
 import ApiStatusCheck from '@/components/ApiStatusCheck';
 import { topStockSymbols } from '@/services/yahooFinanceService';
 import { clearMemoCache } from '@/utils/elliottWaveAnalysis';
+import { useHistoricalData } from '@/context/HistoricalDataContext';
 
 interface ActiveAnalysis {
   symbol: string;
@@ -23,7 +24,7 @@ interface ActiveAnalysis {
 }
 
 const AdminDashboard = () => {
-  // Group all useState hooks together
+  // State and context hooks remain at the top
   const [cacheData, setCacheData] = useState<{
     waves: Record<string, any>;
     historical: Record<string, any>;
@@ -35,32 +36,54 @@ const AdminDashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
 
-  // Get context values with cancellation capability
+  // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
+  const { getHistoricalData, preloadHistoricalData: contextPreloadHistoricalData } = useHistoricalData();
 
-  // Calculate cache statistics using useMemo
-  const cacheStats = useMemo(() => ({
-    waveEntryCount: cacheData.waves ? Object.keys(cacheData.waves).length : 0,
-    histEntryCount: cacheData.historical ? Object.keys(cacheData.historical).length : 0,
-    totalSize: Math.round(
-      (
-        JSON.stringify(cacheData.waves || {}).length +
-        JSON.stringify(cacheData.historical || {}).length
-      ) / 1024
-    ),
-    oldestWave: cacheData.waves ? 
-      Object.entries(cacheData.waves).reduce((oldest, [key, data]) => {
-        return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
-      }, { key: '', timestamp: Date.now() }) : 
-      { key: '', timestamp: Date.now() },
-    oldestHistorical: cacheData.historical ? 
-      Object.entries(cacheData.historical).reduce((oldest, [key, data]) => {
-        return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
-      }, { key: '', timestamp: Date.now() }) :
-      { key: '', timestamp: Date.now() }
-  }), [cacheData]);
+  // 1. MOVE loadCacheData definition BEFORE any functions that depend on it
+  const loadCacheData = useCallback(() => {
+    setIsRefreshing(true);
+    try {
+      // Initialize with empty objects by default
+      const waveData = { waves: {} };
+      const histData = { historical: {} };
+      
+      // Scan localStorage for entries
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('wave_analysis_')) {
+          try {
+            const data = JSON.parse(localStorage.getItem(key) || '{}');
+            const symbol = key.replace('wave_analysis_', '').split('_')[0];
+            waveData.waves[symbol] = data;
+          } catch (e) {
+            console.error(`Error parsing cache data for ${key}:`, e);
+          }
+        } else if (key.startsWith('historical_data_')) {
+          try {
+            const data = JSON.parse(localStorage.getItem(key) || '{}');
+            const symbol = key.replace('historical_data_', '').split('_')[0];
+            histData.historical[symbol] = data;
+          } catch (e) {
+            console.error(`Error parsing cache data for ${key}:`, e);
+          }
+        }
+      });
+      
+      // Update the single cacheData state with both components
+      setCacheData({
+        waves: waveData.waves,
+        historical: histData.historical
+      });
+      
+      console.log("Cache data loaded:", waveData.waves, histData.historical);
+    } catch (error) {
+      console.error('Error loading cache data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
-  // Handlers
+  // 2. NOW define functions that depend on loadCacheData
   const analyzeWaves = useCallback(async () => {
     setIsRefreshing(true);
     try {
@@ -89,8 +112,54 @@ const AdminDashboard = () => {
     } finally {
       setIsRefreshing(false);
     }
-  }, [getAnalysis]);
+  }, [getAnalysis, loadCacheData]);
 
+  // Function to preload historical data for top stocks
+  const preloadHistoricalData = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      // Select a small batch of stocks to preload
+      const stocks = topStockSymbols.slice(0, 10);
+      
+      toast.success(`Fetching historical data for ${stocks.length} stocks...`);
+      
+      // Use the method from context that was retrieved at the component level
+      await contextPreloadHistoricalData(stocks);
+      
+      // Refresh the cache display
+      loadCacheData();
+      toast.success('Historical data preloaded successfully');
+    } catch (error) {
+      console.error('Error preloading historical data:', error);
+      toast.error('Failed to preload historical data');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [contextPreloadHistoricalData, loadCacheData]);
+
+  // Calculate cache statistics using useMemo
+  const cacheStats = useMemo(() => ({
+    waveEntryCount: cacheData.waves ? Object.keys(cacheData.waves).length : 0,
+    histEntryCount: cacheData.historical ? Object.keys(cacheData.historical).length : 0,
+    totalSize: Math.round(
+      (
+        JSON.stringify(cacheData.waves || {}).length +
+        JSON.stringify(cacheData.historical || {}).length
+      ) / 1024
+    ),
+    oldestWave: cacheData.waves ? 
+      Object.entries(cacheData.waves).reduce((oldest, [key, data]) => {
+        return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
+      }, { key: '', timestamp: Date.now() }) : 
+      { key: '', timestamp: Date.now() },
+    oldestHistorical: cacheData.historical ? 
+      Object.entries(cacheData.historical).reduce((oldest, [key, data]) => {
+        return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
+      }, { key: '', timestamp: Date.now() }) :
+      { key: '', timestamp: Date.now() }
+  }), [cacheData]);
+
+  // Handlers
   // Title effect
   useEffect(() => {
     document.title = "EW Analyzer - Admin";
@@ -208,48 +277,6 @@ const AdminDashboard = () => {
   }, [analysisEvents]);
 
   // Make sure loadCacheData sets a default empty state
-  const loadCacheData = useCallback(() => {
-    setIsRefreshing(true);
-    try {
-      // Initialize with empty objects by default
-      const waveData = { waves: {} };
-      const histData = { historical: {} };
-      
-      // Scan localStorage for entries
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('wave_analysis_')) {
-          try {
-            const data = JSON.parse(localStorage.getItem(key) || '{}');
-            const symbol = key.replace('wave_analysis_', '').split('_')[0];
-            waveData.waves[symbol] = data;
-          } catch (e) {
-            console.error(`Error parsing cache data for ${key}:`, e);
-          }
-        } else if (key.startsWith('historical_data_')) {
-          try {
-            const data = JSON.parse(localStorage.getItem(key) || '{}');
-            const symbol = key.replace('historical_data_', '').split('_')[0];
-            histData.historical[symbol] = data;
-          } catch (e) {
-            console.error(`Error parsing cache data for ${key}:`, e);
-          }
-        }
-      });
-      
-      // Update the single cacheData state with both components
-      setCacheData({
-        waves: waveData.waves,
-        historical: histData.historical
-      });
-      
-      console.log("Cache data loaded:", waveData.waves, histData.historical);
-    } catch (error) {
-      console.error('Error loading cache data:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadCacheData();
   }, []);
@@ -441,6 +468,17 @@ const AdminDashboard = () => {
               >
                 <Activity className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
                 {isRefreshing ? 'Analyzing...' : 'Analyze Waves'}
+              </Button>
+              
+              <Button 
+                onClick={preloadHistoricalData}
+                variant="default"
+                size="sm"
+                className="w-full"
+                disabled={isRefreshing}
+              >
+                <Database className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? 'Loading...' : 'Preload Historical Data'}
               </Button>
               
               <Button 
