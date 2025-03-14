@@ -373,10 +373,101 @@ app.get('/api/stocks/historical/:symbol', async (req, res) => {
       return res.status(400).json({ error: 'Symbol is required' });
     }
     
-    // Generate historical data (use your existing generateMockHistoricalData function)
-    const data = generateMockHistoricalData(symbol, 500);
-    console.log(`Generated ${data.length} data points for ${symbol}`);
-    return res.json(data);
+    // Skip the mock data check and always try to get real data
+    // Calculate period1 (start) and period2 (end) based on timeframe
+    const now = new Date();
+    const period2 = now; // End date is always now
+    let period1: Date; // Start date varies based on timeframe
+    
+    // Calculate period1 based on timeframe - use longer periods for better analysis
+    switch (timeframe) {
+      case '1d':
+        // For 1d interval, get 2 years of data for wave analysis
+        period1 = new Date(now);
+        period1.setFullYear(now.getFullYear() - 2);
+        break;
+      case '1wk':
+        // For weekly interval, get 5 years of data
+        period1 = new Date(now);
+        period1.setFullYear(now.getFullYear() - 5);
+        break;
+      case '1mo':
+        // For monthly interval, get 10 years of data
+        period1 = new Date(now);
+        period1.setFullYear(now.getFullYear() - 10);
+        break;
+      default:
+        // Default to 2 years
+        period1 = new Date(now);
+        period1.setFullYear(now.getFullYear() - 2);
+    }
+    
+    const fetchHistoricalData = async () => {
+      console.log(`Requesting Yahoo Finance chart data for ${symbol} from ${period1.toISOString()} to ${period2.toISOString()}`);
+      
+      // Set interval based on timeframe
+      const interval = timeframe;
+      
+      // Use chart() method with the appropriate options
+      const chartOptions = {
+        period1,
+        period2,
+        interval
+      };
+      
+      console.log('Yahoo Finance chart options:', chartOptions);
+      
+      try {
+        const result = await yahooFinance.chart(symbol, chartOptions);
+        
+        if (!result || !result.quotes || !Array.isArray(result.quotes)) {
+          console.error('Invalid response from Yahoo Finance:', result);
+          throw new Error('Invalid response from Yahoo Finance chart API');
+        }
+        
+        console.log(`Yahoo returned ${result.quotes.length} data points`);
+        
+        // Transform into the expected format
+        const data = result.quotes
+          .filter(quote => quote.open !== null && quote.high !== null && 
+                          quote.close !== null && quote.low !== null)
+          .map(quote => ({
+            timestamp: Math.floor(new Date(quote.date).getTime() / 1000), // Convert to Unix timestamp (seconds)
+            open: quote.open ?? 0,
+            high: quote.high ?? 0,
+            close: quote.close ?? 0,
+            low: quote.low ?? 0,
+            volume: quote.volume ?? 0
+          }));
+        
+        console.log(`Transformed ${data.length} valid data points for ${symbol}`);
+        return data;
+      } catch (error) {
+        console.error('Error in Yahoo Finance chart request:', error);
+        throw error;
+      }
+    };
+    
+    // Get historical data with caching - longer cache for older timeframes
+    const cacheTTL = timeframe === '1d' ? 60 : (timeframe === '1wk' ? 240 : 1440); // 1hr, 4hrs, or 1 day
+    const cacheKey = `historical_${symbol}_${timeframe}`;
+    
+    try {
+      const data = await getCachedData(cacheKey, fetchHistoricalData, cacheTTL);
+      
+      console.log(`Returning ${data.length} real data points for ${symbol}`);
+      return res.json(data);
+      
+    } catch (yahooError) {
+      console.error('Failed to get data from Yahoo Finance:', yahooError);
+      
+      // Only fall back to mock data if real data fetch fails
+      console.log('Falling back to mock data due to Yahoo Finance API error');
+      const mockData = generateMockHistoricalData(symbol, 500);
+      console.log(`Generated ${mockData.length} mock data points as fallback`);
+      return res.json(mockData);
+    }
+    
   } catch (error) {
     console.error('Error in /api/stocks/historical:', error);
     res.status(500).json({ error: 'Server error', message: (error as Error).message });

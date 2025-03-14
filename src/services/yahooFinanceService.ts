@@ -180,7 +180,9 @@ function getFallbackStockData(): StockData[] {
 const API_STATUS = {
   checkedEndpoints: new Set<string>(),
   workingEndpoints: new Set<string>(),
-  lastCheck: 0
+  lastCheck: 0,
+  failedEndpoints: new Map<string, number>(), // Add this missing property
+  failureTimeout: 5 * 60 * 1000 // 5 minutes - Add this missing property
 };
 
 /**
@@ -190,36 +192,34 @@ async function smartFetch<T>(
   endpoint: string, 
   mockDataFn: () => T, 
   cacheKey?: string,
-  cacheDuration?: number
+  cacheDuration?: number,
+  forceReal: boolean = false // Add this parameter
 ): Promise<T> {
-  // Check if we've tried this endpoint before and it failed
-  const fullEndpoint = buildApiUrl(endpoint);
-  if (API_STATUS.checkedEndpoints.has(fullEndpoint) && 
-      !API_STATUS.workingEndpoints.has(fullEndpoint)) {
-    console.log(`Skipping known broken endpoint: ${endpoint}`);
-    return mockDataFn();
-  }
+  
+  // Use API_BASE_URL instead of BASE_API_URL
+  const fullEndpoint = API_BASE_URL + endpoint;
+  const cacheTimeoutKey = `timeout_${endpoint}`;
   
   try {
-    // Add a timeout to prevent hanging requests
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    const response = await fetch(fullEndpoint, { 
-      signal: controller.signal,
-      headers: { 'Accept': 'application/json' }
-    });
-    clearTimeout(timeoutId);
-    
-    // Mark this endpoint as checked
-    API_STATUS.checkedEndpoints.add(fullEndpoint);
-    
-    // Handle non-OK responses
-    if (!response.ok) {
-      // For 404, log specifically that the endpoint doesn't exist
-      if (response.status === 404) {
-        console.warn(`API endpoint not found: ${endpoint}`);
+    // Check if we should use real API or fallback to mock
+    if (!forceReal) {
+      // Check if this endpoint is known to be failing
+      const lastFailureTime = API_STATUS.failedEndpoints.get(fullEndpoint);
+      if (lastFailureTime && Date.now() - lastFailureTime < API_STATUS.failureTimeout) {
+        console.warn(`Using mock data for ${endpoint} due to recent failure`);
+        throw new Error('Using mock data due to recent failure');
       }
+    }
+    
+    // Make the API request
+    const response = await fetch(fullEndpoint, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    // Handle non-200 responses
+    if (!response.ok) {
       throw new Error(`API returned status ${response.status}: ${response.statusText}`);
     }
     
@@ -244,10 +244,18 @@ async function smartFetch<T>(
   } catch (error) {
     console.error(`Error fetching ${endpoint}:`, error);
     
+    // Don't fall back to mock data if forceReal is true
+    if (forceReal) {
+      throw error; // Re-throw to handler
+    }
+    
+    // Mark this endpoint as failed for the timeout period
+    API_STATUS.failedEndpoints.set(fullEndpoint, Date.now());
+    
     // Get mock data
     const mockData = mockDataFn();
     
-    // Save mock data to cache if needed
+    // Save mock data to cache if needed, but with shorter duration
     if (cacheKey && cacheDuration) {
       await saveToCache(cacheKey, mockData, cacheDuration / 2);
     }
@@ -371,7 +379,18 @@ function getFallbackHistoricalData(symbol: string): StockHistoricalData[] {
 }
 
 // Add this helper function to generate mock data
-function generateMockHistoricalData(symbol: string, days: number): SharedStockHistoricalData[] {
+function generateMockHistoricalData(symbol: string, timeframe: string | number): SharedStockHistoricalData[] {
+  let days: number;
+  
+  // Convert timeframe string to number of days
+  if (typeof timeframe === 'string') {
+    days = timeframe === '1d' ? 365 :
+           timeframe === '1wk' ? 52 :
+           timeframe === '1mo' ? 24 : 365;
+  } else {
+    days = timeframe;
+  }
+  
   const mockData: SharedStockHistoricalData[] = [];
   const today = new Date();
   let price = 100 + (symbol.charCodeAt(0) % 50); // Base price on first letter of symbol
@@ -609,4 +628,44 @@ function reduceHistoricalDataSize(data: StockHistoricalData[]): StockHistoricalD
   // Return combined data
   return [...sampledOlderData, ...recentData];
 }
+
+// Update your getHistoricalPrices function to support forcing real data
+
+export async function getHistoricalPrices(
+  symbol: string, 
+  timeframe: string = '1d',
+  forceRefresh: boolean = false,
+  forceReal: boolean = false // Add this parameter
+): Promise<StockHistoricalData[]> {
+  const cacheKey = `historical_prices_${symbol}_${timeframe}`;
+  
+  // Check cache first unless we're forcing refresh
+  if (!forceRefresh) {
+    const cachedData = await getFromCache<StockHistoricalData[]>(cacheKey);
+    if (cachedData) {
+      console.log(`Using cached historical data for ${symbol} (${timeframe})`);
+      return cachedData;
+    }
+  }
+  
+  try {
+    // Updated to use forceReal parameter
+    return await smartFetch<StockHistoricalData[]>(
+      `/v8/finance/chart/${symbol}?interval=${timeframe}&range=10y`,
+      () => generateMockHistoricalData(symbol, timeframe),
+      cacheKey,
+      CACHE_DURATIONS.historical,
+      forceReal // Pass through forceReal
+    );
+  } catch (error) {
+    console.error(`Failed to get historical data for ${symbol}:`, error);
+    throw error;
+  }
+}
+
+// Fix the CACHE_DURATIONS issue by defining it
+const CACHE_DURATIONS = {
+  historical: HISTORICAL_CACHE_DURATION,
+  stockInfo: CACHE_DURATION
+};
 

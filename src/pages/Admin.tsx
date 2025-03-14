@@ -28,6 +28,8 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { X } from 'lucide-react';
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 
 interface ActiveAnalysis {
   symbol: string;
@@ -36,11 +38,31 @@ interface ActiveAnalysis {
   status: 'running' | 'completed' | 'error';
 }
 
+// Add these interfaces at the top of your file
+interface HistoricalDataEntry {
+  data: any[];
+  timestamp: number;
+}
+
+interface WaveAnalysisEntry {
+  analysis: {
+    waves: any[];
+    [key: string]: any;
+  };
+  timestamp: number;
+}
+
 // Add this utility function at the top of your component or in a separate utils file
 const normalizeTimestamp = (timestamp: number): number => {
   // If timestamp is in seconds (before year 2001), convert to milliseconds
   return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
 };
+
+// Define a proper type for selectedData
+type SelectedDataType = 
+  | { type: 'waves'; key: string; data: WaveAnalysisEntry }
+  | { type: 'historical'; key: string; data: HistoricalDataEntry }
+  | null;
 
 const AdminDashboard = () => {
   // State and context hooks remain at the top
@@ -51,11 +73,11 @@ const AdminDashboard = () => {
     waves: {},
     historical: {}
   });
-  const [selectedData, setSelectedData] = useState<any>(null);
+  const [selectedData, setSelectedData] = useState<SelectedDataType>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
-  const [historicalData, setHistoricalData] = useState<Record<string, any>>({});
-  const [waveAnalyses, setWaveAnalyses] = useState<Record<string, any>>({});
+  const [historicalData, setHistoricalData] = useState<Record<string, HistoricalDataEntry>>({});
+  const [waveAnalyses, setWaveAnalyses] = useState<Record<string, WaveAnalysisEntry>>({});
   const [analysisProgress, setAnalysisProgress] = useState({
     total: 0,
     current: 0,
@@ -77,6 +99,13 @@ const AdminDashboard = () => {
 
   // Add this state at the top of your component
   const [modalOpen, setModalOpen] = useState(false);
+
+  // Add these state variables at the top of your AdminDashboard component
+  const [waveSearchQuery, setWaveSearchQuery] = useState('');
+  const [historicalSearchQuery, setHistoricalSearchQuery] = useState('');
+
+  // Add this state near your other state variables
+  const [currentApiCall, setCurrentApiCall] = useState<string | null>(null);
 
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
@@ -246,49 +275,121 @@ const loadCacheData = useCallback(async () => {
         // Process each stock in the batch concurrently
         await Promise.all(batch.map(async (symbol) => {
           try {
-            // Fetch historical data directly
-            const response = await fetch(`/api/stocks/historical/${symbol}?timeframe=1d`);
+            console.log(`Fetching historical data for ${symbol}...`);
+            
+            // ========= DEBUG: Add direct API call ==========
+            const proxyUrl = `/api/stocks/historical/${symbol}?timeframe=1d`;
+            console.log(`DEBUG: Directly calling API for ${symbol}: ${proxyUrl}`);
+            
+            // Update the currentApiCall state to show in UI
+            setCurrentApiCall(proxyUrl);
+            
+            const response = await fetch(proxyUrl);
             
             if (!response.ok) {
-              throw new Error(`API returned ${response.status}: ${response.statusText}`);
+              throw new Error(`API returned status ${response.status}`);
             }
             
-            const data = await response.json();
+            const apiData = await response.json();
+            console.log(`DEBUG: API returned ${apiData.length} points for ${symbol}`);
+            console.log(`DEBUG: First data point:`, apiData[0]);
+            console.log(`DEBUG: Last data point:`, apiData[apiData.length - 1]);
             
-            // Format the data to match our expected format
-            const historicalData = data.map(item => ({
-              timestamp: typeof item.timestamp === 'string' ? new Date(item.timestamp).getTime() : item.timestamp,
-              open: Number(item.open),
-              high: Number(item.high),
-              low: Number(item.low),
-              close: Number(item.close),
-              volume: Number(item.volume || 0)
-            }));
+            // ========= Use this API data directly ========== 
+            // Skip getHistoricalData and use API data directly
+            const historicalData = apiData;
+            
+            // Validate the data
+            if (!historicalData || historicalData.length < 50) {
+              console.warn(`Not enough data points for ${symbol}: ${historicalData?.length || 0}`);
+              throw new Error(`Insufficient data points for ${symbol}: ${historicalData?.length || 0}`);
+            }
+            
+            // Ensure proper timestamp format
+            const formattedData = historicalData.map(item => {
+              // Debug the timestamp before conversion
+              if (item.date) {
+                console.log(`DEBUG: Found 'date' property instead of timestamp:`, item.date);
+              }
+              
+              // Convert timestamps properly
+              let timestamp;
+              if (item.date) {
+                // Some APIs return date instead of timestamp
+                timestamp = new Date(item.date).getTime();
+              } else if (typeof item.timestamp === 'string') {
+                timestamp = new Date(item.timestamp).getTime();
+              } else if (typeof item.timestamp === 'number' && item.timestamp < 10000000000) {
+                timestamp = item.timestamp * 1000; // Convert seconds to milliseconds
+              } else {
+                timestamp = item.timestamp;
+              }
+              
+              return {
+                timestamp,
+                open: Number(item.open),
+                high: Number(item.high),
+                low: Number(item.low),
+                close: Number(item.close),
+                volume: Number(item.volume || 0),
+                // Include original data for debugging
+                original: {
+                  timestamp: item.timestamp,
+                  date: item.date
+                }
+              };
+            });
+            
+            // Verify the data was converted properly
+            console.log(`DEBUG: Formatted ${formattedData.length} data points for ${symbol}`);
+            console.log(`DEBUG: First formatted point:`, formattedData[0]);
+            console.log(`DEBUG: Last formatted point:`, formattedData[formattedData.length - 1]);
+            console.log(`DEBUG: Sample date string:`, new Date(formattedData[0].timestamp).toISOString());
             
             // Store directly to Supabase with a 7-day cache duration
             const cacheKey = `historical_data_${symbol}_1d`;
+            
+            // Store the data with a verified timestamp format
             await supabase
               .from('cache')
               .upsert({
                 key: cacheKey,
-                data: historicalData,
+                data: formattedData,
                 timestamp: Date.now(),
                 duration: 7 * 24 * 60 * 60 * 1000, // 7 days
                 is_string: false
               }, { onConflict: 'key' });
-              
+            
+            // Verify what's stored in Supabase
+            const { data: storedData } = await supabase
+              .from('cache')
+              .select('data')
+              .eq('key', cacheKey)
+              .single();
+            
+            console.log(`DEBUG: Stored data for ${symbol}:`, storedData?.data?.length || 0);
+            
             completed++;
             
             // Update progress
             setHistoryLoadProgress(prev => ({
               ...prev,
-              current: completed
+              current: completed + failed
             }));
             
-            console.log(`Stored ${symbol} data in Supabase (${historicalData.length} points)`);
+            console.log(`Stored ${symbol} data in Supabase (${formattedData.length} points)`);
           } catch (error) {
             console.error(`Failed to load data for ${symbol}:`, error);
             failed++;
+            
+            // Update progress for failures too
+            setHistoryLoadProgress(prev => ({
+              ...prev,
+              current: completed + failed
+            }));
+          } finally {
+            // Clear the current API call when done with this symbol
+            setCurrentApiCall(null);
           }
         }));
         
@@ -309,12 +410,13 @@ const loadCacheData = useCallback(async () => {
       console.error('Error preloading historical data:', error);
       toast.error('Failed to preload historical data');
     } finally {
-      // Reset progress
+      // Reset progress and clear current API call
       setHistoryLoadProgress({
         total: 0,
         current: 0,
         inProgress: false
       });
+      setCurrentApiCall(null);
       setIsRefreshing(false);
     }
   }, [loadCacheData, supabase]);
@@ -336,6 +438,31 @@ const loadCacheData = useCallback(async () => {
       return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
     }, { key: '', timestamp: Date.now() })
   }), [waveAnalyses, historicalData]);
+
+  // Add these filtered data memos after your cacheStats memo
+  const filteredWaveAnalyses = useMemo(() => {
+    if (!waveSearchQuery) return waveAnalyses;
+    
+    const lowerQuery = waveSearchQuery.toLowerCase();
+    return Object.entries(waveAnalyses)
+      .filter(([key]) => key.toLowerCase().includes(lowerQuery))
+      .reduce<Record<string, WaveAnalysisEntry>>((obj, [key, value]) => {
+        obj[key] = value;
+        return obj;
+      }, {});
+  }, [waveAnalyses, waveSearchQuery]);
+
+  const filteredHistoricalData = useMemo(() => {
+    if (!historicalSearchQuery) return historicalData;
+    
+    const lowerQuery = historicalSearchQuery.toLowerCase();
+    return Object.entries(historicalData)
+      .filter(([key]) => key.toLowerCase().includes(lowerQuery))
+      .reduce<Record<string, HistoricalDataEntry>>((obj, [key, value]) => {
+        obj[key] = value;
+        return obj;
+      }, {});
+  }, [historicalData, historicalSearchQuery]);
 
   // Handlers
   // Title effect
@@ -616,6 +743,25 @@ const loadCacheData = useCallback(async () => {
       try {
         setIsRefreshing(true);
         await clearCache(); // Use your existing clearCache function
+        
+        // Also delete all entries from Supabase to be thorough
+        const { error: waveError } = await supabase
+          .from('cache')
+          .delete()
+          .like('key', 'wave_analysis_%');
+          
+        const { error: histError } = await supabase
+          .from('cache')
+          .delete()
+          .like('key', 'historical_data_%');
+        
+        if (waveError || histError) {
+          console.error("Errors clearing Supabase:", waveError, histError);
+          throw new Error("Failed to clear some Supabase data");
+        }
+        
+        // Refresh the data
+        await loadCacheData();
         toast.success('All Supabase cache data has been cleared');
       } catch (error) {
         console.error('Error clearing Supabase data:', error);
@@ -626,52 +772,10 @@ const loadCacheData = useCallback(async () => {
     }
   };
 
-  // Add a function to refresh API status
-  const refreshApiStatus = useCallback(async () => {
-    try {
-      // Make a lightweight request to your API health endpoint
-      const response = await fetch('/api/health');
-      if (response.ok) {
-        setApiStatus('online');
-      } else {
-        setApiStatus('offline');
-      }
-    } catch (error) {
-      console.error('API status check failed:', error);
-      setApiStatus('offline');
-    }
-  }, []);
-
-  // Set up the refresh interval - refresh every 5 minutes
-  useEffect(() => {
-    // Initial check
-    refreshApiStatus();
-    
-    // Set up interval (5 minutes = 300000ms)
-    const intervalId = setInterval(refreshApiStatus, 300000);
-    
-    // Clean up on unmount
-    return () => clearInterval(intervalId);
-  }, [refreshApiStatus]);
-
-  // Add this wrapper function
-  const handleStatusChange = (status: 'online' | 'offline' | 'checking' | 'degraded') => {
-    // Map 'degraded' to 'offline' and pass through other statuses
-    if (status === 'degraded') {
-      setApiStatus('offline');
-    } else {
-      setApiStatus(status as 'online' | 'offline' | 'checking');
-    }
-  };
-
-  // Update your disabled state to include degraded status
-  const isButtonDisabled = isRefreshing || apiStatus === 'offline' || apiStatus === 'degraded';
-
   return (
-    <div className="container mx-auto p-4">
-      {/* Header section */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-2">
+    <div className="container mx-auto p-6">
+      <div className="flex justify-between items-center">
+        <div className="flex items-center">
           <Link to="/">
             <Button variant="ghost" size="icon" className="mr-2">
               <ArrowLeft className="h-5 w-5" />
@@ -777,14 +881,25 @@ const loadCacheData = useCallback(async () => {
             </TabsList>
             
             <TabsContent value="waves" className="border rounded-md p-4 min-h-[500px]">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-lg font-medium">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium flex-shrink-0">
                   Wave Analysis Data ({cacheStats.waveEntryCount})
                 </h3>
                 
+                {/* Add search box for wave analysis tab */}
+                <div className="relative flex-1 max-w-sm ml-4">
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    placeholder="Search by symbol..." 
+                    className="pl-8"
+                    value={waveSearchQuery}
+                    onChange={(e) => setWaveSearchQuery(e.target.value)}
+                  />
+                </div>
+                
                 {/* Add progress indicator next to title */}
                 {analysisProgress.inProgress && (
-                  <Badge variant="outline" className="flex items-center gap-1">
+                  <Badge variant="outline" className="flex items-center gap-1 ml-4 flex-shrink-0">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Processing {analysisProgress.current}/{analysisProgress.total}
                   </Badge>
@@ -810,13 +925,17 @@ const loadCacheData = useCallback(async () => {
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                     Updating wave analysis data...
                   </div>
-                ) : Object.keys(waveAnalyses || {}).length === 0 ? (
+                ) : Object.keys(filteredWaveAnalyses || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
-                    No wave analysis cache data found
+                    {Object.keys(waveAnalyses).length === 0 ? (
+                      "No wave analysis cache data found"
+                    ) : (
+                      `No results found for "${waveSearchQuery}"`
+                    )}
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {Object.entries(waveAnalyses || {}).map(([key, data]) => (
+                    {Object.entries(filteredWaveAnalyses || {}).map(([key, data]) => (
                       <Card key={key} className="cursor-pointer hover:bg-accent/5 transition-colors">
                         <CardContent className="p-3 flex items-center justify-between">
                           <div 
@@ -861,14 +980,25 @@ const loadCacheData = useCallback(async () => {
             </TabsContent>
             
             <TabsContent value="historical" className="border rounded-md p-4 min-h-[500px]">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-lg font-medium">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium flex-shrink-0">
                   Historical Price Data ({cacheStats.histEntryCount})
                 </h3>
                 
+                {/* Add search box for historical data tab */}
+                <div className="relative flex-1 max-w-sm ml-4">
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    placeholder="Search by symbol..." 
+                    className="pl-8"
+                    value={historicalSearchQuery}
+                    onChange={(e) => setHistoricalSearchQuery(e.target.value)}
+                  />
+                </div>
+                
                 {/* Add progress indicator next to title */}
                 {historyLoadProgress.inProgress && (
-                  <Badge variant="outline" className="flex items-center gap-1">
+                  <Badge variant="outline" className="flex items-center gap-1 ml-4 flex-shrink-0">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Loading {historyLoadProgress.current}/{historyLoadProgress.total}
                   </Badge>
@@ -887,15 +1017,28 @@ const loadCacheData = useCallback(async () => {
                   </p>
                 </div>
               )}
+
+              {/* Add API call display below the progress bar */}
+              {historyLoadProgress.inProgress && currentApiCall && (
+                <div className="mb-4 text-xs text-muted-foreground">
+                  <p>
+                    <span className="font-medium">Current API Call:</span> {currentApiCall}
+                  </p>
+                </div>
+              )}
               
               <ScrollArea className="h-[500px]">
-                {Object.keys(historicalData || {}).length === 0 ? (
+                {Object.keys(filteredHistoricalData || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
-                    No historical data cache found
+                    {Object.keys(historicalData).length === 0 ? (
+                      "No historical data cache found"
+                    ) : (
+                      `No results found for "${historicalSearchQuery}"`
+                    )}
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {Object.entries(historicalData || {}).map(([key, data]) => (
+                    {Object.entries(filteredHistoricalData || {}).map(([key, data]) => (
                       <Card key={key} className="cursor-pointer hover:bg-accent/5 transition-colors">
                         <CardContent className="p-3 flex items-center justify-between">
                           <div 
