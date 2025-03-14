@@ -1,12 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 
-// For development, we'll use direct values
-// In production, these should come from environment variables
-const supabaseUrl = 'https://fobbjcbpyvyxswrrngoh.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZvYmJqY2JweXZ5eHN3cnJuZ29oIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MDQxODYyMiwiZXhwIjoyMDU1OTk0NjIyfQ.3HrHnqCBBqn_FTXvPPp5fg4cHslq0LGyprNGlQdlM68';
+// Use environment variables for production
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fobbjcbpyvyxswrrngoh.supabase.co';
 
-// Create Supabase client
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Use anon key instead of service role key
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// For debugging
-console.log('Supabase client initialized with URL:', supabaseUrl);
+// Create client with anon key
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// For debugging in non-production environments
+if (import.meta.env.NODE_ENV !== 'production') {
+  console.log('Supabase client initialized with URL:', supabaseUrl);
+}

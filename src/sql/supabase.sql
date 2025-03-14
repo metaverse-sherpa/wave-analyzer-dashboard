@@ -57,3 +57,48 @@ BEGIN
   RETURN result;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Make sure RLS is enabled
+ALTER TABLE cache ENABLE ROW LEVEL SECURITY;
+
+-- Drop any existing policies
+DROP POLICY IF EXISTS "Allow authenticated operations" ON cache;
+DROP POLICY IF EXISTS "Allow anon operations" ON cache;
+
+-- Create policies that allow anonymous and authenticated users to access the cache table
+CREATE POLICY "Allow anon read" ON cache 
+  FOR SELECT USING (true);
+
+CREATE POLICY "Allow anon write" ON cache 
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Allow anon update" ON cache 
+  FOR UPDATE USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow anon delete" ON cache 
+  FOR DELETE USING (true);
+
+
+-- Add rate limiting to protect your Supabase project
+CREATE OR REPLACE FUNCTION rate_limit_cache_operations()
+RETURNS TRIGGER AS $$
+DECLARE
+  recent_ops INTEGER;
+BEGIN
+  -- Count operations from this IP in the last minute
+  SELECT COUNT(*) INTO recent_ops FROM cache_audit 
+  WHERE ip_address = current_setting('request.headers')::json->>'x-forwarded-for' 
+  AND operation_time > NOW() - INTERVAL '1 minute';
+  
+  -- If too many operations, block
+  IF recent_ops > 100 THEN
+    RAISE EXCEPTION 'Rate limit exceeded';
+  END IF;
+  
+  -- Log this operation
+  INSERT INTO cache_audit (operation, ip_address)
+  VALUES (TG_OP, current_setting('request.headers')::json->>'x-forwarded-for');
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;

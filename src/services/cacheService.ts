@@ -282,3 +282,58 @@ export async function testSupabaseConnection(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Test anonymous key access
+ */
+export async function testAnonKeyAccess(): Promise<boolean> {
+  try {
+    // Try a simple write operation to test RLS policies
+    const testKey = `test_${Date.now()}`;
+    
+    // Try to write
+    const { error: writeError } = await supabase
+      .from('cache')
+      .upsert({
+        key: testKey,
+        data: { test: true },
+        timestamp: Date.now(),
+        duration: 60000,
+        is_string: false
+      });
+    
+    if (writeError) {
+      console.error('Anon key write test failed:', writeError);
+      return false;
+    }
+    
+    // Try to read
+    const { data, error: readError } = await supabase
+      .from('cache')
+      .select('*')
+      .eq('key', testKey)
+      .single();
+    
+    if (readError) {
+      console.error('Anon key read test failed:', readError);
+      return false;
+    }
+    
+    // Try to delete
+    const { error: deleteError } = await supabase
+      .from('cache')
+      .delete()
+      .eq('key', testKey);
+    
+    if (deleteError) {
+      console.error('Anon key delete test failed:', deleteError);
+      return false;
+    }
+    
+    console.log('Anon key access test passed successfully');
+    return true;
+  } catch (error) {
+    console.error('Anon key test error:', error);
+    return false;
+  }
+}
