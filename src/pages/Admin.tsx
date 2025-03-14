@@ -957,14 +957,6 @@ const loadCacheData = useCallback(async () => {
                   </>
                 )}
               </DialogTitle>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setModalOpen(false)}
-                className="h-8 w-8 p-0"
-              >
-                <X className="h-4 w-4" />
-              </Button>
             </div>
             <DialogDescription>
               {selectedData && formatTime(selectedData.data.timestamp)}
