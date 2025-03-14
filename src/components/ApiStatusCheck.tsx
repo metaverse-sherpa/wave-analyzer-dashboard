@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { CircleCheck, CircleX, AlertTriangle, RefreshCw } from 'lucide-react';
+import { CircleCheck, CircleX, AlertTriangle, RefreshCw, Activity, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { checkBackendHealth } from '@/services/yahooFinanceService';
 import { toast } from '@/lib/toast';
 
-const ApiStatusCheck = () => {
+interface ApiStatusCheckProps {
+  onStatusChange?: (status: 'online' | 'offline' | 'checking' | 'degraded') => void;
+}
+
+const ApiStatusCheck: React.FC<ApiStatusCheckProps> = ({ onStatusChange }) => {
   // Define API status state
   const [status, setStatus] = useState<'checking' | 'online' | 'offline' | 'degraded'>('checking');
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
@@ -51,6 +55,13 @@ const ApiStatusCheck = () => {
     checkApiStatus();
   }, []);
 
+  // Notify parent component of status changes
+  useEffect(() => {
+    if (onStatusChange) {
+      onStatusChange(status);
+    }
+  }, [status, onStatusChange]);
+
   // Define rendering elements
   const statusIndicator = {
     checking: <RefreshCw className="h-4 w-4 animate-spin text-yellow-500" />,
@@ -79,6 +90,9 @@ const ApiStatusCheck = () => {
     checkApiStatus();
   };
 
+  // Compute a disabled state that combines your existing logic with API status
+  const isButtonDisabled = isRefreshing || status === 'offline';
+
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-center">
@@ -95,7 +109,7 @@ const ApiStatusCheck = () => {
           variant="outline" 
           size="sm" 
           onClick={handleRefresh}
-          disabled={isRefreshing}
+          disabled={isButtonDisabled}
         >
           <RefreshCw className={`h-3 w-3 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
           Refresh
@@ -141,6 +155,26 @@ const ApiStatusCheck = () => {
           </ul>
         </div>
       )}
+
+      {status === 'offline' && (
+        <div className="mt-4 p-3 bg-destructive/10 text-destructive rounded-md flex items-center">
+          <AlertTriangle className="h-4 w-4 mr-2" />
+          <span>API is currently offline. Actions are disabled until connection is restored.</span>
+        </div>
+      )}
+
+      {/* Example action button */}
+      <Button 
+        onClick={() => console.log('Analyze Waves')}
+        variant="default"
+        size="sm"
+        className="w-full"
+        disabled={isButtonDisabled}
+      >
+        <Activity className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+        {isRefreshing ? 'Analyzing...' : 'Analyze Waves'}
+        {status === 'offline' && <AlertCircle className="h-3 w-3 ml-2" />}
+      </Button>
     </div>
   );
 };

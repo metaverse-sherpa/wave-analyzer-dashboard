@@ -18,6 +18,16 @@ import { clearMemoCache } from '@/utils/elliottWaveAnalysis';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
 import { migrateFromLocalStorage } from '@/services/cacheService';
 import { supabase } from '@/lib/supabase';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { X } from 'lucide-react';
 
 interface ActiveAnalysis {
   symbol: string;
@@ -31,9 +41,6 @@ const normalizeTimestamp = (timestamp: number): number => {
   // If timestamp is in seconds (before year 2001), convert to milliseconds
   return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
 };
-
-
-
 
 const AdminDashboard = () => {
   // State and context hooks remain at the top
@@ -55,66 +62,83 @@ const AdminDashboard = () => {
     inProgress: false
   });
 
+  // Add this state variable with the other state variables
+  const [historyLoadProgress, setHistoryLoadProgress] = useState({
+    total: 0,
+    current: 0,
+    inProgress: false
+  });
+
+  // Add this state at the top with other state variables
+  const [apiStatus, setApiStatus] = useState<'online' | 'offline' | 'checking' | 'degraded'>('checking');
+
+  // Add this state to track the active tab
+  const [activeTab, setActiveTab] = useState<string>("historical");
+
+  // Add this state at the top of your component
+  const [modalOpen, setModalOpen] = useState(false);
+
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
-  const { getHistoricalData, preloadHistoricalData: contextPreloadHistoricalData } = useHistoricalData();
+  const { getHistoricalData } = useHistoricalData();
 
-  // 1. MOVE loadCacheData definition BEFORE any functions that depend on it
-  const loadCacheData = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      // Query all wave analysis entries
-      const { data: waveData, error: waveError } = await supabase
-        .from('cache')
-        .select('key, data, timestamp')
-        .like('key', 'wave_analysis_%');
-        
-      // Query all historical data entries  
-      const { data: histData, error: histError } = await supabase
-        .from('cache')
-        .select('key, data, timestamp')
-        .like('key', 'historical_data_%');
+  // Fix loadCacheData function - it's incomplete in your code
+const loadCacheData = useCallback(async () => {
+  setIsRefreshing(true);
+  try {
+    // Query all wave analysis entries from Supabase
+    const { data: waveData, error: waveError } = await supabase
+      .from('cache')
+      .select('key, data, timestamp')
+      .like('key', 'wave_analysis_%');
       
-      if (waveError) throw waveError;
-      if (histError) throw histError;
-      
-      // Process wave analysis data
-      const waveAnalyses = {};
-      if (waveData) {
-        for (const item of waveData) {
-          const key = item.key.replace('wave_analysis_', '');
-          waveAnalyses[key] = {
-            analysis: item.data,
-            timestamp: item.timestamp
-          };
-        }
+    // Query all historical data entries from Supabase  
+    const { data: histData, error: histError } = await supabase
+      .from('cache')
+      .select('key, data, timestamp')
+      .like('key', 'historical_data_%');
+    
+    if (waveError) throw waveError;
+    if (histError) throw histError;
+    
+    // Process wave analysis data
+    const waveAnalyses = {};
+    if (waveData) {
+      for (const item of waveData) {
+        const key = item.key.replace('wave_analysis_', '');
+        waveAnalyses[key] = {
+          analysis: item.data,
+          timestamp: item.timestamp
+        };
       }
-      
-      // Process historical data
-      const historicalData = {};
-      if (histData) {
-        for (const item of histData) {
-          const key = item.key.replace('historical_data_', '');
-          historicalData[key] = {
-            data: item.data,
-            timestamp: item.timestamp
-          };
-        }
-      }
-      
-      setWaveAnalyses(waveAnalyses);
-      setHistoricalData(historicalData);
-      
-    } catch (error) {
-      console.error('Error loading cache data from Supabase:', error);
-      toast.error('Failed to load data from Supabase');
-    } finally {
-      setIsRefreshing(false);
     }
-  }, [supabase]); // Add supabase as a dependency
+    
+    // Process historical data
+    const historicalData = {};
+    if (histData) {
+      for (const item of histData) {
+        const key = item.key.replace('historical_data_', '');
+        historicalData[key] = {
+          data: item.data,
+          timestamp: item.timestamp
+        };
+      }
+    }
+    
+    setWaveAnalyses(waveAnalyses);
+    setHistoricalData(historicalData);
+    
+  } catch (error) {
+    console.error('Error loading cache data from Supabase:', error);
+    toast.error('Failed to load data from Supabase');
+  } finally {
+    setIsRefreshing(false);
+  }
+}, [supabase]);
 
   // 2. NOW define functions that depend on loadCacheData
   const analyzeWaves = useCallback(async () => {
+    setActiveTab("waves");
     setIsRefreshing(true);
     try {
       // Get historical data directly from Supabase
@@ -195,12 +219,20 @@ const AdminDashboard = () => {
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
+    // Make the historical tab active
+    setActiveTab("historical");
+    
     setIsRefreshing(true);
     try {
       // Use all stocks from the topStockSymbols array
       const stocks = topStockSymbols;
       
-      toast.success(`Fetching historical data for ${stocks.length} stocks to Supabase...`);
+      // Initialize progress tracking
+      setHistoryLoadProgress({
+        total: stocks.length,
+        current: 0,
+        inProgress: true
+      });
       
       // Track progress for user feedback
       let completed = 0;
@@ -210,12 +242,6 @@ const AdminDashboard = () => {
       const batchSize = 5;
       for (let i = 0; i < stocks.length; i += batchSize) {
         const batch = stocks.slice(i, i + batchSize);
-        
-        // Show progress update every batch
-        toast.info(`Processing stocks ${i+1}-${Math.min(i+batchSize, stocks.length)} of ${stocks.length}...`, {
-          id: 'preload-progress',
-          duration: 2000
-        });
         
         // Process each stock in the batch concurrently
         await Promise.all(batch.map(async (symbol) => {
@@ -252,6 +278,13 @@ const AdminDashboard = () => {
               }, { onConflict: 'key' });
               
             completed++;
+            
+            // Update progress
+            setHistoryLoadProgress(prev => ({
+              ...prev,
+              current: completed
+            }));
+            
             console.log(`Stored ${symbol} data in Supabase (${historicalData.length} points)`);
           } catch (error) {
             console.error(`Failed to load data for ${symbol}:`, error);
@@ -274,8 +307,14 @@ const AdminDashboard = () => {
       }
     } catch (error) {
       console.error('Error preloading historical data:', error);
-      toast.error('Failed to preload historical data to Supabase');
+      toast.error('Failed to preload historical data');
     } finally {
+      // Reset progress
+      setHistoryLoadProgress({
+        total: 0,
+        current: 0,
+        inProgress: false
+      });
       setIsRefreshing(false);
     }
   }, [loadCacheData, supabase]);
@@ -339,6 +378,8 @@ const AdminDashboard = () => {
   // Clear wave analysis cache from Supabase
   const clearWaveCache = async () => {
     if (window.confirm('Are you sure you want to clear all wave analysis cache? This will also cancel any ongoing analyses.')) {
+      // Make the waves tab active after confirmation
+      setActiveTab("waves");
       setIsRefreshing(true);
       try {
         // Cancel any running analyses first
@@ -372,6 +413,8 @@ const AdminDashboard = () => {
   // Clear historical data cache from Supabase
   const clearHistoricalCache = async () => {
     if (window.confirm('Are you sure you want to clear all historical data cache?')) {
+      // Make the historical tab active after confirmation
+      setActiveTab("historical");
       setIsRefreshing(true);
       try {
         // Delete all historical data entries from Supabase
@@ -583,6 +626,47 @@ const AdminDashboard = () => {
     }
   };
 
+  // Add a function to refresh API status
+  const refreshApiStatus = useCallback(async () => {
+    try {
+      // Make a lightweight request to your API health endpoint
+      const response = await fetch('/api/health');
+      if (response.ok) {
+        setApiStatus('online');
+      } else {
+        setApiStatus('offline');
+      }
+    } catch (error) {
+      console.error('API status check failed:', error);
+      setApiStatus('offline');
+    }
+  }, []);
+
+  // Set up the refresh interval - refresh every 5 minutes
+  useEffect(() => {
+    // Initial check
+    refreshApiStatus();
+    
+    // Set up interval (5 minutes = 300000ms)
+    const intervalId = setInterval(refreshApiStatus, 300000);
+    
+    // Clean up on unmount
+    return () => clearInterval(intervalId);
+  }, [refreshApiStatus]);
+
+  // Add this wrapper function
+  const handleStatusChange = (status: 'online' | 'offline' | 'checking' | 'degraded') => {
+    // Map 'degraded' to 'offline' and pass through other statuses
+    if (status === 'degraded') {
+      setApiStatus('offline');
+    } else {
+      setApiStatus(status as 'online' | 'offline' | 'checking');
+    }
+  };
+
+  // Update your disabled state to include degraded status
+  const isButtonDisabled = isRefreshing || apiStatus === 'offline' || apiStatus === 'degraded';
+
   return (
     <div className="container mx-auto p-4">
       {/* Header section */}
@@ -614,40 +698,6 @@ const AdminDashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column */}
         <div className="col-span-1">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                Cache Statistics
-              </CardTitle>
-              <CardDescription>Overview of cached data</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span>Wave Analysis Entries:</span>
-                  <Badge variant="outline">{cacheStats.waveEntryCount}</Badge>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span>Historical Data Entries:</span>
-                  <Badge variant="outline">{cacheStats.histEntryCount}</Badge>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span>Total Cache Size:</span>
-                  <Badge variant="outline">{cacheStats.totalSize} KB</Badge>
-                </div>
-                
-                <div className="pt-2 border-t">
-                  <p className="text-sm text-muted-foreground mb-2">Cache Utilization</p>
-                  <Progress value={Math.min(cacheStats.totalSize / 50, 100)} className="h-2" />
-                  <p className="text-xs text-muted-foreground mt-1 text-right">
-                    {cacheStats.totalSize} KB of ~5000 KB recommended max
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
           <Card className="mt-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -657,6 +707,33 @@ const AdminDashboard = () => {
               <CardDescription>Clear and maintain cached data</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
+              {/* Historical Data section */}
+              <Button 
+                onClick={preloadHistoricalData}
+                variant="default"
+                size="sm"
+                className="w-full"
+                disabled={isRefreshing}
+              >
+                <Database className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? 'Loading...' : 'Load Historical Data'}
+              </Button>
+              
+              <Button 
+                onClick={clearHistoricalCache}
+                variant="destructive"
+                size="sm"
+                className="w-full"
+                disabled={isRefreshing || cacheStats.histEntryCount === 0}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clear Historical Data
+              </Button>
+              
+              {/* Separator for visual grouping */}
+              <div className="border-t my-1"></div>
+              
+              {/* Wave Analysis section */}
               <Button 
                 onClick={analyzeWaves}
                 variant="default"
@@ -669,17 +746,6 @@ const AdminDashboard = () => {
               </Button>
               
               <Button 
-                onClick={preloadHistoricalData}
-                variant="default"
-                size="sm"
-                className="w-full"
-                disabled={isRefreshing}
-              >
-                <Database className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Loading...' : 'Load Historical Data to Supabase'}
-              </Button>
-              
-              <Button 
                 onClick={clearWaveCache}
                 variant="destructive"
                 size="sm"
@@ -687,68 +753,34 @@ const AdminDashboard = () => {
                 disabled={isRefreshing}
               >
                 <Trash2 className="h-4 w-4 mr-2" />
-                Clear Wave Analysis Cache
+                Clear Wave Analysis
               </Button>
               
-              <Button 
-                onClick={clearHistoricalCache}
-                variant="destructive"
-                size="sm"
-                className="w-full"
-                disabled={isRefreshing || cacheStats.histEntryCount === 0}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Clear Historical Data Cache
-              </Button>
-
-              <Button 
-                onClick={clearAllSupabase}
-                variant="destructive"
-                size="sm"
-                className="w-full"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Purge All Supabase Cache
-              </Button>
-              
-              <div className="pt-3 mt-3 border-t text-sm text-muted-foreground">
-                {/* Existing cache statistics remain the same */}
-              </div>
             </CardContent>
           </Card>
 
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                API Status
-              </CardTitle>
-              <CardDescription>Backend service health monitoring</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ApiStatusCheck />
-            </CardContent>
-          </Card>
+
         </div>
         
         {/* Right column - Tabs */}
         <div className="col-span-1 lg:col-span-2">
-          <Tabs defaultValue="waves">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
-              <TabsTrigger value="waves">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Wave Analysis Cache
-              </TabsTrigger>
               <TabsTrigger value="historical">
                 <Clock className="h-4 w-4 mr-2" />
                 Historical Data Cache
               </TabsTrigger>
-              <TabsTrigger value="details">Data Inspector</TabsTrigger>
+              <TabsTrigger value="waves">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Wave Analysis Cache
+              </TabsTrigger>
             </TabsList>
             
             <TabsContent value="waves" className="border rounded-md p-4 min-h-[500px]">
               <div className="flex justify-between items-center mb-2">
-                <h3 className="text-lg font-medium">Wave Analysis Data</h3>
+                <h3 className="text-lg font-medium">
+                  Wave Analysis Data ({cacheStats.waveEntryCount})
+                </h3>
                 
                 {/* Add progress indicator next to title */}
                 {analysisProgress.inProgress && (
@@ -789,7 +821,10 @@ const AdminDashboard = () => {
                         <CardContent className="p-3 flex items-center justify-between">
                           <div 
                             className="flex-1"
-                            onClick={() => setSelectedData({ type: 'waves', key, data })}
+                            onClick={() => {
+                              setSelectedData({ type: 'waves', key, data });
+                              setModalOpen(true); // Open the modal
+                            }}
                           >
                             <div className="flex justify-between">
                               <span className="font-medium">{key}</span>
@@ -826,7 +861,33 @@ const AdminDashboard = () => {
             </TabsContent>
             
             <TabsContent value="historical" className="border rounded-md p-4 min-h-[500px]">
-              <h3 className="text-lg font-medium mb-2">Historical Price Data</h3>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-lg font-medium">
+                  Historical Price Data ({cacheStats.histEntryCount})
+                </h3>
+                
+                {/* Add progress indicator next to title */}
+                {historyLoadProgress.inProgress && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading {historyLoadProgress.current}/{historyLoadProgress.total}
+                  </Badge>
+                )}
+              </div>
+              
+              {/* Add progress bar under the title */}
+              {historyLoadProgress.inProgress && (
+                <div className="mb-4 space-y-1">
+                  <Progress
+                    value={(historyLoadProgress.current / historyLoadProgress.total) * 100}
+                    className="h-2"
+                  />
+                  <p className="text-xs text-muted-foreground text-right">
+                    {Math.round((historyLoadProgress.current / historyLoadProgress.total) * 100)}% complete
+                  </p>
+                </div>
+              )}
+              
               <ScrollArea className="h-[500px]">
                 {Object.keys(historicalData || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
@@ -839,7 +900,10 @@ const AdminDashboard = () => {
                         <CardContent className="p-3 flex items-center justify-between">
                           <div 
                             className="flex-1"
-                            onClick={() => setSelectedData({ type: 'historical', key, data })}
+                            onClick={() => {
+                              setSelectedData({ type: 'historical', key, data });
+                              setModalOpen(true); // Open the modal
+                            }}
                           >
                             <div className="flex justify-between">
                               <span className="font-medium">{key}</span>
@@ -874,123 +938,46 @@ const AdminDashboard = () => {
                 )}
               </ScrollArea>
             </TabsContent>
-            
-            <TabsContent value="details" className="border rounded-md p-4 min-h-[500px]">
-              <h3 className="text-lg font-medium mb-2">Data Inspector</h3>
-              {selectedData ? (
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-medium flex items-center gap-2">
-                      <Badge variant={selectedData.type === 'waves' ? 'default' : 'secondary'}>
-                        {selectedData.type === 'waves' ? 'Wave Analysis' : 'Historical Data'}
-                      </Badge>
-                      {selectedData.key}
-                    </h4>
-                    <span className="text-xs text-muted-foreground">
-                      {formatTime(selectedData.data.timestamp)}
-                    </span>
-                  </div>
-                  <ScrollArea className="h-[450px] border rounded-md p-2 font-mono text-xs">
-                    <pre className="whitespace-pre-wrap">{formatJson(selectedData.data)}</pre>
-                  </ScrollArea>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-[450px] text-muted-foreground">
-                  Select an item from Wave Analysis or Historical Data to inspect
-                </div>
-              )}
-            </TabsContent>
           </Tabs>
         </div>
       </div>
       
-      {/* Active Analyses - Now placed at the bottom */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5 animate-pulse" />
-            Active Analyses
-          </CardTitle>
-          <CardDescription>Real-time wave detection monitoring</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {Object.keys(activeAnalyses).length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-4">
-              No active wave analyses
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Object.entries(activeAnalyses).map(([symbol, analysis]) => (
-                <div key={symbol} className="border rounded-lg p-3">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-medium">{symbol}</span>
-                    <Badge variant="outline" className={
-                      analysis.status === 'running' ? 'bg-blue-50 text-blue-700' :
-                      analysis.status === 'completed' ? 'bg-green-50 text-green-700' :
-                      'bg-red-50 text-red-700'
-                    }>
-                      {analysis.status}
+      {/* Add this data inspection modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh]">
+          <DialogHeader>
+            <div className="flex justify-between items-center">
+              <DialogTitle className="flex items-center gap-2">
+                {selectedData && (
+                  <>
+                    <Badge variant={selectedData.type === 'waves' ? 'default' : 'secondary'}>
+                      {selectedData.type === 'waves' ? 'Wave Analysis' : 'Historical Data'}
                     </Badge>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">
-                      Started: {new Date(analysis.startTime).toLocaleTimeString()}
-                    </div>
-                    
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {analysis.waves.map((wave, index) => {
-                        // Determine the appropriate styling based on wave number and type
-                        const getWaveStyle = (wave: Wave) => {
-                          // For numeric waves (1-5)
-                          if (typeof wave.number === 'number') {
-                            // Impulse waves (1, 3, 5)
-                            if (wave.number % 2 === 1) {
-                              return 'bg-green-50 text-green-700 border-green-200';
-                            } 
-                            // Corrective waves (2, 4)
-                            else {
-                              return 'bg-red-50 text-red-700 border-red-200';
-                            }
-                          } 
-                          // For letter waves (A, B, C)
-                          else {
-                            // A and C are corrective
-                            if (wave.number === 'A' || wave.number === 'C') {
-                              return 'bg-red-50 text-red-700 border-red-200';
-                            }
-                            // B is impulse-like
-                            else if (wave.number === 'B') {
-                              return 'bg-green-50 text-green-700 border-green-200';
-                            }
-                            // Default
-                            return '';
-                          }
-                        };
-                        
-                        return (
-                          <Badge 
-                            key={index} 
-                            variant="outline" 
-                            className={`text-xs ${getWaveStyle(wave)}`}
-                          >
-                            Wave {wave.number}
-                          </Badge>
-                        );
-                      })}
-                      
-                      {/* If analysis is complete but no waves detected, show a message */}
-                      {analysis.status === 'completed' && analysis.waves.length === 0 && (
-                        <span className="text-xs text-muted-foreground">No waves detected</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                    {selectedData.key}
+                  </>
+                )}
+              </DialogTitle>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setModalOpen(false)}
+                className="h-8 w-8 p-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
+            <DialogDescription>
+              {selectedData && formatTime(selectedData.data.timestamp)}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedData && (
+            <ScrollArea className="h-[60vh] border rounded-md p-2 font-mono text-xs">
+              <pre className="whitespace-pre-wrap">{formatJson(selectedData.data)}</pre>
+            </ScrollArea>
           )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
