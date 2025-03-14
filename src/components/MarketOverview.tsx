@@ -5,6 +5,22 @@ import { ArrowUpRight, ArrowDownRight, ExternalLink, ChevronDown, ChevronUp } fr
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
+// Move the helper function to the top of the file, outside of the component
+const getTimestampValue = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  
+  if (typeof timestamp === 'number') {
+    return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+  }
+  if (timestamp instanceof Date) {
+    return timestamp.getTime();
+  }
+  if (typeof timestamp === 'string') {
+    return new Date(timestamp).getTime();
+  }
+  return 0;
+};
+
 const MarketOverview: React.FC = () => {
   const navigate = useNavigate();
   const { analyses } = useWaveAnalysis();
@@ -77,8 +93,8 @@ const MarketOverview: React.FC = () => {
     console.log("Categorizing stocks from analyses:", Object.keys(analyses).length);
     
     const categorized = {
-      bullish: [] as {symbol: string, wave: string | number}[],
-      bearish: [] as {symbol: string, wave: string | number}[]
+      bullish: [] as {symbol: string, wave: string | number, startTimestamp?: number}[],
+      bearish: [] as {symbol: string, wave: string | number, startTimestamp?: number}[]
     };
     
     // Process each analysis - with improved defensive checking
@@ -116,9 +132,6 @@ const MarketOverview: React.FC = () => {
             return;
           }
         }
-        
-        // Log the structure of the currentWave to understand what we're dealing with
-        //console.log("CurrentWave structure for", key, ":", currentWave);
 
         // Only include daily timeframe analyses
         if (!key.includes('_1d')) {
@@ -127,43 +140,49 @@ const MarketOverview: React.FC = () => {
         
         const symbol = key.split('_')[0];
         
-        // Try several approaches to find the wave number
+        // Extract wave number
         let currentWaveNumber;
-        // First try: direct number property
         if (currentWave.number !== undefined) {
           currentWaveNumber = currentWave.number;
-        } 
-        // Second try: safely check for other potential property names without assuming specific types
-        else if (currentWave && typeof currentWave === 'object') {
-          // Use type assertions to avoid TypeScript errors while still checking for properties
+        } else if (currentWave && typeof currentWave === 'object') {
           currentWaveNumber = 
-            // Try various property names that might contain wave information
             (currentWave as any).waveType !== undefined ? (currentWave as any).waveType :
             (currentWave as any).type !== undefined ? (currentWave as any).type :
             (currentWave as any).wave_type !== undefined ? (currentWave as any).wave_type :
             undefined;
         }
-        // Third try: if wave has a type property (already covered above)
         
         if (currentWaveNumber === undefined || currentWaveNumber === null) {
           console.warn("Skipping", symbol, ": Invalid wave number:", currentWaveNumber);
           return;
         }
         
-        // Rest of your categorization logic remains the same
+        // Extract startTimestamp - important for sorting
+        const startTimestamp = getTimestampValue(
+          // Try all possible timestamp properties in priority order
+          (currentWave as any).startTimestamp || 
+          (currentWave as any).start_timestamp || 
+          (currentWave as any).startTime || 
+          (currentWave as any).start_time || 
+          (currentWave as any).timestamp || 
+          (currentWave as any).time || 
+          0  // Default fallback
+        );
+        
+        // Categorize based on wave number
         if (typeof currentWaveNumber === 'number') {
           // Number waves: 1,3,5 are bullish; 2,4 are bearish
           if (currentWaveNumber % 2 === 1) {
-            categorized.bullish.push({ symbol, wave: currentWaveNumber });
+            categorized.bullish.push({ symbol, wave: currentWaveNumber, startTimestamp });
           } else {
-            categorized.bearish.push({ symbol, wave: currentWaveNumber });
+            categorized.bearish.push({ symbol, wave: currentWaveNumber, startTimestamp });
           }
         } else if (typeof currentWaveNumber === 'string') {
           // Letter waves: B is bullish; A,C are bearish
           if (currentWaveNumber === 'B') {
-            categorized.bullish.push({ symbol, wave: currentWaveNumber });
+            categorized.bullish.push({ symbol, wave: currentWaveNumber, startTimestamp });
           } else if (currentWaveNumber === 'A' || currentWaveNumber === 'C') {
-            categorized.bearish.push({ symbol, wave: currentWaveNumber });
+            categorized.bearish.push({ symbol, wave: currentWaveNumber, startTimestamp });
           }
         }
       } catch (error) {
@@ -171,10 +190,14 @@ const MarketOverview: React.FC = () => {
       }
     });
     
+    // Sort both arrays by startTimestamp descending (most recent first)
+    categorized.bullish.sort((a, b) => (b.startTimestamp || 0) - (a.startTimestamp || 0));
+    categorized.bearish.sort((a, b) => (b.startTimestamp || 0) - (a.startTimestamp || 0));
+    
     console.log("Categorization complete - Bullish:", categorized.bullish.length, ", Bearish:", categorized.bearish.length);
     return categorized;
   }, [analyses]);
-  
+
   // Generate market sentiment based on categorized stocks
   const marketSentiment = React.useMemo(() => {
     const bullishCount = categorizedStocks.bullish.length;

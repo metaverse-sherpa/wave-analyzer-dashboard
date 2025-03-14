@@ -68,62 +68,75 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const { getHistoricalData } = useHistoricalData();
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
   
-  const loadData = async () => {
-    if (!symbol) return;
-    
-    try {
-      setLoading(true);
+  // Move this outside of useEffect - this is the key fix
+  const dataLoadedRef = useRef(false);
+
+  useEffect(() => {
+    // Now we use the ref that's defined at component level
+    // instead of creating it inside the effect
+    const loadData = async () => {
+      if (!symbol || dataLoadedRef.current) return;
+      dataLoadedRef.current = true;
       
-      // Get stock info directly by symbol instead of filtering top stocks
       try {
-        const stockData = await fetch(`/api/stocks/${symbol}`).then(r => r.json());
+        setLoading(true);
+        console.log(`Loading data for ${symbol}...`);
         
-        if (stockData) {
-          setStockData(stockData);
-        } else {
-          // Try to get from top stocks as fallback
-          const stocks = await fetchTopStocks();
-          const stock = stocks.find(s => s.symbol === symbol);
+        // Get stock info directly by symbol instead of filtering top stocks
+        try {
+          const stockData = await fetch(`/api/stocks/${symbol}`).then(r => r.json());
           
-          if (stock) {
-            setStockData(stock);
+          if (stockData) {
+            setStockData(stockData);
           } else {
             toast.error(`Stock ${symbol} not found`);
             navigate('/');
             return;
           }
+        } catch (err) {
+          console.log("Error fetching stock details:", err);
+          // Continue with historical data anyway
         }
-      } catch (err) {
-        console.log("Error fetching stock details:", err);
-        // Proceed with historical data anyway - we might have cached data
-      }
-      
-      // Load historical data and wave analysis
-      const historicalData = await getHistoricalData(symbol, '1d');
-      const waveAnalysis = await getAnalysis(symbol, historicalData);
-      
-      if (historicalData && historicalData.length > 0) {
+        
+        // Load historical data with force refresh to ensure we get the right data
+        console.log(`Fetching historical data for ${symbol}`);
+        const historicalData = await getHistoricalData(symbol, '1d', true);
+        
+        if (!historicalData || historicalData.length === 0) {
+          toast.error(`No historical data found for ${symbol}`);
+          setLoading(false);
+          return;
+        }
+        
+        console.log(`Successfully loaded ${historicalData.length} historical data points for ${symbol}`);
         setHistoricalData(historicalData);
         
+        // Get wave analysis with the fresh data
+        console.log(`Analyzing waves for ${symbol}`);
+        const waveAnalysis = await getAnalysis(symbol, historicalData);
+        
         if (waveAnalysis) {
+          console.log(`Analysis complete for ${symbol}: Found ${waveAnalysis.waves.length} waves`);
           setAnalysis(waveAnalysis);
+        } else {
+          console.warn(`No wave analysis returned for ${symbol}`);
+          toast.error(`Could not analyze waves for ${symbol}`);
         }
-      } else {
-        toast.error(`No historical data found for ${symbol}`);
+      } catch (error) {
+        console.error(`Error loading data for ${symbol}:`, error);
+        toast.error(`Failed to load data for ${symbol}`);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      // Add this missing catch block
-      console.error("Failed to load complete stock data:", error);
-      toast.error(`Unable to load complete data for ${symbol}`);
-    } finally {
-      // Add this missing finally block
-      setLoading(false);
-    }
-  };
-  
-  useEffect(() => {
+    };
+    
     loadData();
-  }, [symbol, navigate, getAnalysis, getHistoricalData]);
+    
+    // Cleanup function for when component unmounts or symbol changes
+    return () => {
+      dataLoadedRef.current = false;
+    };
+  }, [symbol]); // Only depend on symbol to prevent infinite loops
   
   const handleBackClick = () => {
     navigate('/');

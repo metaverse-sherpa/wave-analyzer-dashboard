@@ -37,44 +37,54 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
     const checkApiAndInitialize = async () => {
       try {
         // Set a flag to indicate we're in initialization mode
-        console.log("Starting data initialization...");
+        initializationInProgress.current = true;
         
-        // Check if API is available 
-        console.log("Checking API health...");
+        // Only log initialization start in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log("Starting data initialization...");
+        }
+        
+        // Check if API is available - no logging here
         const apiStatus = await checkBackendHealth();
         
         // Always allow initialization to continue, with or without API
         const usingFallback = isUsingFallbackMode() || apiStatus.status === 'error';
         
         if (usingFallback) {
+          // Only log when there's an actual issue
           console.log('API unavailable - switching to fallback mode');
           toast.warning(
             "Limited API Access: Using cached/generated data - some features may be limited",
             { duration: 5000 }
           );
-        } else {
-          console.log('API is available, using live data');
         }
+        // Removed the "API is available" log
     
         // Get list of symbols to load - use a smaller list if in fallback mode
         const MAX_SYMBOLS = usingFallback ? 5 : MAX_STOCKS_TO_INITIALIZE;
         const symbols = initialStocksList.slice(0, MAX_SYMBOLS);
-        console.log(`Initializing data for ${symbols.length} symbols`);
+        
+        // Only log in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Initializing data for ${symbols.length} symbols`);
+        }
     
         // Track success/failure for logging
         let successCount = 0;
         let failureCount = 0;
         
-        // If in fallback mode, we'll mainly use cached/generated data
-        // But we still try to fetch some data to see if API comes back online
-        
         // First, preload all historical data with longer time period
-        console.log("Preloading historical data...");
+        // Only log in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log("Preloading historical data...");
+        }
+        
         for (const symbol of symbols) {
           try {
             // Try to get historical data, but don't block on errors
             await getHistoricalData(symbol, '1d', true)
               .catch(err => {
+                // Only log failures, not successes
                 console.log(`Using generated data for ${symbol} (API unavailable)`);
                 return []; // Continue with empty array on failure
               });
@@ -89,10 +99,17 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
           await new Promise(resolve => setTimeout(resolve, 100));
         }
     
-        console.log(`Historical data preload complete. Success: ${successCount}, Failures: ${failureCount}`);
+        // Only log summary in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Historical data preload complete. Success: ${successCount}, Failures: ${failureCount}`);
+        }
         
         // Now attempt wave analysis with improved error handling
-        console.log("Starting wave analysis...");
+        // Only log in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log("Starting wave analysis...");
+        }
+        
         let analysisSuccessCount = 0;
         
         // Process a smaller batch of symbols for wave analysis
@@ -107,11 +124,16 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
             if (data && data.length >= 50) {
               await getAnalysis(symbol, data);
               analysisSuccessCount++;
-              console.log(`Analysis complete for ${symbol}`);
+              // Only log in development mode
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`Analysis complete for ${symbol}`);
+              }
             } else {
+              // Log this as it's an actual issue
               console.log(`Skipping analysis for ${symbol} - insufficient data (${data?.length || 0} points)`);
             }
           } catch (err) {
+            // Log errors as they're important
             console.log(`Error analyzing ${symbol}:`, err instanceof Error ? err.message : String(err));
           }
           
@@ -119,13 +141,17 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
           await new Promise(resolve => setTimeout(resolve, 200));
         }
     
-        console.log(`Wave analysis initialization complete. Analyzed ${analysisSuccessCount} of ${analysisSymbols.length} symbols`);
+        // Only log summary in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Wave analysis initialization complete. Analyzed ${analysisSuccessCount} of ${analysisSymbols.length} symbols`);
+        }
         
         // Always mark as initialized, even if some steps failed
         setInitialized(true);
         onDataLoaded();
         
       } catch (error) {
+        // Always log errors
         console.error('Data initialization error:', error);
         
         // Don't block the app, just notify the user there was an issue
@@ -137,6 +163,8 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
         // Still mark as initialized so the app can proceed
         setInitialized(true);
         onDataLoaded();
+      } finally {
+        initializationInProgress.current = false;
       }
     };
     

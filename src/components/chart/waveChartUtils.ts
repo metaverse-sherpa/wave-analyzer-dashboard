@@ -46,43 +46,54 @@ export const getTimestampValue = (timestamp: any): number => {
   return 0;
 };
 
-// Update the prepareWaveLines function
-export const prepareWaveLines = (waves: Wave[], chartData: StockHistoricalData[]): WaveLine[] => {
-  if (!waves || !chartData || waves.length === 0 || chartData.length === 0) {
+// Update the prepareWaveLines function to handle your data structure correctly
+export const prepareWaveLines = (waves: any[], priceData: any[]): any[] => {
+  if (!waves || waves.length === 0 || !priceData || priceData.length === 0) {
     return [];
   }
-
-  return waves.map((wave): WaveLine => {
-    // Don't use instanceof, cast to ensure correct type
-    const startTimestamp = typeof wave.startTimestamp === 'object' 
-      ? getTimestampValue(wave.startTimestamp)
-      : wave.startTimestamp;
+  
+  // Make sure all price data has millisecond timestamps
+  const normalizedPriceData = priceData.map(point => ({
+    ...point,
+    timestamp: getTimestampValue(point.timestamp)
+  }));
+  
+  return waves.map(wave => {
+    try {
+      // IMPORTANT: Convert timestamps to milliseconds
+      const startTime = getTimestampValue(wave.startTimestamp);
+      const endTime = getTimestampValue(wave.endTimestamp);
+      const startPrice = Number(wave.startPrice);
+      const endPrice = Number(wave.endPrice);
       
-    const endTimestamp = wave.endTimestamp
-      ? (typeof wave.endTimestamp === 'object' ? getTimestampValue(wave.endTimestamp) : wave.endTimestamp)
-      : Date.now();
-
-    // Ensure waveNumber is always present
-    const data: ChartPoint[] = [
-      {
-        timestamp: startTimestamp,
-        value: wave.startPrice,
-        waveNumber: wave.number
-      },
-      {
-        timestamp: endTimestamp,
-        value: wave.endPrice || wave.startPrice,
-        waveNumber: wave.number
-      }
-    ];
-
-    return {
-      id: `wave-${wave.number}-${startTimestamp}`,
-      wave,
-      data,
-      color: WAVE_COLORS[wave.number] || '#FFFFFF'
-    };
-  });
+      // Filter price points within this wave's time range
+      const wavePoints = normalizedPriceData
+        .filter(d => d.timestamp >= startTime && d.timestamp <= endTime)
+        .map(d => ({
+          timestamp: d.timestamp, // Already in milliseconds
+          value: Number(d.close)
+        }));
+      
+      // Return properly structured wave data
+      return {
+        id: wave.id || `wave-${wave.number}-${startTime}`,
+        wave: {
+          ...wave,
+          startTimestamp: startTime,  // Store as milliseconds
+          endTimestamp: endTime       // Store as milliseconds
+        },
+        color: getWaveColor(wave.number),
+        // If we have price points, use them; otherwise create a line
+        data: wavePoints.length >= 2 ? wavePoints : [
+          { timestamp: startTime, value: startPrice },
+          { timestamp: endTime, value: endPrice }
+        ]
+      };
+    } catch (error) {
+      console.error("Error creating wave line:", error);
+      return null;
+    }
+  }).filter(Boolean);
 };
 
 // Update the findClosestDataPoint function to use getTimestampValue

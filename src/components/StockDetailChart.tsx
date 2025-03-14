@@ -24,17 +24,46 @@ import WaveLegend from './chart/WaveLegend';
 import { getWaveColor, prepareWaveLines, getWavePatternDescription } from './chart/waveChartUtils';
 import WaveSequencePagination from './WaveSequencePagination'; // Add this import
 
-// Add this helper function at the top of your file after imports
+// Update the getTimestampValue function at the top of your file to be more robust
 const getTimestampValue = (timestamp: any): number => {
+  if (timestamp === null || timestamp === undefined) return 0;
+  
+  // If it's already a number
   if (typeof timestamp === 'number') {
-    return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+    // If it looks like seconds (Unix timestamp),
+    // ALWAYS convert to milliseconds
+    if (timestamp < 10000000000) {
+      return timestamp * 1000; 
+    }
+    // Otherwise assume it's already in milliseconds
+    return timestamp;
   }
+  
+  // If it's a Date object
   if (timestamp instanceof Date) {
     return timestamp.getTime();
   }
+  
+  // If it's a string, parse it
   if (typeof timestamp === 'string') {
-    return new Date(timestamp).getTime();
+    // Try parsing as ISO date
+    const parsedDate = new Date(timestamp);
+    if (!isNaN(parsedDate.getTime())) {
+      return parsedDate.getTime();
+    }
+    
+    // Try parsing as number
+    const numericValue = parseFloat(timestamp);
+    if (!isNaN(numericValue)) {
+      // If it looks like seconds (Unix timestamp)
+      if (numericValue < 10000000000) {
+        return numericValue * 1000;
+      }
+      return numericValue;
+    }
   }
+  
+  console.warn("Invalid timestamp format:", timestamp);
   return 0;
 };
 
@@ -106,19 +135,118 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     return data;
   }, [data]);
 
-  // Format the filtered data for the chart
-  const processedChartData = useMemo(() => {
-    return data.map(d => ({
-      ...d,
-      // Handle timestamp conversion properly
-      timestamp: getTimestampValue(d.timestamp),
-      close: d.close,
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      value: d.close
-    }));
+  // Apply a direct fix to all data points
+  const fixedData = useMemo(() => {
+    // First check if we need to fix by examining the first data point
+    if (data.length > 0) {
+      const firstPoint = data[0];
+      const timestamp = firstPoint.timestamp;
+      const needsFix = typeof timestamp === 'number' && timestamp < 10000000000;
+      
+      if (needsFix) {
+        console.log("APPLYING EMERGENCY TIMESTAMP FIX");
+        
+        // Deep clone the data and fix all timestamps
+        return data.map(point => ({
+          ...point,
+          // Replace the timestamp directly with milliseconds
+          timestamp: getTimestampValue(point.timestamp)
+        }));
+      }
+    }
+    
+    // No fix needed
+    return data;
   }, [data]);
+
+  // Fix the processedChartData function
+  const processedChartData = useMemo(() => {
+    if (!fixedData || fixedData.length === 0) return [];
+    
+    // Find the most recent Wave 1 to set chart start point
+    const wave1 = waves.find(w => w.number === 1);
+    const wave1StartTimestamp = wave1 ? getTimestampValue(wave1.startTimestamp) : null;
+    
+    // First normalize all data points to ensure timestamp consistency
+    const formattedData = fixedData.map(d => {
+      // First convert timestamp properly
+      let timestamp = d.timestamp;
+      
+      // Ensure timestamp is a number in milliseconds
+      const timestampMs = getTimestampValue(timestamp);
+      
+      // Debug the timestamp conversion (temporarily)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Converting timestamp: ${timestamp} (${typeof timestamp}) → ${timestampMs} = ${new Date(timestampMs).toISOString()}`);
+      }
+      
+      // Return with all numeric values and properly formatted timestamp
+      return {
+        ...d,
+        timestamp: timestampMs, // Store as milliseconds
+        originalTimestamp: d.timestamp, // Keep original for reference
+        date: new Date(timestampMs), // Add a date object for debugging
+        close: Number(d.close),
+        open: Number(d.open),
+        high: Number(d.high),
+        low: Number(d.low),
+        value: Number(d.close)
+      };
+    });
+    
+    // Sort data by timestamp to ensure proper ordering
+    formattedData.sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Filter to start from Wave 1 if available
+    if (wave1StartTimestamp) {
+      // Find index of first data point after wave1 start
+      const wave1Index = formattedData.findIndex(d => d.timestamp >= wave1StartTimestamp);
+      
+      if (wave1Index !== -1) {
+        // Include 10 extra data points before Wave 1 for context
+        const startIndex = Math.max(0, wave1Index - 10);
+        return formattedData.slice(startIndex);
+      }
+    }
+    
+    return formattedData;
+  }, [fixedData, waves]);
+
+  // Add this right after your processedChartData definition
+  React.useEffect(() => {
+    // Debug date display - add this to find the issue
+    if (processedChartData.length > 0) {
+      const first = processedChartData[0];
+      const last = processedChartData[processedChartData.length - 1];
+      
+      console.log("Chart date range:", {
+        firstPoint: {
+          timestamp: first.timestamp,
+          date: new Date(first.timestamp).toISOString(),
+          formatted: formatDateDisplay(first.timestamp)
+        },
+        lastPoint: {
+          timestamp: last.timestamp,
+          date: new Date(last.timestamp).toISOString(),
+          formatted: formatDateDisplay(last.timestamp)
+        }
+      });
+      
+      // Check a wave timestamp
+      if (waves.length > 0) {
+        const wave = waves.find(w => w.number === 1);
+        if (wave) {
+          const waveTimestamp = getTimestampValue(wave.startTimestamp);
+          console.log("Wave 1 timestamp:", {
+            original: wave.startTimestamp,
+            converted: waveTimestamp,
+            date: new Date(waveTimestamp).toISOString(),
+            formatted: formatDateDisplay(waveTimestamp)
+          });
+        }
+      }
+    }
+  }, [processedChartData, waves]);
 
   // Update display data based on zoom
   const displayData = useMemo(() => 
@@ -156,6 +284,16 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     Math.max(...processedChartData.map(d => d.timestamp))
   ];
 
+  // Create a fixed data set with timestamps explicitly converted
+  const fixedChartData = useMemo(() => {
+    // Take the processed data and explicitly force all timestamps to be in milliseconds
+    return processedChartData.map(point => ({
+      ...point,
+      // Create a dedicated field for the XAxis to use
+      timestampMs: getTimestampValue(point.timestamp)
+    }));
+  }, [processedChartData]);
+
   // Return early if no data available
   if (!data || data.length === 0) {
     return (
@@ -164,14 +302,6 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       </div>
     );
   }
-
-  // Use our utility function for wave preparation
-  const waveLines = useMemo(() => {
-    return prepareWaveLines(waves, data);
-  }, [waves, data]);
-    
-  // Extract wave numbers for the legend
-  const waveNumbers = [...new Set(waves.map(w => w.number))];
 
   // Add function to handle brush change
   const handleBrushChange = (brushRange: any) => {
@@ -205,6 +335,121 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     });
   };
 
+  React.useEffect(() => {
+    // Debug logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log("FibTargets:", fibTargets);
+      console.log("Current Wave:", currentWave);
+    }
+  }, [fibTargets, currentWave]);
+
+  React.useEffect(() => {
+    // Debug timestamp formats
+    if (process.env.NODE_ENV === 'development') {
+      if (data.length > 0) {
+        console.log("Sample data point:", {
+          original: data[0],
+          timestamp: data[0].timestamp,
+          timestampType: typeof data[0].timestamp,
+          normalized: getTimestampValue(data[0].timestamp),
+          date: new Date(getTimestampValue(data[0].timestamp)).toISOString()
+        });
+      }
+      
+      if (waves.length > 0) {
+        console.log("Sample wave:", {
+          original: waves[0],
+          startTimestamp: waves[0].startTimestamp,
+          startTimestampType: typeof waves[0].startTimestamp,
+          normalized: getTimestampValue(waves[0].startTimestamp),
+          date: new Date(getTimestampValue(waves[0].startTimestamp)).toISOString()
+        });
+      }
+    }
+  }, [data, waves]);
+
+  // Add this right before your return statement
+  React.useEffect(() => {
+    // Super-detailed timestamp validation
+    if (processedChartData.length > 0) {
+      const checkPoint = processedChartData[0];
+      
+      // Check for timestamp inconsistencies
+      console.log("TIMESTAMP VALIDATION:", {
+        firstPoint: {
+          timestamp: checkPoint.timestamp,
+          isNumber: typeof checkPoint.timestamp === 'number',
+          isCorrectRange: checkPoint.timestamp > 10000000000, // Should be true for milliseconds
+          date: new Date(checkPoint.timestamp).toISOString(),
+          year: new Date(checkPoint.timestamp).getFullYear(),
+          
+          // Check if we'd get a different result by multiplying by 1000
+          altDate: new Date(checkPoint.timestamp * 1000).toISOString(),
+          altYear: new Date(checkPoint.timestamp * 1000).getFullYear(),
+          
+          // Also try the date object we stored
+          dateObj: checkPoint.date,
+          dateObjISO: checkPoint.date?.toISOString(),
+        }
+      });
+      
+      // Fix all timestamps by ensuring they're at least year 2000+
+      if (new Date(checkPoint.timestamp).getFullYear() < 2000) {
+        console.warn("FIXING BAD TIMESTAMPS - all points will be converted");
+        
+        // Add an emergency fix - use type assertion to add property
+        processedChartData.forEach(point => {
+          // Use type assertion to avoid TypeScript error
+          (point as any)._fixedTimestamp = point.timestamp * 1000;
+        });
+      }
+    }
+    // Rest of the effect...
+  }, [processedChartData, waves]);
+
+  // Update your waveLine data objects to use milliseconds
+  const waveLines = useMemo(() => {
+    // Same as before, but update line data points to include timestampMs
+    return waves
+      .map(wave => {
+        try {
+          const startTimeMs = getTimestampValue(wave.startTimestamp);
+          const endTimeMs = getTimestampValue(wave.endTimestamp);
+          
+          // Generate a unique ID if one doesn't exist on the wave
+          const waveId = (wave as any).id || `wave-${wave.number}-${startTimeMs}`;
+          
+          return {
+            id: waveId,
+            wave: wave,
+            color: getWaveColor(wave.number),
+            // Create data points with explicit millisecond timestamps
+            data: [
+              { 
+                timestamp: wave.startTimestamp, 
+                timestampMs: startTimeMs,  // Explicitly in milliseconds
+                value: Number(wave.startPrice) 
+              },
+              { 
+                timestamp: wave.endTimestamp, 
+                timestampMs: endTimeMs,    // Explicitly in milliseconds
+                value: Number(wave.endPrice) 
+              }
+            ]
+          };
+        } catch (error) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }, [waves]);
+
+  // Extract unique wave numbers for the legend
+  const waveNumbers = useMemo(() => {
+    // Get all unique wave numbers from the waves array
+    return Array.from(new Set(waves.map(wave => wave.number)));
+  }, [waves]);
+
   return (
     <div className="w-full h-[500px] bg-chart-background rounded-lg p-4">
       {/* Chart header */}
@@ -236,18 +481,20 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           >
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
             <XAxis
-              dataKey="timestamp"
+              // IMPORTANT: Use the dedicated milliseconds field instead of timestamp
+              dataKey="timestampMs"
               type="number"
-              domain={domain}
+              domain={['dataMin', 'dataMax']}
               scale="time"
-              // Update tickFormatter to handle numeric timestamps
-              tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
+              tickFormatter={(tick) => {
+                return new Date(tick).toLocaleDateString('en-US', {
+                  month: 'short', 
+                  day: 'numeric',
+                  year: '2-digit'
+                });
+              }}
               stroke="#94a3b8"
-              ticks={processedChartData
-                .filter((_, index) => index % Math.ceil(processedChartData.length / 6) === 0)
-                .map(d => d.timestamp)
-                .concat(extendedDomain[1])}
-              interval="preserveStartEnd"
+              interval="preserveStart"
               minTickGap={50}
             />
             <YAxis
@@ -297,13 +544,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               isAnimationActive={false}
             />
             
-            {/* First, add a debug statement to check if you have Fibonacci targets */}
-            console.log("FibTargets:", fibTargets);
-            console.log("Current Wave:", currentWave);
-
-            {/* Then, modify the Fibonacci targets section: */}
             {/* Fibonacci targets */}
-            {currentWave && fibTargets && fibTargets.length > 0 ? (
+            {fibTargets && fibTargets.length > 0 && currentWave && (
               fibTargets
                 .filter(target => {
                   // Make sure we have valid price data
@@ -324,7 +566,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                     y={target.price}
                     stroke={target.isExtension ? "#9c27b0" : "#3f51b5"}
                     strokeDasharray="3 3"
-                    strokeOpacity={0.8} // Increased opacity for better visibility
+                    strokeOpacity={0.8}
                     label={{
                       position: 'right',
                       value: `${target.label} ${currentWave.type === 'impulse' ? '▲' : '▼'}: $${target.price.toFixed(2)}`,
@@ -334,17 +576,6 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                     }}
                   />
                 ))
-            ) : (
-              // Optional: Show a message when no targets are available
-              <text
-                x="50%"
-                y="50"
-                fill="#94a3b8"
-                fontSize={12}
-                textAnchor="middle"
-              >
-                No Fibonacci targets available
-              </text>
             )}
             
             {/* Render wave lines */}
@@ -429,7 +660,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 
             {/* Enhanced brush for better zooming */}
             <Brush
-              dataKey="timestamp"
+              // Use timestampMs instead of timestamp
+              dataKey="timestampMs"
               height={40}
               stroke="#8884d8"
               fill="rgba(136, 132, 216, 0.1)"
