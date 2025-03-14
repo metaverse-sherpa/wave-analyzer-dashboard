@@ -19,7 +19,7 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
   fibTargets   // Add this
 }) => {
   const [currentPage, setCurrentPage] = useState(0);
-  const wavesPerPage = 5;
+  const wavesPerPage = 9
   
   // Update the date formatting function to handle either Date objects or timestamps
   const formatDate = (timestamp: any): string => {

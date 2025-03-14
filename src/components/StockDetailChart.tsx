@@ -159,26 +159,24 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     return data;
   }, [data]);
 
-  // Fix the processedChartData function
+  // Move the inner useMemo outside as a separate hook
+  const wave1 = useMemo(() => 
+    [...waves]
+      .sort((a, b) => getTimestampValue(b.startTimestamp) - getTimestampValue(a.startTimestamp))
+      .find(wave => wave.number === 1),
+    [waves]
+  );
+
+  // Then use it in your processedChartData useMemo
   const processedChartData = useMemo(() => {
     if (!fixedData || fixedData.length === 0) return [];
     
-    // Find the most recent Wave 1 to set chart start point
-    const wave1 = waves.find(w => w.number === 1);
     const wave1StartTimestamp = wave1 ? getTimestampValue(wave1.startTimestamp) : null;
     
     // First normalize all data points to ensure timestamp consistency
     const formattedData = fixedData.map(d => {
-      // First convert timestamp properly
-      let timestamp = d.timestamp;
-      
       // Ensure timestamp is a number in milliseconds
-      const timestampMs = getTimestampValue(timestamp);
-      
-      // Debug the timestamp conversion (temporarily)
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`Converting timestamp: ${timestamp} (${typeof timestamp}) → ${timestampMs} = ${new Date(timestampMs).toISOString()}`);
-      }
+      const timestampMs = getTimestampValue(d.timestamp);
       
       // Return with all numeric values and properly formatted timestamp
       return {
@@ -197,7 +195,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     // Sort data by timestamp to ensure proper ordering
     formattedData.sort((a, b) => a.timestamp - b.timestamp);
     
-    // Filter to start from Wave 1 if available
+    // Filter to start from MOST RECENT Wave 1 if available
     if (wave1StartTimestamp) {
       // Find index of first data point after wave1 start
       const wave1Index = formattedData.findIndex(d => d.timestamp >= wave1StartTimestamp);
@@ -205,12 +203,13 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       if (wave1Index !== -1) {
         // Include 10 extra data points before Wave 1 for context
         const startIndex = Math.max(0, wave1Index - 10);
+        console.log(`Focusing chart on most recent Wave 1 starting at ${new Date(wave1StartTimestamp).toISOString()}`);
         return formattedData.slice(startIndex);
       }
     }
     
     return formattedData;
-  }, [fixedData, waves]);
+  }, [fixedData, waves, wave1]);
 
   // Add this right after your processedChartData definition
   React.useEffect(() => {
@@ -407,10 +406,28 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     // Rest of the effect...
   }, [processedChartData, waves]);
 
-  // Update your waveLine data objects to use milliseconds
+  // Update your waveLines useMemo to filter for recent waves
   const waveLines = useMemo(() => {
-    // Same as before, but update line data points to include timestampMs
-    return waves
+    // Find the most recent wave 1 timestamp 
+    const mostRecentWave1 = [...waves]
+      .sort((a, b) => getTimestampValue(b.startTimestamp) - getTimestampValue(a.startTimestamp))
+      .find(wave => wave.number === 1);
+      
+    const mostRecentWave1Timestamp = mostRecentWave1 
+      ? getTimestampValue(mostRecentWave1.startTimestamp)
+      : 0;
+    
+    console.log(`Most recent Wave 1 starts at: ${new Date(mostRecentWave1Timestamp).toISOString()}`);
+      
+    // Filter waves to only include those that start after the most recent Wave 1
+    const recentWaves = mostRecentWave1Timestamp > 0
+      ? waves.filter(wave => getTimestampValue(wave.startTimestamp) >= mostRecentWave1Timestamp)
+      : waves;
+      
+    console.log(`Found ${recentWaves.length} waves in the most recent sequence`);
+    
+    // Now create the wave lines as before, but using only the recent waves
+    return recentWaves
       .map(wave => {
         try {
           const startTimeMs = getTimestampValue(wave.startTimestamp);
@@ -423,7 +440,6 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             id: waveId,
             wave: wave,
             color: getWaveColor(wave.number),
-            // Create data points with explicit millisecond timestamps
             data: [
               { 
                 timestamp: wave.startTimestamp, 
@@ -449,6 +465,26 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     // Get all unique wave numbers from the waves array
     return Array.from(new Set(waves.map(wave => wave.number)));
   }, [waves]);
+
+  // Add this custom component inside your StockDetailChart component:
+  const CustomWaveLabel = (props: any) => {
+    const { x, y, value, fill, fontSize = 12, fontWeight = "bold" } = props;
+    
+    return (
+      <g>
+        <text
+          x={x}
+          y={y - 15} // Position above the point
+          textAnchor="middle"
+          fill={fill}
+          fontSize={fontSize}
+          fontWeight={fontWeight}
+        >
+          {value}
+        </text>
+      </g>
+    );
+  };
 
   return (
     <div className="w-full h-[500px] bg-chart-background rounded-lg p-4">
@@ -579,60 +615,42 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             )}
             
             {/* Render wave lines */}
-            {waveLines.map((waveLine, index) => {
-              // Use getTimestampValue for comparison
-              const isSelected = selectedWave && 
-                getTimestampValue(waveLine.wave.startTimestamp) === getTimestampValue(selectedWave.startTimestamp);
-              
-              // Determine label position
-              const isImpulsiveWave = 
-                waveLine.wave.number === 1 || 
-                waveLine.wave.number === 3 || 
-                waveLine.wave.number === 5 || 
-                waveLine.wave.number === 'B';
-              
-              return (
-                <Line
-                  key={`wave-${index}-${waveLine.id}`}
-                  data={waveLine.data}
-                  type="linear"
-                  dataKey="value"
-                  stroke={waveLine.color}
-                  strokeWidth={isSelected ? 4 : (waveLine.wave === highlightedWave ? 3 : 1)}
-                  strokeOpacity={isSelected ? 1 : (waveLine.wave === highlightedWave ? 1 : 0.6)}
-                  strokeDasharray={
-                    // Current wave gets dashed line, all others are solid
-                    currentWave && waveLine.wave.number === currentWave.number ? "5 5" : "0"
-                  }
-                  dot={{
-                    r: isSelected ? 6 : 4, // Make dots larger for selected wave
-                    fill: waveLine.color,
-                    stroke: isSelected ? "#fff" : "#fff",
-                    strokeWidth: isSelected ? 2 : 1
-                  }}
-                  activeDot={{
-                    r: isSelected ? 8 : 6,
-                    fill: waveLine.color,
-                    stroke: "#fff",
-                    strokeWidth: isSelected ? 2 : 1,
-                    onMouseOver: () => setHoveredWave(waveLine.wave),
-                    onMouseLeave: () => setHoveredWave(null)
-                  }}
-                  connectNulls
-                  isAnimationActive={false}
-                  label={{
-                    position: 'top',
-                    value: String(waveLine.wave.number),
-                    fill: '#FFFFFF',
-                    fontSize: 10,
-                    fontWeight: 'bold',
-                    stroke: '#000000',
-                    strokeWidth: 0.5
+            {waveLines.map(waveLine => (
+              <Line
+                key={waveLine.id}
+                data={waveLine.data}
+                type="monotone"
+                dataKey="value"
+                stroke={waveLine.color}
+                strokeWidth={2}
+                dot={{ r: 4, fill: waveLine.color, strokeWidth: 0 }}
+                activeDot={{ r: 6, fill: waveLine.color }}
+                isAnimationActive={false}
+                connectNulls={true}
+              >
+                {/* Add the label as a child of the Line */}
+                <Label
+                  position="end"
+                  offset={5}
+                  content={(props) => {
+                    const { x, y, value } = props;
+                    return (
+                      <text
+                        x={Number(x) + 5}
+                        y={Number(y) - 5}
+                        textAnchor="start"
+                        fill={waveLine.color}
+                        fontSize={12}
+                        fontWeight="bold"
+                      >
+                        {waveLine.wave.number}
+                      </text>
+                    );
                   }}
                 />
-              );
-            })}
-            
+              </Line>
+            ))}
+
             {/* Highlight current wave */}
             {currentWave && currentWave.number && (
               <text
@@ -660,22 +678,14 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 
             {/* Enhanced brush for better zooming */}
             <Brush
-              // Use timestampMs instead of timestamp
               dataKey="timestampMs"
               height={40}
               stroke="#8884d8"
               fill="rgba(136, 132, 216, 0.1)"
               tickFormatter={(tick) => new Date(tick).toLocaleDateString()}
-              // Show last 90 data points by default (typically 3 months of daily data)
-              // but expand view if we have a wave pattern starting earlier
-              startIndex={mostRecentWave1 
-                ? Math.min(
-                    Math.max(0, processedChartData.findIndex(d => 
-                      getTimestampValue(d.timestamp) >= getTimestampValue(mostRecentWave1.startTimestamp)
-                    ) - 10), 
-                    Math.max(0, processedChartData.length - 90)
-                  )
-                : Math.max(0, processedChartData.length - 90)}
+              // Focus on the most recent waves by default
+              startIndex={Math.max(0, processedChartData.length - 90)}
+              endIndex={processedChartData.length - 1}
               travellerWidth={10}
               gap={1}
               className="mt-4"

@@ -9,8 +9,8 @@ interface WaveLegendProps {
 const WaveLegend: React.FC<WaveLegendProps> = ({ waveNumbers, compact = false }) => {
   return (
     <div className={`flex gap-2 ${compact ? 'flex-wrap' : 'flex-row'}`}>
-      {waveNumbers.map(num => (
-        <div key={num} className="flex items-center">
+      {waveNumbers.map((num, index) => (
+        <div key={`wave-${num}-${index}`} className="flex items-center">
           <div 
             className="w-3 h-3 rounded-full mr-1" 
             style={{ backgroundColor: getWaveColor(num) }}

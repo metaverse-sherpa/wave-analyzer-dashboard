@@ -431,6 +431,33 @@ const validateInitialPivots = (pivots: ZigzagPoint[]): boolean => {
 };
 
 /**
+ * Find the highest pivot point after the start point, before a significant reversal
+ * Used specifically for extending wave 3 to its full length
+ */
+const findWave3Peak = (pivots: ZigzagPoint[], startIndex: number): number => {
+  let highestIdx = startIndex;
+  let highestPrice = pivots[startIndex].high;
+  let found = false;
+  
+  // Look forward from the start index to find the highest point before reversal
+  for (let i = startIndex + 1; i < pivots.length; i++) {
+    // If this pivot is higher, it's a new candidate for the wave 3 peak
+    if (pivots[i].high > highestPrice) {
+      highestPrice = pivots[i].high;
+      highestIdx = i;
+      found = true;
+    } 
+    // If price is reversing significantly (found a lower low), stop looking
+    else if (pivots[i].low < pivots[highestIdx].low * 0.97) { // 3% reversal
+      break;
+    }
+  }
+  
+  console.log(`Wave 3 peak search: found=${found}, index=${highestIdx}, price=${highestPrice}`);
+  return highestIdx;
+};
+
+/**
  * Core function to analyze Elliott Wave patterns from pivot points
  * Modified to focus exclusively on bullish wave patterns
  */
@@ -454,7 +481,7 @@ const completeWaveAnalysis = (
   let waveCount = 1;
   let phase: 'impulse' | 'corrective' = 'impulse';
   
-  // Create pivot pairs
+  // Create pivot pairs - but keep track of previous wave for continuity
   const pivotPairs = [];
   for (let i = 0; i < pivots.length - 1; i++) {
     pivotPairs.push({
@@ -465,19 +492,61 @@ const completeWaveAnalysis = (
   }
 
   // Analyze waves
+  let previousWave: Wave | null = null;
+  let skipToIndex = -1;
+
   for (let i = 0; i < pivotPairs.length; i++) {
-    const { startPoint, endPoint, isUpMove } = pivotPairs[i];
+    // Skip indices that were consumed by wave 3 extension
+    if (skipToIndex >= 0 && i <= skipToIndex) {
+      continue;
+    }
+
+    // Instead of destructuring with const, destructure with let for variables we might change
+    const { startPoint, isUpMove } = pivotPairs[i];
+    let { endPoint } = pivotPairs[i];  // Use let for endPoint
     
-    // Create the wave
+    // Special handling for Wave 3
+    if (waveCount === 3 && phase === 'impulse') {
+      // Look ahead to find the highest pivot before a significant reversal
+      const wave3PeakIndex = findWave3Peak(pivots, i + 1);
+      
+      // If we found a higher peak, use that instead
+      if (wave3PeakIndex > i + 1) {
+        console.log(`Extending Wave 3 to pivot ${wave3PeakIndex} for higher peak`);
+        endPoint = pivots[wave3PeakIndex]; // Now this will work
+        skipToIndex = wave3PeakIndex - 1; // Skip the intermediate pivots we consumed
+      }
+    }
+    
+    // Create the wave - with proper type assignment based on Elliott Wave rules
+    let waveNumber = phase === 'impulse' ? waveCount : ['A', 'B', 'C'][waveCount - 1];
+    
+    // Special handling for Wave 3
+    if (waveCount === 3 && phase === 'impulse') {
+      // Look ahead to find the highest pivot before a significant reversal
+      const wave3PeakIndex = findWave3Peak(pivots, i + 1);
+      
+      // If we found a higher peak, use that instead
+      if (wave3PeakIndex > i + 1) {
+        console.log(`Extending Wave 3 to pivot ${wave3PeakIndex} for higher peak`);
+        endPoint = pivots[wave3PeakIndex];
+        skipToIndex = wave3PeakIndex - 1; // Skip the intermediate pivots we consumed
+      }
+    }
+    
+    // Determine wave's start attributes from previous wave when available
+    const startPrice = previousWave ? previousWave.endPrice : (isUpMove ? startPoint.low : startPoint.high);
+    const startTimestamp = previousWave ? previousWave.endTimestamp : startPoint.timestamp;
+    
     let wave: Wave = {
-      number: phase === 'impulse' ? waveCount : ['A', 'B', 'C'][waveCount - 1],
-      startTimestamp: startPoint.timestamp,
+      number: waveNumber,
+      startTimestamp: startTimestamp, // Use previous wave's end timestamp when available
       endTimestamp: endPoint.timestamp,
-      startPrice: isUpMove ? startPoint.low : startPoint.high,
+      startPrice: startPrice,
       endPrice: isUpMove ? endPoint.high : endPoint.low,
-      type: isUpMove ? 'impulse' : 'corrective',
+      type: determineWaveType(waveNumber),
       isComplete: true,
-      isImpulse: isUpMove
+      isImpulse: isImpulseWave(waveNumber)
     };
 
     // Validate wave based on position
@@ -487,17 +556,51 @@ const completeWaveAnalysis = (
           console.log("Wave 4 violated Wave 1 territory");
           continue;
         }
+        // Add this check inside the Wave 4 validation
+        if (waveCount === 4) {
+          const wave3 = waves.find(w => w.number === 3);
+          if (wave3) {
+            const wave3Range = wave3.endPrice! - wave3.startPrice!;
+            const wave4Retracement = wave3.endPrice! - endPoint.low;
+            const retracementPercentage = wave4Retracement / wave3Range;
+            
+            // Check if Wave 4 retracement is within typical range
+            const isNormalRetracement = retracementPercentage >= 0.382 && retracementPercentage <= 0.618;
+            console.log(`Wave 4 retracement: ${(retracementPercentage * 100).toFixed(2)}% of Wave 3`);
+            
+            // Don't reject the wave, but log if it's unusual
+            if (!isNormalRetracement) {
+              console.log(`Unusual Wave 4 retracement (${(retracementPercentage * 100).toFixed(2)}%)`);
+            }
+          }
+        }
         break;
         
       case 5:
         if (phase === 'impulse') {
-          phase = 'corrective';
-          waveCount = 0; // Will be incremented to 1 for Wave A
+          // Only transition to corrective phase if Wave 5 meets minimum criteria
+          if (endPoint.high > waves[2].endPrice!) { // Wave 5 should ideally exceed Wave 3
+            phase = 'corrective';
+            waveCount = 0; // Will be incremented to 1 for Wave A
+            console.log("Completed impulse pattern 1-5, transitioning to corrective A-B-C pattern");
+          } else {
+            console.log("Wave 5 didn't meet criteria - not transitioning to corrective phase yet");
+          }
         }
         break;
     }
 
+    // Add to the wave validation logic
+    if (waveCount === 5) {
+      const wave3 = waves.find(w => w.number === 3);
+      if (wave3 && endPoint.high < wave3.endPrice!) {
+        console.log("Truncated Wave 5 detected - didn't exceed Wave 3 peak");
+        // Truncation is allowed but worth noting
+      }
+    }
+
     waves.push(wave);
+    previousWave = wave; // Store this wave for the next iteration
     waveCount++;
 
     // Report progress
@@ -697,4 +800,104 @@ const formatDate = (timestamp: any): string => {
     console.error('Error formatting date:', error);
     return 'Invalid date';
   }
+};
+
+/**
+ * Determine if a wave is impulse or corrective based on Elliott Wave rules
+ */
+const isImpulseWave = (waveNumber: string | number): boolean => {
+  if (typeof waveNumber === 'number') {
+    // Waves 1, 3, 5 are impulse; Waves 2, 4 are corrective
+    return waveNumber % 2 === 1;
+  } else {
+    // Wave B is impulse; Waves A, C are corrective
+    return waveNumber === 'B';
+  }
+};
+
+/**
+ * Determine the wave type based on Elliott Wave rules
+ */
+const determineWaveType = (waveNumber: string | number): 'impulse' | 'corrective' => {
+  return isImpulseWave(waveNumber) ? 'impulse' : 'corrective';
+};
+
+// Add a function to detect alternation between Wave 2 and 4
+const hasAlternation = (wave2: Wave, wave4: Wave, data: StockHistoricalData[]): boolean => {
+  // Calculate time duration of each wave
+  const wave2Duration = wave2.endTimestamp! - wave2.startTimestamp;
+  const wave4Duration = wave4.endTimestamp! - wave4.startTimestamp;
+  
+  // Calculate price ranges
+  const wave2Range = Math.abs(wave2.endPrice! - wave2.startPrice);
+  const wave4Range = Math.abs(wave4.endPrice! - wave4.startPrice);
+  
+  // Compare characteristics
+  const hasDifferentDuration = Math.abs(wave4Duration / wave2Duration - 1) > 0.3; // >30% difference
+  const hasDifferentRange = Math.abs(wave4Range / wave2Range - 1) > 0.3; // >30% difference
+  
+  return hasDifferentDuration || hasDifferentRange;
+};
+
+// Add to wave validation
+const validateFibonacciRelationships = (waves: Wave[]): boolean => {
+  if (waves.length < 5) return true; // Not enough waves to check
+  
+  const wave1Length = waves[0].endPrice! - waves[0].startPrice;
+  const wave3Length = waves[2].endPrice! - waves[2].startPrice;
+  const wave5Length = waves[4].endPrice! - waves[4].startPrice;
+  
+  // Wave 3 is often 1.618 times the length of Wave 1
+  const wave3Ratio = wave3Length / wave1Length;
+  const isWave3Valid = Math.abs(wave3Ratio - 1.618) < 0.3 || Math.abs(wave3Ratio - 2.618) < 0.3;
+  
+  // Wave 5 is often 0.618 times Wave 1 or equal to Wave 1
+  const wave5Ratio = wave5Length / wave1Length;
+  const isWave5Valid = Math.abs(wave5Ratio - 0.618) < 0.3 || Math.abs(wave5Ratio - 1.0) < 0.3;
+  
+  console.log(`Fibonacci relationships: Wave3/Wave1 = ${wave3Ratio.toFixed(2)}, Wave5/Wave1 = ${wave5Ratio.toFixed(2)}`);
+  
+  return isWave3Valid && isWave5Valid;
+};
+
+// Add volume validation for Wave 3
+const hasVolumeConfirmation = (wave: Wave, data: StockHistoricalData[]): boolean => {
+  // Find data points corresponding to this wave
+  const startIdx = data.findIndex(d => d.timestamp === wave.startTimestamp);
+  const endIdx = data.findIndex(d => d.timestamp === wave.endTimestamp);
+  
+  if (startIdx === -1 || endIdx === -1) return true;
+  
+  // Calculate average volume before the wave
+  const beforeIdx = Math.max(0, startIdx - 10);
+  const beforeVolume = data.slice(beforeIdx, startIdx)
+    .reduce((sum, d) => sum + (d.volume || 0), 0) / (startIdx - beforeIdx);
+  
+  // Calculate average volume during the wave
+  const waveVolume = data.slice(startIdx, endIdx + 1)
+    .reduce((sum, d) => sum + (d.volume || 0), 0) / (endIdx - startIdx + 1);
+  
+  // Wave 3 should typically have higher volume
+  const volumeRatio = waveVolume / beforeVolume;
+  console.log(`Volume ratio for wave ${wave.number}: ${volumeRatio.toFixed(2)}`);
+  
+  return wave.number === 3 ? volumeRatio > 1.2 : true;
+};
+
+type WaveWithConfidence = Wave & { confidence: number };
+
+// Add confidence scoring
+const calculateWaveConfidence = (wave: Wave, waves: Wave[], data: StockHistoricalData[]): number => {
+  let confidence = 100;
+  
+  // Rules-based deductions
+  if (wave.number === 2 && wave.endPrice! < wave.startPrice! * 0.9) confidence -= 10; // Deep Wave 2
+  if (wave.number === 3 && wave.endPrice! < waves[0].endPrice! * 1.5) confidence -= 10; // Weak Wave 3
+  if (wave.number === 4 && wave.endPrice! < waves[0].endPrice!) confidence -= 25; // Wave 4 overlap
+  
+  // Add duration checks
+  // Add Fibonacci relationship checks
+  // Add volume confirmation
+  
+  return Math.max(0, Math.min(100, confidence));
 };

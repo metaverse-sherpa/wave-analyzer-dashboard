@@ -49,6 +49,19 @@ const defaultStock: StockData = {
   fiftyTwoWeekHigh: 0,
 };
 
+// Add this helper function near the top of your StockDetails.tsx file
+// This will sort waves by timestamp (newest first) and give us the most recent waves
+const getMostRecentWaves = (waves: Wave[], count: number = 7): Wave[] => {
+  // Create a copy of waves, then sort by timestamp descending (newest first)
+  return [...waves]
+    .sort((a, b) => {
+      const aTimestamp = typeof a.startTimestamp === 'number' ? a.startTimestamp : Date.parse(a.startTimestamp as string);
+      const bTimestamp = typeof b.startTimestamp === 'number' ? b.startTimestamp : Date.parse(b.startTimestamp as string);
+      return bTimestamp - aTimestamp;
+    })
+    .slice(0, count); // Take only the first 'count' waves
+};
+
 const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => {
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
@@ -227,9 +240,9 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 ) : (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <h4 className="text-sm font-medium">Wave Sequence</h4>
+                      <h4 className="text-sm font-medium">Recent Wave Sequence</h4> {/* Updated label */}
                       <Badge variant="outline">
-                        {analysis?.waves.length || 0} waves detected
+                        {analysis?.waves.length || 0} waves detected (showing most recent 7)
                       </Badge>
                     </div>
                     
@@ -243,7 +256,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                         {/* Add WaveSequencePagination here */}
                         <div className="mt-4">
                           <WaveSequencePagination 
-                            waves={analysis.waves} 
+                            waves={getMostRecentWaves(analysis.waves, 9)} // Only pass the 7 most recent waves
                             selectedWave={selectedWave} // Pass the same selected wave here
                             currentWave={analysis.currentWave} // Add this prop
                             fibTargets={analysis.fibTargets}   // Add this prop
