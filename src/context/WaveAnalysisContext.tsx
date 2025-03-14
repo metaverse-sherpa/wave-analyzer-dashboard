@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { analyzeElliottWaves } from '@/utils/elliottWaveAnalysis';
 import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired } from '@/services/databaseService';
 import type { WaveAnalysisResult, StockHistoricalData } from '@/types/shared';
@@ -258,6 +258,61 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     });
   }, [cancelAnalysis]);
   
+  // Function to load all analyses from Supabase
+  const loadAllAnalysesFromSupabase = useCallback(async () => {
+    try {
+      // Query all wave analysis entries from Supabase
+      const { data, error } = await supabase
+        .from('cache')
+        .select('key, data, timestamp')
+        .like('key', 'wave_analysis_%');
+        
+      if (error) throw error;
+      
+      const analysesData = {};
+      
+      if (data) {
+        for (const item of data) {
+          try {
+            const key = item.key.replace('wave_analysis_', '');
+            
+            // Extract the actual analysis from the nested data structure
+            // The data is likely stored with different nesting than expected
+            let analysisData = item.data;
+            
+            // Normalize the data structure to ensure it has currentWave
+            if (!analysisData.currentWave) {
+              // If there's an analysis property, that might have the structure we need
+              if (analysisData.analysis) {
+                analysisData = analysisData.analysis;
+              }
+              
+              // If still no currentWave but we have waves array, use the last wave
+              if (!analysisData.currentWave && Array.isArray(analysisData.waves) && analysisData.waves.length > 0) {
+                analysisData.currentWave = analysisData.waves[analysisData.waves.length - 1];
+              }
+            }
+            
+            // Store the normalized data
+            analysesData[key] = analysisData;
+          } catch (err) {
+            console.error(`Error processing analysis for ${item.key}:`, err);
+          }
+        }
+        
+        console.log(`Loaded and normalized ${Object.keys(analysesData).length} analyses from Supabase`);
+        setAnalyses(analysesData);
+      }
+    } catch (error) {
+      console.error('Error loading analyses from Supabase:', error);
+    }
+  }, [supabase]);
+
+  // Call this function on component mount
+  useEffect(() => {
+    loadAllAnalysesFromSupabase();
+  }, [loadAllAnalysesFromSupabase]);
+
   // Create memoized context value
   const contextValue = useMemo(() => ({
     analyses,

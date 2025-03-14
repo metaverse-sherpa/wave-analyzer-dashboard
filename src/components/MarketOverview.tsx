@@ -16,7 +16,63 @@ const MarketOverview: React.FC = () => {
     console.log('Current wave analyses:', analyses);
   }, [analyses]);
   
-  // Replace the categorizedStocks useMemo with this improved version
+  // Replace the entire useEffect block that's checking data format
+  useEffect(() => {
+    // Debug the structure of analyses object
+    if (Object.keys(analyses).length > 0) {
+      const sampleKey = Object.keys(analyses)[0];
+      console.log(`Sample analysis structure for ${sampleKey}:`, analyses[sampleKey]);
+      
+      // Instead of throwing an error, let's just log what we find
+      if (analyses[sampleKey]?.currentWave?.number) {
+        console.log('Data format looks correct');
+      } else {
+        console.log('Note: Expected structure not found - attempting to adapt to available format');
+        // Log what we DO have to better understand the structure
+        console.log('Available structure:', Object.keys(analyses[sampleKey] || {}));
+        
+        // Try to find any waves array
+        const wavesArray = analyses[sampleKey]?.waves;
+        if (Array.isArray(wavesArray) && wavesArray.length > 0) {
+          console.log('Found waves array:', wavesArray);
+        }
+      }
+    } else {
+      console.log('No analyses data available');
+    }
+  }, [analyses]);
+  
+  // Add this to your MarketOverview component - safe fallback when there are no analyses
+  useEffect(() => {
+    // If no analyses are found after 3 seconds, create some fallback data for display
+    if (Object.keys(analyses).length === 0) {
+      const timer = setTimeout(() => {
+        if (Object.keys(analyses).length === 0) {
+          console.log("Creating fallback market data");
+          
+          // Create sample data for UI demonstration
+          const fallbackAnalyses = {
+            'AAPL_1d': { currentWave: { number: 5 } },
+            'MSFT_1d': { currentWave: { number: 3 } },
+            'GOOGL_1d': { currentWave: { number: 1 } },
+            'AMZN_1d': { currentWave: { number: 2 } },
+            'META_1d': { currentWave: { number: 4 } },
+            'TSLA_1d': { currentWave: { number: 'A' } },
+            'NVDA_1d': { currentWave: { number: 'B' } },
+            'JPM_1d': { currentWave: { number: 'C' } }
+          };
+          
+          // You'll need to add this setter to your context or find another way to provide fallback data
+          // This is just a conceptual example
+          // setAnalyses(fallbackAnalyses); 
+        }
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [analyses]);
+  
+  // In MarketOverview.tsx, update your categorizedStocks useMemo
   const categorizedStocks = React.useMemo(() => {
     console.log("Categorizing stocks from analyses:", Object.keys(analyses).length);
     
@@ -28,34 +84,73 @@ const MarketOverview: React.FC = () => {
     // Process each analysis - with improved defensive checking
     Object.entries(analyses).forEach(([key, analysis]) => {
       try {
-        // More thorough data validation
+        // Skip if no analysis or it's in an unexpected format
         if (!analysis) {
-          console.log(`Skipping ${key}: No analysis data`);
+          console.warn("Skipping " + key + ": No analysis data");
           return;
         }
         
-        // Remove the invalid nested analysis check that's causing the build error
-        // const actualAnalysis = analysis.analysis ? analysis.analysis : analysis;
+        // Try to find the current wave even if the structure isn't exactly as expected
+        let currentWave = analysis.currentWave;
         
-        if (!analysis?.currentWave) {
-          console.log(`Skipping ${key}: No wave data in analysis`);
-          return;
+        // If currentWave isn't directly available, try to find it elsewhere
+        if (!currentWave) {
+          console.warn("No current Wave found for " + key + ", looking in alternate locations");
+          
+          // Check if it's nested under another property
+          const possibleNestedData = Object.values(analysis).find(
+            val => val && typeof val === 'object' && 'currentWave' in val
+          );
+          
+          if (possibleNestedData && possibleNestedData.currentWave) {
+            currentWave = possibleNestedData.currentWave;
+          }
+          
+          // Or maybe it's in a waves array
+          else if (Array.isArray(analysis.waves) && analysis.waves.length > 0) {
+            currentWave = analysis.waves[analysis.waves.length - 1];
+          }
+          
+          if (!currentWave) {
+            console.warn("Couldn't find currentWave for " + key + ", skipping");
+            return;
+          }
         }
         
+        // Log the structure of the currentWave to understand what we're dealing with
+        //console.log("CurrentWave structure for", key, ":", currentWave);
+
         // Only include daily timeframe analyses
         if (!key.includes('_1d')) {
           return;
         }
         
         const symbol = key.split('_')[0];
-        const currentWaveNumber = analysis.currentWave.number;
+        
+        // Try several approaches to find the wave number
+        let currentWaveNumber;
+        // First try: direct number property
+        if (currentWave.number !== undefined) {
+          currentWaveNumber = currentWave.number;
+        } 
+        // Second try: safely check for other potential property names without assuming specific types
+        else if (currentWave && typeof currentWave === 'object') {
+          // Use type assertions to avoid TypeScript errors while still checking for properties
+          currentWaveNumber = 
+            // Try various property names that might contain wave information
+            (currentWave as any).waveType !== undefined ? (currentWave as any).waveType :
+            (currentWave as any).type !== undefined ? (currentWave as any).type :
+            (currentWave as any).wave_type !== undefined ? (currentWave as any).wave_type :
+            undefined;
+        }
+        // Third try: if wave has a type property (already covered above)
         
         if (currentWaveNumber === undefined || currentWaveNumber === null) {
-          console.log(`Skipping ${symbol}: Invalid wave number:`, currentWaveNumber);
+          console.warn("Skipping", symbol, ": Invalid wave number:", currentWaveNumber);
           return;
         }
         
-        // Improved categorization logic with strong typing
+        // Rest of your categorization logic remains the same
         if (typeof currentWaveNumber === 'number') {
           // Number waves: 1,3,5 are bullish; 2,4 are bearish
           if (currentWaveNumber % 2 === 1) {
@@ -72,11 +167,11 @@ const MarketOverview: React.FC = () => {
           }
         }
       } catch (error) {
-        console.error(`Error processing ${key}:`, error);
+        console.error("Error processing", key, ":", error);
       }
     });
     
-    console.log(`Categorization complete - Bullish: ${categorized.bullish.length}, Bearish: ${categorized.bearish.length}`);
+    console.log("Categorization complete - Bullish:", categorized.bullish.length, ", Bearish:", categorized.bearish.length);
     return categorized;
   }, [analyses]);
   
@@ -96,7 +191,7 @@ const MarketOverview: React.FC = () => {
   
   // Navigate to stock details page
   const goToStockDetails = (symbol: string) => {
-    navigate(`/stocks/${symbol}`);
+    navigate("/stocks/" + symbol);
   };
   
   // Calculate overall market sentiment
@@ -216,7 +311,7 @@ const MarketOverview: React.FC = () => {
       {/* Overall market sentiment */}
       <div className="bg-secondary rounded-lg p-4">
         <div className="text-muted-foreground text-sm mb-1">Market Sentiment</div>
-        <div className={`text-lg font-medium ${overallSentiment === 'bullish' ? 'text-green-600' : 'text-red-600'}`}>
+        <div className={"text-lg font-medium " + (overallSentiment === 'bullish' ? 'text-green-600' : 'text-red-600')}>
           {overallSentiment.charAt(0).toUpperCase() + overallSentiment.slice(1)}
         </div>
         <div className="text-xs text-muted-foreground mt-2">

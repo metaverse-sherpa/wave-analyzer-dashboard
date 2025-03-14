@@ -68,52 +68,60 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const { getHistoricalData } = useHistoricalData();
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
   
-  useEffect(() => {
-    const loadData = async () => {
-      if (!symbol) return;
+  const loadData = async () => {
+    if (!symbol) return;
+    
+    try {
+      setLoading(true);
       
+      // Get stock info directly by symbol instead of filtering top stocks
       try {
-        setLoading(true);
+        const stockData = await fetch(`/api/stocks/${symbol}`).then(r => r.json());
         
-        // Get stock info
-        const stocks = await fetchTopStocks();
-        const stock = stocks.find(s => s.symbol === symbol);
-        
-        if (stock) {
-          setStockData(stock);
+        if (stockData) {
+          setStockData(stockData);
         } else {
-          toast.error(`Stock ${symbol} not found`);
-          navigate('/');
-          return;
-        }
-        
-        // Load both historical data and wave analysis in parallel
-        const historicalData = await getHistoricalData(symbol, '1d');
-        const waveAnalysis = await getAnalysis(symbol, historicalData);
-        
-        // Set historical data
-        setHistoricalData(historicalData);
-        
-        // Set wave analysis if available
-        if (waveAnalysis) {
-          setAnalysis({
-            ...waveAnalysis,
-            trend: waveAnalysis.trend
-          });
-        } else {
-          // Only show error if we have historical data but no analysis
-          if (historicalData.length > 0) {
-            toast.error(`Could not analyze waves for ${symbol}`);
+          // Try to get from top stocks as fallback
+          const stocks = await fetchTopStocks();
+          const stock = stocks.find(s => s.symbol === symbol);
+          
+          if (stock) {
+            setStockData(stock);
+          } else {
+            toast.error(`Stock ${symbol} not found`);
+            navigate('/');
+            return;
           }
         }
-      } catch (error) {
-        console.error(`Error loading data for ${symbol}:`, error);
-        toast.error(`Failed to load data for ${symbol}`);
-      } finally {
-        setLoading(false);
+      } catch (err) {
+        console.log("Error fetching stock details:", err);
+        // Proceed with historical data anyway - we might have cached data
       }
-    };
-    
+      
+      // Load historical data and wave analysis
+      const historicalData = await getHistoricalData(symbol, '1d');
+      const waveAnalysis = await getAnalysis(symbol, historicalData);
+      
+      if (historicalData && historicalData.length > 0) {
+        setHistoricalData(historicalData);
+        
+        if (waveAnalysis) {
+          setAnalysis(waveAnalysis);
+        }
+      } else {
+        toast.error(`No historical data found for ${symbol}`);
+      }
+    } catch (error) {
+      // Add this missing catch block
+      console.error("Failed to load complete stock data:", error);
+      toast.error(`Unable to load complete data for ${symbol}`);
+    } finally {
+      // Add this missing finally block
+      setLoading(false);
+    }
+  };
+  
+  useEffect(() => {
     loadData();
   }, [symbol, navigate, getAnalysis, getHistoricalData]);
   

@@ -449,6 +449,52 @@ app.get('/api/stocks/top', async (req, res) => {
   }
 });
 
+// Add to simple-server.ts
+app.get('/api/stocks/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol;
+    
+    if (USE_MOCK_DATA) {
+      return res.json({
+        symbol,
+        shortName: `${symbol} Inc.`,
+        regularMarketPrice: 100 + Math.random() * 100,
+        regularMarketChange: (Math.random() * 10) - 5,
+        regularMarketChangePercent: (Math.random() * 10) - 5,
+        regularMarketVolume: Math.floor(Math.random() * 10000000),
+        averageVolume: Math.floor(Math.random() * 5000000),
+        marketCap: Math.floor(Math.random() * 1000000000000),
+        name: `${symbol} Inc.`,
+        price: 100 + Math.random() * 100,
+        change: (Math.random() * 10) - 5,
+        changePercent: (Math.random() * 10) - 5,
+        volume: Math.floor(Math.random() * 10000000)
+      });
+    }
+    
+    // Try to get from Yahoo Finance
+    const quote = await yahooFinance.quote(symbol);
+    return res.json({
+      symbol: quote.symbol,
+      shortName: quote.shortName || quote.longName || quote.symbol,
+      name: quote.shortName || quote.longName || quote.symbol,
+      regularMarketPrice: quote.regularMarketPrice,
+      regularMarketChange: quote.regularMarketChange,
+      regularMarketChangePercent: quote.regularMarketChangePercent,
+      regularMarketVolume: quote.regularMarketVolume,
+      averageVolume: quote.averageVolume || quote.averageDailyVolume3Month,
+      marketCap: quote.marketCap,
+      price: quote.regularMarketPrice,
+      change: quote.regularMarketChange,
+      changePercent: quote.regularMarketChangePercent,
+      volume: quote.regularMarketVolume
+    });
+  } catch (error) {
+    console.error('Error fetching stock:', error);
+    res.status(500).json({ error: 'Failed to fetch stock data' });
+  }
+});
+
 // In production, serve the frontend static files
 if (NODE_ENV === 'production') {
   console.log(`Serving static files from: ${DIST_DIR}`);
