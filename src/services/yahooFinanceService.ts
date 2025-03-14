@@ -73,103 +73,18 @@ const USE_MOCK_DATA = false; // Set to false when your backend is working
 
 // Add cache utility functions at the top of the file
 
-// Generic function to get data from cache
-function getFromCache<T>(key: string): T | null {
-  try {
-    // First try to get compressed data
-    const compressedItem = localStorage.getItem(`compressed_${key}`);
-    
-    if (compressedItem) {
-      // Decompress and parse
-      const decompressed = LZString.decompress(compressedItem);
-      if (!decompressed) return null;
-      
-      const parsed = JSON.parse(decompressed);
-      
-      // Check if the cache has expired
-      if (parsed.timestamp && Date.now() - parsed.timestamp > parsed.duration) {
-        localStorage.removeItem(`compressed_${key}`);
-        return null;
-      }
-      
-      return parsed.data as T;
-    }
-    
-    // Fall back to uncompressed data
-    const item = localStorage.getItem(key);
-    if (!item) return null;
-    
-    const parsed = JSON.parse(item);
-    
-    // Check if the cache has expired
-    if (parsed.timestamp && Date.now() - parsed.timestamp > parsed.duration) {
-      localStorage.removeItem(key);
-      return null;
-    }
-    
-    return parsed.data as T;
-  } catch (error) {
-    console.error(`Error retrieving ${key} from cache:`, error);
-    return null;
-  }
-}
+// Add import for the new cache service
+import { getFromCache, saveToCache, pruneCache } from '@/services/cacheService';
 
 // Add LZ-string for compression (you'll need to install this package)
 import * as LZString from 'lz-string';
-
-// Generic function to save data to cache with compression and error handling
-function saveToCache<T>(key: string, data: T, duration: number): void {
-  try {
-    const item = {
-      data,
-      timestamp: Date.now(),
-      duration
-    };
-    
-    // Compress data before storing
-    const serializedData = JSON.stringify(item);
-    const compressedData = LZString.compress(serializedData);
-    
-    // Try to store with compression
-    try {
-      localStorage.setItem(`compressed_${key}`, compressedData);
-      return; // Success with compression
-    } catch (compressionError) {
-      console.warn(`Cannot store compressed data for ${key}, trying data reduction:`, compressionError);
-    }
-    
-    // If compression failed, try storing reduced data for historical items
-    if (key.startsWith('historical_data_')) {
-      const reducedData = reduceHistoricalDataSize(data as any);
-      const reducedItem = {
-        data: reducedData,
-        timestamp: Date.now(),
-        duration: duration / 2 // Shorter duration for reduced data
-      };
-      
-      localStorage.setItem(key, JSON.stringify(reducedItem));
-      console.log(`Stored reduced data for ${key} (${(reducedData as any[]).length} points)`);
-      return;
-    }
-    
-    // For non-historical data, just try storing normally
-    localStorage.setItem(key, JSON.stringify(item));
-  } catch (error) {
-    console.error(`Error saving ${key} to cache:`, error);
-    
-    // Clear some cache to make room if it's a quota error
-    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-      pruneCache();
-    }
-  }
-}
 
 // Update the fetchTopStocks function in yahooFinanceService.ts
 export const fetchTopStocks = async (limit: number = 100): Promise<StockData[]> => {
   const cacheKey = 'top-stocks';
   
-  // Try to get from cache first
-  const cached = getFromCache<StockData[]>(cacheKey);
+  // Try to get from cache first (now async!)
+  const cached = await getFromCache<StockData[]>(cacheKey);
   if (cached) return cached;
   
   try {
@@ -225,14 +140,14 @@ export const fetchTopStocks = async (limit: number = 100): Promise<StockData[]> 
       regularMarketVolume: quote.regularMarketVolume || 0
     }));
     
-    saveToCache(cacheKey, stocks, CACHE_DURATION);
+    await saveToCache(cacheKey, stocks, CACHE_DURATION);
     return stocks;
   } catch (error) {
     console.error('Error fetching top stocks:', error);
     
     // Use fallback data when API fails
     const fallbackData = getFallbackStockData();
-    saveToCache(cacheKey, fallbackData, CACHE_DURATION);
+    await saveToCache(cacheKey, fallbackData, CACHE_DURATION);
     return fallbackData;
   }
 };
@@ -322,7 +237,7 @@ async function smartFetch<T>(
     
     // Save to cache if needed
     if (cacheKey && cacheDuration) {
-      saveToCache(cacheKey, data, cacheDuration);
+      await saveToCache(cacheKey, data, cacheDuration);
     }
     
     return data as T;
@@ -334,7 +249,7 @@ async function smartFetch<T>(
     
     // Save mock data to cache if needed
     if (cacheKey && cacheDuration) {
-      saveToCache(cacheKey, mockData, cacheDuration / 2);
+      await saveToCache(cacheKey, mockData, cacheDuration / 2);
     }
     
     return mockData;
@@ -353,7 +268,7 @@ export const fetchHistoricalData = async (
   
   // Try to get from cache first if not forcing refresh
   if (!forceRefresh) {
-    const cached = getFromCache<StockHistoricalData[]>(cacheKey);
+    const cached = await getFromCache<StockHistoricalData[]>(cacheKey);
     if (cached && cached.length > 0) {
       console.log(`Using cached data for ${symbol} (${timeframe})`);
       return cached;
@@ -394,7 +309,7 @@ export const fetchHistoricalData = async (
     // Cache the result with compression
     if (historicalData.length > 0) {
       console.log(`Caching ${historicalData.length} data points for ${symbol}`);
-      saveToCache(cacheKey, historicalData, HISTORICAL_CACHE_DURATION);
+      await saveToCache(cacheKey, historicalData, HISTORICAL_CACHE_DURATION);
     }
     
     return historicalData;
@@ -404,7 +319,7 @@ export const fetchHistoricalData = async (
     // If there was an error, generate and use fallback data
     console.log(`Generating fallback data for ${symbol}`);
     const fallbackData = generateMockHighQualityData(symbol, timeframe);
-    saveToCache(cacheKey, fallbackData, HISTORICAL_CACHE_DURATION / 2);
+    await saveToCache(cacheKey, fallbackData, HISTORICAL_CACHE_DURATION / 2);
     return fallbackData;
   }
 };
@@ -693,62 +608,5 @@ function reduceHistoricalDataSize(data: StockHistoricalData[]): StockHistoricalD
   
   // Return combined data
   return [...sampledOlderData, ...recentData];
-}
-
-// Function to clear some cache entries to make room
-function pruneCache(): void {
-  console.log("Pruning cache to free up space");
-  
-  // Get all keys
-  const keys = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key) keys.push(key);
-  }
-  
-  // Find the oldest items related to historical data
-  const historicalKeys = keys.filter(k => 
-    k.startsWith('historical_data_') || 
-    k.startsWith('compressed_historical_data_')
-  );
-  
-  if (historicalKeys.length > 0) {
-    // Sort by timestamp (oldest first) - need to extract timestamp from stored data
-    const keyAges = historicalKeys.map(key => {
-      try {
-        const isCompressed = key.startsWith('compressed_');
-        let data;
-        
-        if (isCompressed) {
-          const compressed = localStorage.getItem(key);
-          if (!compressed) return { key, timestamp: 0 };
-          
-          const decompressed = LZString.decompress(compressed);
-          if (!decompressed) return { key, timestamp: 0 };
-          
-          data = JSON.parse(decompressed);
-        } else {
-          const raw = localStorage.getItem(key);
-          if (!raw) return { key, timestamp: 0 };
-          
-          data = JSON.parse(raw);
-        }
-        
-        return { key, timestamp: data.timestamp || 0 };
-      } catch {
-        return { key, timestamp: 0 };
-      }
-    });
-    
-    // Sort by timestamp (oldest first)
-    keyAges.sort((a, b) => a.timestamp - b.timestamp);
-    
-    // Delete oldest 20% of items
-    const itemsToPrune = Math.max(1, Math.ceil(keyAges.length * 0.2));
-    for (let i = 0; i < itemsToPrune; i++) {
-      localStorage.removeItem(keyAges[i].key);
-      console.log(`Pruned cached item: ${keyAges[i].key}`);
-    }
-  }
 }
 

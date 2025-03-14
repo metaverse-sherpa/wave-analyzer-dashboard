@@ -15,6 +15,7 @@ import ApiStatusCheck from '@/components/ApiStatusCheck';
 import { topStockSymbols } from '@/services/yahooFinanceService';
 import { clearMemoCache } from '@/utils/elliottWaveAnalysis';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
+import { migrateFromLocalStorage } from '@/services/cacheService';
 
 interface ActiveAnalysis {
   symbol: string;
@@ -419,6 +420,21 @@ const AdminDashboard = () => {
     }
   }, [analysisEvents, getAnalysis, loadCacheData]);
 
+  const handleMigration = async () => {
+    if (window.confirm('Do you want to migrate data from localStorage to Supabase?')) {
+      setIsRefreshing(true);
+      try {
+        await migrateFromLocalStorage();
+        toast.success('Data migrated to Supabase successfully');
+      } catch (error) {
+        console.error('Migration failed:', error);
+        toast.error('Failed to migrate data to Supabase');
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
+  };
+
   return (
     <div className="container mx-auto p-4">
       {/* Header section */}
@@ -535,6 +551,17 @@ const AdminDashboard = () => {
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Clear Historical Data Cache
+              </Button>
+
+              <Button 
+                onClick={handleMigration}
+                variant="default"
+                size="sm"
+                className="w-full"
+                disabled={isRefreshing}
+              >
+                <Database className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? 'Migrating...' : 'Migrate to Supabase'}
               </Button>
               
               <div className="pt-3 mt-3 border-t text-sm text-muted-foreground">
