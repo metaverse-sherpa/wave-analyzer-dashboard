@@ -68,18 +68,28 @@ const AdminDashboard = () => {
   const analyzeWaves = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // Only select 5 stocks instead of 30
-      const stocks = topStockSymbols.slice(0, 5); 
-      toast.success(`Starting wave analysis for ${stocks.length} stocks...`);
+      // Get all historical data cache keys
+      const cachedHistorical = await getAllHistoricalData() || {};
+      const stocksToAnalyze = Object.keys(cachedHistorical)
+        .filter(key => key.includes('_1d')) // Only use daily timeframe data
+        .map(key => key.split('_')[0]); // Extract symbol from key format "SYMBOL_TIMEFRAME"
+      
+      if (stocksToAnalyze.length === 0) {
+        toast.error('No historical data found. Please preload historical data first.');
+        setIsRefreshing(false);
+        return;
+      }
+      
+      toast.success(`Starting wave analysis for ${stocksToAnalyze.length} stocks with cached data...`);
       
       // Process stocks one by one with a small delay between them
-      for (const symbol of stocks) {
+      for (const symbol of stocksToAnalyze) {
         console.log(`Analyzing ${symbol}...`);
         try {
-          // First get historical data to check the length
+          // Use the cached historical data
           const historicalData = await getHistoricalData(symbol, '1d');
           
-          // Require at least 50 data points for analysis (you can adjust this threshold)
+          // Require at least 50 data points for analysis
           if (!historicalData || historicalData.length < 50) {
             console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
             toast.warning(`Skipping ${symbol} - insufficient data points (${historicalData?.length || 0})`);
@@ -89,45 +99,78 @@ const AdminDashboard = () => {
           // Now analyze with validated data
           await getAnalysis(symbol, historicalData, true); // Force refresh for admin analysis
           
-          // Small delay between stocks
-          await new Promise(r => setTimeout(r, 500));
+          // Small delay between stocks to prevent performance issues
+          await new Promise(r => setTimeout(r, 300));
         } catch (err) {
           console.error(`Failed to analyze ${symbol}`, err);
         }
       }
       
       loadCacheData();
-      toast.success('Wave analysis completed');
+      toast.success(`Wave analysis completed for ${stocksToAnalyze.length} stocks`);
     } catch (error) {
       console.error('Error analyzing waves:', error);
       toast.error('Failed to analyze waves');
     } finally {
       setIsRefreshing(false);
     }
-  }, [getAnalysis, getHistoricalData, loadCacheData]);
+  }, [getAnalysis, getHistoricalData, loadCacheData, getAllHistoricalData]);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // Select a small batch of stocks to preload
-      const stocks = topStockSymbols.slice(0, 10);
+      // Use all stocks from the topStockSymbols array
+      const stocks = topStockSymbols;
       
       toast.success(`Fetching historical data for ${stocks.length} stocks...`);
       
-      // Use the method from context that was retrieved at the component level
-      await contextPreloadHistoricalData(stocks);
+      // Track progress for user feedback
+      let completed = 0;
+      let failed = 0;
+      
+      // Process stocks in batches to avoid overwhelming the browser
+      const batchSize = 5;
+      for (let i = 0; i < stocks.length; i += batchSize) {
+        const batch = stocks.slice(i, i + batchSize);
+        
+        // Show progress update every batch
+        toast.info(`Processing stocks ${i+1}-${Math.min(i+batchSize, stocks.length)} of ${stocks.length}...`, {
+          id: 'preload-progress',
+          duration: 2000
+        });
+        
+        // Process each stock in the batch concurrently
+        await Promise.all(batch.map(async (symbol) => {
+          try {
+            await getHistoricalData(symbol, '1d', true);
+            completed++;
+          } catch (error) {
+            console.error(`Failed to load data for ${symbol}:`, error);
+            failed++;
+          }
+        }));
+        
+        // Small delay between batches to allow UI to remain responsive
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
       
       // Refresh the cache display
       loadCacheData();
-      toast.success('Historical data preloaded successfully');
+      
+      // Show final status
+      if (failed > 0) {
+        toast.warning(`Historical data preloaded with some issues: ${completed} succeeded, ${failed} failed`);
+      } else {
+        toast.success(`Historical data preloaded successfully for all ${completed} stocks`);
+      }
     } catch (error) {
       console.error('Error preloading historical data:', error);
       toast.error('Failed to preload historical data');
     } finally {
       setIsRefreshing(false);
     }
-  }, [contextPreloadHistoricalData, loadCacheData]);
+  }, [getHistoricalData, loadCacheData]);
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
