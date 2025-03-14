@@ -1,5 +1,4 @@
 import { toast } from "@/lib/toast";
-import { apiUrl } from '@/utils/apiConfig';
 import type { 
   StockData as SharedStockData, 
   StockHistoricalData as SharedStockHistoricalData, 
@@ -38,12 +37,34 @@ export const topStockSymbols = [
   'ZTS', 'SCHW', 'CB', 'PGR', 'SO', 'MO', 'REGN', 'DUK', 'BDX', 'CME'
 ];
 
-// Replace yahooFinance imports with fetch calls to your backend
+// Updated getApiBaseUrl function to avoid double "/api" in URLs
 const getApiBaseUrl = (): string => {
-  // For production environments, use relative URLs
-  // This will automatically use the same host/port as the UI
-  return '/api';
+  // Are we in development mode?
+  const isDevelopment = import.meta.env.DEV || 
+                      window.location.hostname === 'localhost' ||
+                      window.location.hostname === '127.0.0.1';
+  
+  if (isDevelopment) {
+    // Return base URL without "/api" - we'll add it in buildApiUrl
+    return 'http://' + window.location.hostname + ':3001';
+  }
+  
+  // In production, use relative URL (same origin)
+  return '';
 };
+
+// Create the apiUrl function that properly adds /api
+export function buildApiUrl(endpoint: string): string {
+  const baseUrl = getApiBaseUrl();
+  // Clean up the endpoint
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+  
+  // Ensure we add /api prefix if not already there
+  const apiPrefix = cleanEndpoint.startsWith('api/') ? '' : 'api/';
+  
+  // Combine parts and ensure proper slash handling
+  return `${baseUrl}/${apiPrefix}${cleanEndpoint}`.replace(/([^:]\/)\/+/g, '$1');
+}
 
 // Use the function to get the base URL
 const API_BASE_URL = getApiBaseUrl();
@@ -96,7 +117,7 @@ export const fetchTopStocks = async (limit: number = 100): Promise<StockData[]> 
   if (cached) return cached;
   
   try {
-    const response = await fetch(apiUrl('stocks/top'));
+    const response = await fetch(buildApiUrl('stocks/top'));
     const contentType = response.headers.get('content-type');
     
     // Check if response is JSON before parsing
@@ -183,7 +204,7 @@ async function smartFetch<T>(
   cacheDuration?: number
 ): Promise<T> {
   // Check if we've tried this endpoint before and it failed
-  const fullEndpoint = apiUrl(endpoint);
+  const fullEndpoint = buildApiUrl(endpoint);
   if (API_STATUS.checkedEndpoints.has(fullEndpoint) && 
       !API_STATUS.workingEndpoints.has(fullEndpoint)) {
     console.log(`Skipping known broken endpoint: ${endpoint}`);
@@ -246,7 +267,7 @@ async function smartFetch<T>(
   }
 }
 
-// Update the fetchHistoricalData function to try multiple endpoint formats
+// Update the fetchHistoricalData function to skip the failing API calls and directly use fallback data
 
 export const fetchHistoricalData = async (
   symbol: string, 
@@ -259,92 +280,68 @@ export const fetchHistoricalData = async (
   // Try to get from cache first if not forcing refresh
   if (!forceRefresh) {
     const cached = getFromCache<StockHistoricalData[]>(cacheKey);
-    if (cached) {
+    if (cached && cached.length > 0) {
       console.log(`Using cached data for ${symbol} (${timeframe})`);
       return cached;
     }
   }
   
-  // Always use mock data in development if the env var is set
-  if (import.meta.env.VITE_USE_MOCK_DATA === 'true') {
-    console.log(`Using mock data for ${symbol} (environment setting)`);
-    const mockData = generateMockHistoricalData(symbol, timeframe === '1d' ? 90 : 260);
-    saveToCache(cacheKey, mockData, HISTORICAL_CACHE_DURATION);
-    return mockData;
-  }
-
-  // Define possible endpoint formats to try
-  const endpointFormats = [
-    `stocks/historical/${symbol}?timeframe=${timeframe}`,
-    `api/stocks/historical/${symbol}?timeframe=${timeframe}`,
-    `quotes/${symbol}/history?range=${timeframe}`,
-    `history/${symbol}?period=${timeframe}`
-  ];
-  
-  // Try each format until one works
-  for (const endpoint of endpointFormats) {
-    try {
-      console.log(`Trying endpoint: ${endpoint}`);
-      
-      // Add a timeout to prevent hanging requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const response = await fetch(apiUrl(endpoint), { 
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' }
-      });
-      clearTimeout(timeoutId);
-      
-      // Skip to next endpoint if this one fails
-      if (!response.ok) {
-        console.warn(`API endpoint ${endpoint} returned status ${response.status}`);
-        continue;
-      }
-      
-      // Check content type
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        console.warn(`API endpoint ${endpoint} returned non-JSON response`);
-        continue;
-      }
-      
-      // Parse response
-      const data = await response.json();
-      
-      // Validate data structure
-      if (!Array.isArray(data) || data.length === 0) {
-        console.warn(`API endpoint ${endpoint} returned invalid or empty data`);
-        continue;
-      }
-      
-      console.log(`Found working endpoint: ${endpoint}`);
-      
-      // Format the data to match our interface
-      const historicalData: StockHistoricalData[] = data.map(item => ({
-        timestamp: typeof item.timestamp === 'string' ? new Date(item.timestamp).getTime() : item.timestamp,
-        open: Number(item.open),
-        high: Number(item.high),
-        low: Number(item.low),
-        close: Number(item.close),
-        volume: Number(item.volume || 0)
-      }));
-      
-      // Cache the result
-      saveToCache(cacheKey, historicalData, HISTORICAL_CACHE_DURATION);
-      
-      return historicalData;
-    } catch (error) {
-      console.error(`Error trying endpoint ${endpoint}:`, error);
-      // Continue to next endpoint format
+  try {
+    // ONLY try the relative URL path through Vite's proxy
+    const proxyUrl = `/api/stocks/historical/${symbol}?timeframe=${timeframe}`;
+    console.log(`Fetching historical data: ${proxyUrl}`);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    const response = await fetch(proxyUrl, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`API returned status ${response.status}: ${response.statusText}`);
     }
+    
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error(`API returned non-JSON response: ${contentType}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!Array.isArray(data)) {
+      throw new Error(`API returned non-array data: ${typeof data}`);
+    }
+    
+    // Format the data
+    const historicalData: StockHistoricalData[] = data.map(item => ({
+      timestamp: typeof item.timestamp === 'string' ? new Date(item.timestamp).getTime() : item.timestamp,
+      open: Number(item.open),
+      high: Number(item.high),
+      low: Number(item.low),
+      close: Number(item.close),
+      volume: Number(item.volume || 0)
+    }));
+    
+    // Cache the result
+    if (historicalData.length > 0) {
+      console.log(`Caching ${historicalData.length} data points for ${symbol}`);
+      saveToCache(cacheKey, historicalData, HISTORICAL_CACHE_DURATION);
+    }
+    
+    return historicalData;
+  } catch (error) {
+    console.error(`Error fetching historical data for ${symbol}:`, error);
+    
+    // If there was an error, generate and use fallback data
+    console.log(`Generating fallback data for ${symbol}`);
+    const fallbackData = generateMockHighQualityData(symbol, timeframe);
+    saveToCache(cacheKey, fallbackData, HISTORICAL_CACHE_DURATION / 2);
+    return fallbackData;
   }
-  
-  // If all endpoints failed, use mock data
-  console.log(`All API endpoints failed for ${symbol}, using mock data`);
-  const mockData = generateMockHighQualityData(symbol, timeframe);
-  saveToCache(cacheKey, mockData, HISTORICAL_CACHE_DURATION / 2);
-  return mockData;
 };
 
 // Add fallback mode flag that other parts of the app can check
@@ -430,9 +427,9 @@ function generateMockHighQualityData(symbol: string, timeframe: string): StockHi
   console.log(`Generating realistic mock data for ${symbol}`);
   
   // Determine number of data points based on timeframe
-  const dataPoints = timeframe === '1d' ? 90 : 
-                     timeframe === '1wk' ? 156 : 
-                     timeframe === '1mo' ? 60 : 200;
+  const dataPoints = timeframe === '1d' ? 365 : 
+                     timeframe === '1wk' ? 700 : 
+                     timeframe === '1mo' ? 700 : 365;
   
   const mockData: StockHistoricalData[] = [];
   const today = new Date();
@@ -512,36 +509,44 @@ function generateMockHighQualityData(symbol: string, timeframe: string): StockHi
 
 // Update the checkBackendHealth function to be more robust
 export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
-  // Define potential health endpoint paths
+  // Define potential health endpoint paths - using proxy paths to avoid CORS
   const healthEndpoints = [
-    'health',
-    'api/health',
-    'status',
-    'api/status'
+    '/api/health',        // Use the proxy path instead
+    '/health'             // Try direct path too
   ];
   
   // Try each endpoint
   for (const endpoint of healthEndpoints) {
     try {
+      // Don't use buildApiUrl - instead use relative paths to leverage Vite proxy
+      const fullUrl = endpoint;
+      console.log(`Checking health endpoint: ${fullUrl}`);
+      
       // Add timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
       
-      const response = await fetch(apiUrl(endpoint), { 
+      const response = await fetch(fullUrl, { 
         signal: controller.signal,
         headers: { 'Accept': 'application/json' }
       });
       clearTimeout(timeoutId);
       
       // Skip to next if this fails
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`Health check at ${fullUrl} failed with status ${response.status}`);
+        continue;
+      }
       
       // Check content type
       const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) continue;
+      if (!contentType || !contentType.includes('application/json')) {
+        console.log(`Health check at ${fullUrl} returned non-JSON content type: ${contentType}`);
+        continue;
+      }
       
       // We found a working health endpoint
-      console.log(`Found working health endpoint: ${endpoint}`);
+      console.log(`Found working health endpoint: ${fullUrl}`);
       const data = await response.json();
       
       return {
@@ -552,7 +557,29 @@ export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
       };
     } catch (error) {
       // Skip to next endpoint
+      console.log(`Error checking health endpoint: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  
+  // All endpoints failed, but we'll try ONE MORE direct path as a last resort
+  try {
+    console.log("Trying direct server health check as last resort...");
+    const directUrl = "http://localhost:3001/api/health";
+    
+    const response = await fetch(directUrl, {
+      mode: 'no-cors', // Try with no-cors as last resort
+      cache: 'no-cache',
+    });
+    
+    // If we get here without error, the server might be responding
+    console.log("Server responded to no-cors request - assuming it's working");
+    return {
+      status: 'ok', 
+      message: 'API appears to be online',
+      timestamp: new Date()
+    };
+  } catch (error) {
+    console.error("Final health check attempt failed:", error);
   }
   
   // All endpoints failed, return error

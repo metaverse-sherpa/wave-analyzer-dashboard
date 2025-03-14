@@ -13,12 +13,13 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false, // Disable the error overlay which can be CPU intensive
     },
-    proxy: process.env.MOCK_API ? undefined : {
+    proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:3001',
         changeOrigin: true,
         secure: false,
-        rewrite: (path: string) => path.replace(/^\/api/, ''),
+        // Important: DON'T rewrite paths for this use case
+        // rewrite: (path: string) => path.replace(/^\/api/, ''),
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
             console.log('Proxy error:', err);

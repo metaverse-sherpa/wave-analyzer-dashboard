@@ -23,10 +23,14 @@ const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const DIST_DIR = path.join(__dirname, 'dist'); // Assuming your frontend builds to 'dist'
 
-// CORS setup - only needed in development
-if (NODE_ENV === 'development') {
-  app.use(cors());
-} 
+// CORS setup
+app.use(cors({
+  origin: process.env.NODE_ENV === 'development' 
+    ? 'http://localhost:3000' 
+    : 'https://your-production-domain.com',
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
 
 app.use(express.json());
 
@@ -118,7 +122,12 @@ const topStockSymbols = [
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   console.log('Health check request received');
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({ 
+    status: 'ok',
+    message: 'API server is online',
+    version: '1.0.0',
+    timestamp: new Date()
+  });
 });
 
 // Stocks endpoint
@@ -348,6 +357,49 @@ app.get('/api/historical', async (req, res) => {
     }
   } catch (error) {
     console.error('Error in /api/historical:', error);
+    res.status(500).json({ error: 'Server error', message: (error as Error).message });
+  }
+});
+
+// Add new endpoint for historical data that matches your client paths
+app.get('/api/stocks/historical/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol;
+    const timeframe = req.query.timeframe?.toString() || '1d';
+    
+    console.log(`Historical data request for ${symbol} (${timeframe})`);
+    
+    if (!symbol) {
+      return res.status(400).json({ error: 'Symbol is required' });
+    }
+    
+    // Generate historical data (use your existing generateMockHistoricalData function)
+    const data = generateMockHistoricalData(symbol, 500);
+    console.log(`Generated ${data.length} data points for ${symbol}`);
+    return res.json(data);
+  } catch (error) {
+    console.error('Error in /api/stocks/historical:', error);
+    res.status(500).json({ error: 'Server error', message: (error as Error).message });
+  }
+});
+
+// Add another endpoint for top stocks
+app.get('/api/stocks/top', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit?.toString() || '20', 10);
+    const stocks = topStockSymbols.slice(0, limit).map(symbol => ({
+      symbol,
+      shortName: `${symbol} Inc.`,
+      regularMarketPrice: 100 + Math.random() * 100,
+      regularMarketChange: (Math.random() * 10) - 5,
+      regularMarketChangePercent: (Math.random() * 10) - 5,
+      regularMarketVolume: Math.floor(Math.random() * 10000000),
+      marketCap: Math.floor(Math.random() * 1000000000000)
+    }));
+    
+    res.json(stocks);
+  } catch (error) {
+    console.error('Error in /api/stocks/top:', error);
     res.status(500).json({ error: 'Server error', message: (error as Error).message });
   }
 });

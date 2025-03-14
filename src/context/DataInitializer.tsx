@@ -73,7 +73,7 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
         for (const symbol of symbols) {
           try {
             // Try to get historical data, but don't block on errors
-            await getHistoricalData(symbol, '1wk', true)
+            await getHistoricalData(symbol, '1d', true)
               .catch(err => {
                 console.log(`Using generated data for ${symbol} (API unavailable)`);
                 return []; // Continue with empty array on failure
