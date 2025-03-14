@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useCallback, useMemo } from
 import { analyzeElliottWaves } from '@/utils/elliottWaveAnalysis';
 import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired } from '@/services/databaseService';
 import type { WaveAnalysisResult, StockHistoricalData } from '@/types/shared';
+import { supabase } from '@/lib/supabase';
+import { saveToCache } from '@/services/cacheService';
 
 // Define a type for analysis events
 export type AnalysisEvent = {
@@ -14,7 +16,7 @@ export type AnalysisEvent = {
 // 1. Define a clear interface for the context value
 interface WaveAnalysisContextValue {
   analyses: Record<string, WaveAnalysisResult>;
-  getAnalysis: (symbol: string, historicalData: StockHistoricalData[], force?: boolean) => Promise<WaveAnalysisResult | null>;
+  getAnalysis: (symbol: string, historicalData: StockHistoricalData[], force?: boolean, silent?: boolean) => Promise<WaveAnalysisResult | null>;
   preloadAnalyses: (symbols: string[]) => Promise<void>;
   clearAnalysis: (symbol?: string) => void;
   clearCache: () => void;
@@ -54,7 +56,8 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
   const getAnalysis = useCallback(async (
     symbol: string,
     historicalData: StockHistoricalData[],
-    force: boolean = false
+    force: boolean = false,
+    silent: boolean = false // Added silent parameter
   ): Promise<WaveAnalysisResult | null> => {
     // Validate we have enough data points for analysis
     const MIN_DATA_POINTS_REQUIRED = 50;
@@ -87,14 +90,23 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     // Try to get from storage if not forced
     if (!force) {
       try {
-        const stored = await retrieveWaveAnalysis(symbol, '1d');
+        const { data: cacheEntry } = await supabase
+          .from('cache')
+          .select('data, timestamp')  // Select both data and timestamp fields
+          .eq('key', `wave_analysis_${symbol}_1d`)
+          .single();
         
-        if (stored && !isAnalysisExpired(stored.timestamp)) {
+        // If we found cache data and it's not expired
+        if (cacheEntry && !isAnalysisExpired(cacheEntry.timestamp)) {
+          // The analysis result is stored directly in the data field
+          const analysisResult = cacheEntry.data as WaveAnalysisResult;
+          
           setAnalyses(prev => ({
             ...prev,
-            [symbol]: stored.analysis as WaveAnalysisResult
+            [symbol]: analysisResult
           }));
-          return stored.analysis as WaveAnalysisResult;
+          
+          return analysisResult;
         }
       } catch (error) {
         console.error(`Error retrieving stored analysis for ${symbol}:`, error);
@@ -111,11 +123,13 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     activeAnalysesRef.current[symbol] = true;
     
     // Log the event
-    addEvent({
-      symbol,
-      status: 'started',
-      timestamp: Date.now()
-    });
+    if (!silent) {
+      addEvent({
+        symbol,
+        status: 'started',
+        timestamp: Date.now()
+      });
+    }
     
     try {
       // Perform the analysis
@@ -127,12 +141,14 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
         // Add progress callback parameter
         (waves) => {
           // Optional: Report progress to UI
-          addEvent({
-            symbol,
-            status: 'progress',
-            timestamp: Date.now(),
-            message: `Analyzing waves: ${waves.length} found`
-          });
+          if (!silent) {
+            addEvent({
+              symbol,
+              status: 'progress',
+              timestamp: Date.now(),
+              message: `Analyzing waves: ${waves.length} found`
+            });
+          }
         }
       );
       
@@ -143,7 +159,7 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
       }
       
       // Store the result
-      await storeWaveAnalysis(symbol, '1d', result);
+      await saveToCache(`wave_analysis_${symbol}_1d`, result, 7 * 24 * 60 * 60 * 1000);
       
       // Update state
       setAnalyses(prev => ({
@@ -152,11 +168,13 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
       }));
       
       // Log completion event
-      addEvent({
-        symbol,
-        status: 'completed',
-        timestamp: Date.now()
-      });
+      if (!silent) {
+        addEvent({
+          symbol,
+          status: 'completed',
+          timestamp: Date.now()
+        });
+      }
       
       delete activeAnalysesRef.current[symbol]; // No longer active
       return result as WaveAnalysisResult;
@@ -165,12 +183,14 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
       console.error(`Error analyzing ${symbol}:`, error);
       
       // Log error event
-      addEvent({
-        symbol,
-        status: 'error',
-        timestamp: Date.now(),
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
+      if (!silent) {
+        addEvent({
+          symbol,
+          status: 'error',
+          timestamp: Date.now(),
+          message: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
       
       delete activeAnalysesRef.current[symbol]; // No longer active
       return null;

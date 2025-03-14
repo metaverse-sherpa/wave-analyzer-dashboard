@@ -337,3 +337,57 @@ export async function testAnonKeyAccess(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Gets all historical data from cache
+ */
+export async function getAllHistoricalData(): Promise<Record<string, any>> {
+  try {
+    const { data, error } = await supabase
+      .from('cache')
+      .select('key, data')
+      .like('key', 'historical_data_%');
+      
+    if (error) throw error;
+    
+    const result = {};
+    if (data) {
+      for (const item of data) {
+        const key = item.key.replace('historical_data_', '');
+        result[key] = item.data;
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Error getting all historical data:', error);
+    return {};
+  }
+}
+
+/**
+ * Gets all wave analysis data from cache
+ */
+export async function getAllWaveAnalyses(): Promise<Record<string, any>> {
+  try {
+    const { data, error } = await supabase
+      .from('cache')
+      .select('key, data')
+      .like('key', 'wave_analysis_%');
+      
+    if (error) throw error;
+    
+    const result = {};
+    if (data) {
+      for (const item of data) {
+        const key = item.key.replace('wave_analysis_', '');
+        result[key] = item.data;
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Error getting all wave analyses:', error);
+    return {};
+  }
+}

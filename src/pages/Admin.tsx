@@ -4,9 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Link } from 'react-router-dom';
-import { getAllAnalyses, getAllHistoricalData, clearAllAnalyses } from '@/services/databaseService';
+import { getAllAnalyses, clearAllAnalyses } from '@/services/databaseService';
+import { getAllHistoricalData } from '@/services/cacheService'; // Get the Supabase version
 import { toast } from '@/lib/toast';
-import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity, LineChart, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
@@ -16,6 +17,7 @@ import { topStockSymbols } from '@/services/yahooFinanceService';
 import { clearMemoCache } from '@/utils/elliottWaveAnalysis';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
 import { migrateFromLocalStorage } from '@/services/cacheService';
+import { supabase } from '@/lib/supabase';
 
 interface ActiveAnalysis {
   symbol: string;
@@ -29,6 +31,9 @@ const normalizeTimestamp = (timestamp: number): number => {
   // If timestamp is in seconds (before year 2001), convert to milliseconds
   return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
 };
+
+
+
 
 const AdminDashboard = () => {
   // State and context hooks remain at the top
@@ -44,6 +49,11 @@ const AdminDashboard = () => {
   const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
   const [historicalData, setHistoricalData] = useState<Record<string, any>>({});
   const [waveAnalyses, setWaveAnalyses] = useState<Record<string, any>>({});
+  const [analysisProgress, setAnalysisProgress] = useState({
+    total: 0,
+    current: 0,
+    inProgress: false
+  });
 
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
@@ -53,52 +63,111 @@ const AdminDashboard = () => {
   const loadCacheData = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const analyses = await getAllAnalyses() || {};
-      const historicalData = await getAllHistoricalData() || {};
+      // Query all wave analysis entries
+      const { data: waveData, error: waveError } = await supabase
+        .from('cache')
+        .select('key, data, timestamp')
+        .like('key', 'wave_analysis_%');
+        
+      // Query all historical data entries  
+      const { data: histData, error: histError } = await supabase
+        .from('cache')
+        .select('key, data, timestamp')
+        .like('key', 'historical_data_%');
       
-      setWaveAnalyses(analyses);
+      if (waveError) throw waveError;
+      if (histError) throw histError;
+      
+      // Process wave analysis data
+      const waveAnalyses = {};
+      if (waveData) {
+        for (const item of waveData) {
+          const key = item.key.replace('wave_analysis_', '');
+          waveAnalyses[key] = {
+            analysis: item.data,
+            timestamp: item.timestamp
+          };
+        }
+      }
+      
+      // Process historical data
+      const historicalData = {};
+      if (histData) {
+        for (const item of histData) {
+          const key = item.key.replace('historical_data_', '');
+          historicalData[key] = {
+            data: item.data,
+            timestamp: item.timestamp
+          };
+        }
+      }
+      
+      setWaveAnalyses(waveAnalyses);
       setHistoricalData(historicalData);
+      
     } catch (error) {
-      console.error('Error loading cache data:', error);
+      console.error('Error loading cache data from Supabase:', error);
+      toast.error('Failed to load data from Supabase');
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [supabase]); // Add supabase as a dependency
 
   // 2. NOW define functions that depend on loadCacheData
   const analyzeWaves = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // Get all historical data cache keys
-      const cachedHistorical = await getAllHistoricalData() || {};
-      const stocksToAnalyze = Object.keys(cachedHistorical)
-        .filter(key => key.includes('_1d')) // Only use daily timeframe data
-        .map(key => key.split('_')[0]); // Extract symbol from key format "SYMBOL_TIMEFRAME"
+      // Get historical data directly from Supabase
+      const { data: histData, error: histError } = await supabase
+        .from('cache')
+        .select('key')
+        .like('key', 'historical_data_%');
+        
+      if (histError) throw histError;
+      
+      // Process the keys to get symbols
+      const stocksToAnalyze = (histData || [])
+        .map(item => item.key.replace('historical_data_', ''))
+        .filter(key => key.includes('_1d'))
+        .map(key => key.split('_')[0]);
       
       if (stocksToAnalyze.length === 0) {
-        toast.error('No historical data found. Please preload historical data first.');
+        toast.error('No historical data found in Supabase. Please preload historical data first.');
         setIsRefreshing(false);
         return;
       }
       
-      toast.success(`Starting wave analysis for ${stocksToAnalyze.length} stocks with cached data...`);
+      // Initialize progress tracking
+      setAnalysisProgress({
+        total: stocksToAnalyze.length,
+        current: 0,
+        inProgress: true
+      });
       
       // Process stocks one by one with a small delay between them
+      let completed = 0;
+      
       for (const symbol of stocksToAnalyze) {
         console.log(`Analyzing ${symbol}...`);
         try {
-          // Use the cached historical data
+          // Use the cached historical data - this will get from Supabase now
           const historicalData = await getHistoricalData(symbol, '1d');
           
           // Require at least 50 data points for analysis
           if (!historicalData || historicalData.length < 50) {
             console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
-            toast.warning(`Skipping ${symbol} - insufficient data points (${historicalData?.length || 0})`);
-            continue; // Skip this stock
+            continue; // Skip this stock without incrementing completed
           }
           
           // Now analyze with validated data
-          await getAnalysis(symbol, historicalData, true); // Force refresh for admin analysis
+          await getAnalysis(symbol, historicalData, true, true); // Added silent parameter
+          
+          // Update progress
+          completed++;
+          setAnalysisProgress(prev => ({
+            ...prev,
+            current: completed
+          }));
           
           // Small delay between stocks to prevent performance issues
           await new Promise(r => setTimeout(r, 300));
@@ -107,15 +176,22 @@ const AdminDashboard = () => {
         }
       }
       
+      // Finish up
       loadCacheData();
-      toast.success(`Wave analysis completed for ${stocksToAnalyze.length} stocks`);
+      toast.success(`Wave analysis completed for ${completed} stocks`);
     } catch (error) {
       console.error('Error analyzing waves:', error);
       toast.error('Failed to analyze waves');
     } finally {
+      // Reset progress
+      setAnalysisProgress({
+        total: 0,
+        current: 0,
+        inProgress: false
+      });
       setIsRefreshing(false);
     }
-  }, [getAnalysis, getHistoricalData, loadCacheData, getAllHistoricalData]);
+  }, [getAnalysis, getHistoricalData, loadCacheData, supabase]);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
@@ -124,7 +200,7 @@ const AdminDashboard = () => {
       // Use all stocks from the topStockSymbols array
       const stocks = topStockSymbols;
       
-      toast.success(`Fetching historical data for ${stocks.length} stocks...`);
+      toast.success(`Fetching historical data for ${stocks.length} stocks to Supabase...`);
       
       // Track progress for user feedback
       let completed = 0;
@@ -144,8 +220,39 @@ const AdminDashboard = () => {
         // Process each stock in the batch concurrently
         await Promise.all(batch.map(async (symbol) => {
           try {
-            await getHistoricalData(symbol, '1d', true);
+            // Fetch historical data directly
+            const response = await fetch(`/api/stocks/historical/${symbol}?timeframe=1d`);
+            
+            if (!response.ok) {
+              throw new Error(`API returned ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            // Format the data to match our expected format
+            const historicalData = data.map(item => ({
+              timestamp: typeof item.timestamp === 'string' ? new Date(item.timestamp).getTime() : item.timestamp,
+              open: Number(item.open),
+              high: Number(item.high),
+              low: Number(item.low),
+              close: Number(item.close),
+              volume: Number(item.volume || 0)
+            }));
+            
+            // Store directly to Supabase with a 7-day cache duration
+            const cacheKey = `historical_data_${symbol}_1d`;
+            await supabase
+              .from('cache')
+              .upsert({
+                key: cacheKey,
+                data: historicalData,
+                timestamp: Date.now(),
+                duration: 7 * 24 * 60 * 60 * 1000, // 7 days
+                is_string: false
+              }, { onConflict: 'key' });
+              
             completed++;
+            console.log(`Stored ${symbol} data in Supabase (${historicalData.length} points)`);
           } catch (error) {
             console.error(`Failed to load data for ${symbol}:`, error);
             failed++;
@@ -161,17 +268,17 @@ const AdminDashboard = () => {
       
       // Show final status
       if (failed > 0) {
-        toast.warning(`Historical data preloaded with some issues: ${completed} succeeded, ${failed} failed`);
+        toast.warning(`Historical data stored in Supabase with some issues: ${completed} succeeded, ${failed} failed`);
       } else {
-        toast.success(`Historical data preloaded successfully for all ${completed} stocks`);
+        toast.success(`Historical data stored in Supabase successfully for all ${completed} stocks`);
       }
     } catch (error) {
       console.error('Error preloading historical data:', error);
-      toast.error('Failed to preload historical data');
+      toast.error('Failed to preload historical data to Supabase');
     } finally {
       setIsRefreshing(false);
     }
-  }, [getHistoricalData, loadCacheData]);
+  }, [loadCacheData, supabase]);
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
@@ -229,8 +336,8 @@ const AdminDashboard = () => {
     return JSON.stringify(obj, null, 2);
   };
   
-  // Clear wave analysis cache
-  const clearWaveCache = () => {
+  // Clear wave analysis cache from Supabase
+  const clearWaveCache = async () => {
     if (window.confirm('Are you sure you want to clear all wave analysis cache? This will also cancel any ongoing analyses.')) {
       setIsRefreshing(true);
       try {
@@ -240,67 +347,74 @@ const AdminDashboard = () => {
         // Use the clearCache from context (which might handle some cache)
         clearCache();
         
-        // Also manually clear all localStorage entries with any wave-related prefixes
-        // This ensures we catch all cache formats across the application
-        Object.keys(localStorage).forEach(key => {
-          // Clear both formats: 'wave_analysis_' and 'wave-analysis:'
-          if (key.startsWith('wave_analysis_') || 
-              key.startsWith('wave-analysis:') ||
-              key.includes('_waves_') ||
-              key.includes('wave-pattern')) {
-            localStorage.removeItem(key);
-          }
-        });
+        // Delete all wave analysis entries from Supabase
+        const { error } = await supabase
+          .from('cache')
+          .delete()
+          .like('key', 'wave_analysis_%');
         
-        // Also clear memo cache from Elliott wave analysis
-        clearMemoCache();
+        if (error) {
+          throw error;
+        }
         
         // Update display
-        loadCacheData();
-        toast.success('Wave analysis cache cleared successfully');
-        
-        console.log("All wave caches cleared");
+        await loadCacheData();
+        toast.success('Wave analysis cache cleared successfully from Supabase');
       } catch (error) {
-        console.error('Error clearing wave cache:', error);
+        console.error('Error clearing wave cache from Supabase:', error);
         toast.error('Failed to clear wave analysis cache');
       } finally {
         setIsRefreshing(false);
       }
     }
   };
-  
-  // Clear historical data cache
-  const clearHistoricalCache = () => {
+
+  // Clear historical data cache from Supabase
+  const clearHistoricalCache = async () => {
     if (window.confirm('Are you sure you want to clear all historical data cache?')) {
       setIsRefreshing(true);
       try {
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('historical_data_')) {
-            localStorage.removeItem(key);
-          }
-        });
-        loadCacheData();
-        toast.success('Historical data cache cleared successfully');
+        // Delete all historical data entries from Supabase
+        const { error } = await supabase
+          .from('cache')
+          .delete()
+          .like('key', 'historical_data_%');
+        
+        if (error) {
+          throw error;
+        }
+        
+        await loadCacheData();
+        toast.success('Historical data cache cleared successfully from Supabase');
       } catch (error) {
-        console.error('Error clearing historical cache:', error);
+        console.error('Error clearing historical cache from Supabase:', error);
         toast.error('Failed to clear historical data cache');
       } finally {
         setIsRefreshing(false);
       }
     }
   };
-  
+
   // Delete a single item from cache
-  const deleteCacheItem = (key: string, type: 'waves' | 'historical') => {
+  const deleteCacheItem = async (key: string, type: 'waves' | 'historical') => {
     if (window.confirm(`Are you sure you want to delete ${key}?`)) {
       try {
         const storageKey = type === 'waves' 
           ? `wave_analysis_${key}`
           : `historical_data_${key}`;
           
-        localStorage.removeItem(storageKey);
-        loadCacheData();
-        toast.success(`Deleted ${key} from cache`);
+        // Delete from Supabase instead of localStorage
+        const { error } = await supabase
+          .from('cache')
+          .delete()
+          .eq('key', storageKey);
+        
+        if (error) {
+          throw error;
+        }
+        
+        await loadCacheData();
+        toast.success(`Deleted ${key} from Supabase cache`);
         if (selectedData?.key === key) {
           setSelectedData(null);
         }
@@ -312,20 +426,38 @@ const AdminDashboard = () => {
   };
 
   // Add this in loadCacheData or somewhere appropriate
-  const debugStorageContents = () => {
-    //console.log("===== DEBUG: localStorage contents =====");
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('wave_analysis_')) {
-        const data = localStorage.getItem(key);
-        const parsed = JSON.parse(data || '{}');
-        //console.log(`${key}: ${parsed.waves?.length || 0} waves`);
+  const debugStorageContents = async () => {
+    console.log("===== DEBUG: Supabase cache contents =====");
+    
+    try {
+      // Query wave analysis data from Supabase instead of localStorage
+      const { data: waveAnalysisData, error } = await supabase
+        .from('cache')
+        .select('key, data')
+        .like('key', 'wave_analysis_%');
+      
+      if (error) {
+        console.error("Error fetching cache data:", error);
+        return;
       }
-    });
-    //console.log("======================================");
+      
+      // Log each item from Supabase
+      waveAnalysisData?.forEach(item => {
+        console.log(`${item.key}: ${item.data?.waves?.length || 0} waves`);
+      });
+      
+    } catch (e) {
+      console.error("Error in debugStorageContents:", e);
+    }
+    
+    console.log("======================================");
   };
 
   // Call it after loadCacheData()
-  debugStorageContents();
+  useEffect(() => {
+    // Call the debug function when component mounts
+    debugStorageContents();
+  }, []); // Empty dependency array means this runs once on mount
 
   // Use useEffect to respond to changes in analysisEvents
   useEffect(() => {
@@ -435,6 +567,22 @@ const AdminDashboard = () => {
     }
   };
 
+  // Add this function to your Admin component
+  const clearAllSupabase = async () => {
+    if (window.confirm('This will completely clear ALL Supabase cache data. Are you sure?')) {
+      try {
+        setIsRefreshing(true);
+        await clearCache(); // Use your existing clearCache function
+        toast.success('All Supabase cache data has been cleared');
+      } catch (error) {
+        console.error('Error clearing Supabase data:', error);
+        toast.error('Failed to clear Supabase data');
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
+  };
+
   return (
     <div className="container mx-auto p-4">
       {/* Header section */}
@@ -528,7 +676,7 @@ const AdminDashboard = () => {
                 disabled={isRefreshing}
               >
                 <Database className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Loading...' : 'Preload Historical Data'}
+                {isRefreshing ? 'Loading...' : 'Load Historical Data to Supabase'}
               </Button>
               
               <Button 
@@ -554,14 +702,13 @@ const AdminDashboard = () => {
               </Button>
 
               <Button 
-                onClick={handleMigration}
-                variant="default"
+                onClick={clearAllSupabase}
+                variant="destructive"
                 size="sm"
                 className="w-full"
-                disabled={isRefreshing}
               >
-                <Database className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Migrating...' : 'Migrate to Supabase'}
+                <Trash2 className="h-4 w-4 mr-2" />
+                Purge All Supabase Cache
               </Button>
               
               <div className="pt-3 mt-3 border-t text-sm text-muted-foreground">
@@ -600,7 +747,31 @@ const AdminDashboard = () => {
             </TabsList>
             
             <TabsContent value="waves" className="border rounded-md p-4 min-h-[500px]">
-              <h3 className="text-lg font-medium mb-2">Wave Analysis Data</h3>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-lg font-medium">Wave Analysis Data</h3>
+                
+                {/* Add progress indicator next to title */}
+                {analysisProgress.inProgress && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Processing {analysisProgress.current}/{analysisProgress.total}
+                  </Badge>
+                )}
+              </div>
+              
+              {/* Add progress bar under the title */}
+              {analysisProgress.inProgress && (
+                <div className="mb-4 space-y-1">
+                  <Progress
+                    value={(analysisProgress.current / analysisProgress.total) * 100}
+                    className="h-2"
+                  />
+                  <p className="text-xs text-muted-foreground text-right">
+                    {Math.round((analysisProgress.current / analysisProgress.total) * 100)}% complete
+                  </p>
+                </div>
+              )}
+              
               <ScrollArea className="h-[500px]">
                 {isRefreshing ? (
                   <div className="p-4 text-center text-muted-foreground">

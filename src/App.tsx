@@ -50,6 +50,12 @@ import DataInitializer from './context/DataInitializer';
 import AdminDashboard from "./pages/Admin";
 import { toast } from "@/components/ui/use-toast";
 import AnalysisStatusTracker from './components/AnalysisStatusTracker';
+import { initStorageMonitor } from '@/lib/storage-monitor';
+
+// Initialize it before your app renders
+if (process.env.NODE_ENV === 'development') {
+  initStorageMonitor();
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {

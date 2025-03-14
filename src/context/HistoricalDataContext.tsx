@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { fetchHistoricalData } from '@/services/yahooFinanceService';
 import type { StockHistoricalData } from '@/types/shared';
+import { supabase } from '@/lib/supabase';
+import { saveToCache } from '@/services/cacheService';
 
 // 1. Define a clear interface for the context value
 interface HistoricalDataContextValue {
@@ -31,8 +33,14 @@ export const HistoricalDataProvider: React.FC<{children: React.ReactNode}> = ({ 
     const cacheKey = `${symbol}_${timeframe}`;
     
     // If we already have this data and not forcing refresh, return it
-    if (!forceRefresh && historicalData[cacheKey]) {
-      return historicalData[cacheKey];
+    const { data: cachedItem } = await supabase
+      .from('cache')
+      .select('data')
+      .eq('key', `historical_data_${symbol}_${timeframe}`)
+      .single();
+    const cached = cachedItem?.data;
+    if (!forceRefresh && cached) {
+      return cached;
     }
     
     try {
@@ -44,6 +52,9 @@ export const HistoricalDataProvider: React.FC<{children: React.ReactNode}> = ({ 
         ...prev,
         [cacheKey]: data
       }));
+      
+      // Save to cache
+      await saveToCache(`historical_data_${symbol}_${timeframe}`, data, 7 * 24 * 60 * 60 * 1000);
       
       return data;
     } catch (error) {
