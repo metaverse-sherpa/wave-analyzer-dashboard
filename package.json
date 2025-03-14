@@ -58,6 +58,7 @@
     "git": "^0.1.5",
     "input-otp": "^1.2.4",
     "lucide-react": "^0.462.0",
+    "lz-string": "^1.5.0",
     "next": "^15.2.1",
     "next-themes": "^0.3.0",
     "node-fetch": "^3.3.2",

@@ -383,19 +383,64 @@ app.get('/api/stocks/historical/:symbol', async (req, res) => {
   }
 });
 
-// Add another endpoint for top stocks
+// Update the top stocks endpoint to use Yahoo Finance screener
 app.get('/api/stocks/top', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit?.toString() || '20', 10);
-    const stocks = topStockSymbols.slice(0, limit).map(symbol => ({
-      symbol,
-      shortName: `${symbol} Inc.`,
-      regularMarketPrice: 100 + Math.random() * 100,
-      regularMarketChange: (Math.random() * 10) - 5,
-      regularMarketChangePercent: (Math.random() * 10) - 5,
-      regularMarketVolume: Math.floor(Math.random() * 10000000),
-      marketCap: Math.floor(Math.random() * 1000000000000)
-    }));
+    
+    // Use cached data or fetch from Yahoo Finance
+    const fetchTopStocks = async () => {
+      console.log(`Fetching top ${limit} most active stocks from Yahoo Finance`);
+      
+      try {
+        // Correct options format with scrIds instead of screenerType
+        const queryOptions = { 
+          scrIds: 'most_actives', 
+          count: limit,
+          region: 'US',
+          lang: 'en-US'
+        };
+        
+        const result = await yahooFinance.screener(queryOptions);
+        
+        if (!result?.quotes || !Array.isArray(result.quotes)) {
+          console.error('Invalid response format from Yahoo Finance screener:', result);
+          throw new Error('Invalid response format from screener API');
+        }
+        
+        console.log(`Retrieved ${result.quotes.length} stocks from screener`);
+        
+        // Transform to expected format
+        return result.quotes.map(quote => ({
+          symbol: quote.symbol,
+          shortName: quote.shortName || `${quote.symbol} Inc.`,
+          regularMarketPrice: quote.regularMarketPrice || 0,
+          regularMarketChange: quote.regularMarketChange || 0,
+          regularMarketChangePercent: quote.regularMarketChangePercent || 0,
+          regularMarketVolume: quote.regularMarketVolume || 0,
+          marketCap: quote.marketCap || 0,
+          averageVolume: quote.averageDailyVolume3Month || quote.averageVolume || 0
+        }));
+      } catch (error) {
+        console.error('Error fetching from Yahoo Finance screener:', error);
+        
+        // Fallback to predefined list when Yahoo Finance fails
+        console.log('Falling back to predefined stock list');
+        return topStockSymbols.slice(0, limit).map(symbol => ({
+          symbol,
+          shortName: `${symbol} Inc.`,
+          regularMarketPrice: 100 + Math.random() * 100,
+          regularMarketChange: (Math.random() * 10) - 5,
+          regularMarketChangePercent: (Math.random() * 10) - 5,
+          regularMarketVolume: Math.floor(Math.random() * 10000000),
+          marketCap: Math.floor(Math.random() * 1000000000000),
+          averageVolume: Math.floor(Math.random() * 5000000)
+        }));
+      }
+    };
+    
+    // Get data with 10-minute cache TTL
+    const stocks = await getCachedData(`top_stocks_${limit}`, fetchTopStocks, 10);
     
     res.json(stocks);
   } catch (error) {
