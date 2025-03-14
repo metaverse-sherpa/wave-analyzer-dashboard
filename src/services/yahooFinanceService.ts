@@ -1,4 +1,5 @@
 import { toast } from "@/lib/toast";
+import { apiUrl } from '@/utils/apiConfig';
 import type { 
   StockData as SharedStockData, 
   StockHistoricalData as SharedStockHistoricalData, 
@@ -95,7 +96,7 @@ export const fetchTopStocks = async (limit: number = 100): Promise<StockData[]> 
   if (cached) return cached;
   
   try {
-    const response = await fetch('/api/stocks/top');
+    const response = await fetch(apiUrl('stocks/top'));
     const contentType = response.headers.get('content-type');
     
     // Check if response is JSON before parsing
@@ -163,79 +164,234 @@ function getFallbackStockData(): StockData[] {
   }));
 }
 
-// Function to fetch historical data with improved caching
-export const fetchHistoricalData = async (
-  symbol: string,
-  timeframe: string = '1d'
-): Promise<{ symbol: string; historicalData: SharedStockHistoricalData[] }> => {
-  // If using mock data, bypass API calls entirely
-  if (USE_MOCK_DATA) {
-    console.log(`Using mock data for ${symbol} (${timeframe})`);
-    return {
-      symbol,
-      historicalData: generateMockHistoricalData(symbol, 500)
-    };
-  }
+// Update the API URL handling and add environment-aware data fetching
 
-  // Validate symbol
-  if (!symbol) {
-    throw new Error('Symbol is required to fetch historical data');
-  }
+// At the top of your file, add this to control data source:
+const API_STATUS = {
+  checkedEndpoints: new Set<string>(),
+  workingEndpoints: new Set<string>(),
+  lastCheck: 0
+};
 
+/**
+ * Smart fetch function that falls back to mock data when API endpoints fail
+ */
+async function smartFetch<T>(
+  endpoint: string, 
+  mockDataFn: () => T, 
+  cacheKey?: string,
+  cacheDuration?: number
+): Promise<T> {
+  // Check if we've tried this endpoint before and it failed
+  const fullEndpoint = apiUrl(endpoint);
+  if (API_STATUS.checkedEndpoints.has(fullEndpoint) && 
+      !API_STATUS.workingEndpoints.has(fullEndpoint)) {
+    console.log(`Skipping known broken endpoint: ${endpoint}`);
+    return mockDataFn();
+  }
+  
   try {
-    console.log(`Fetching historical data for ${symbol} from: ${API_BASE_URL}/historical?symbol=${symbol}&timeframe=${timeframe}`);
+    // Add a timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    const response = await fetch(`${API_BASE_URL}/historical?symbol=${symbol}&timeframe=${timeframe}`);
+    const response = await fetch(fullEndpoint, { 
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    clearTimeout(timeoutId);
     
-    // Log the response status
-    console.log(`API response status for ${symbol}: ${response.status} ${response.statusText}`);
+    // Mark this endpoint as checked
+    API_STATUS.checkedEndpoints.add(fullEndpoint);
+    
+    // Handle non-OK responses
+    if (!response.ok) {
+      // For 404, log specifically that the endpoint doesn't exist
+      if (response.status === 404) {
+        console.warn(`API endpoint not found: ${endpoint}`);
+      }
+      throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+    }
     
     // Check content type
     const contentType = response.headers.get('content-type');
-    console.log(`Content-Type: ${contentType}`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch data: ${response.statusText} (${response.status})`);
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error('API returned non-JSON response');
     }
     
-    // Log the first part of the response to debug
-    const responseText = await response.text();
-    console.log(`Response preview: ${responseText.substring(0, 100)}...`);
+    // Parse the JSON response
+    const data = await response.json();
     
-    // Try to parse the JSON
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Error parsing JSON response:', parseError);
-      throw new Error(`Invalid JSON response: ${responseText.substring(0, 50)}...`);
+    // Mark this endpoint as working
+    API_STATUS.workingEndpoints.add(fullEndpoint);
+    
+    // Save to cache if needed
+    if (cacheKey && cacheDuration) {
+      saveToCache(cacheKey, data, cacheDuration);
     }
     
-    if (Array.isArray(data) && data.length > 0) {
-      console.log(`Successfully parsed ${data.length} data points for ${symbol}`);
-      return {
-        symbol,
-        historicalData: data
-      };
-    }
-    
-    // Fall back to mock data for now to get the app working
-    console.log(`No data returned for ${symbol}, using mock data`);
-    return {
-      symbol,
-      historicalData: generateMockHistoricalData(symbol, 300)
-    };
+    return data as T;
   } catch (error) {
-    console.error(`Error fetching historical data for ${symbol}:`, error);
+    console.error(`Error fetching ${endpoint}:`, error);
     
-    // Fall back to mock data so the app can continue
-    console.log(`Falling back to mock data for ${symbol}`);
-    return {
-      symbol,
-      historicalData: generateMockHistoricalData(symbol, 300)
-    };
+    // Get mock data
+    const mockData = mockDataFn();
+    
+    // Save mock data to cache if needed
+    if (cacheKey && cacheDuration) {
+      saveToCache(cacheKey, mockData, cacheDuration / 2);
+    }
+    
+    return mockData;
   }
+}
+
+// Update the fetchHistoricalData function to try multiple endpoint formats
+
+export const fetchHistoricalData = async (
+  symbol: string, 
+  timeframe: string = '1d',
+  forceRefresh: boolean = false
+): Promise<StockHistoricalData[]> => {
+  // Cache key for this specific data request
+  const cacheKey = `historical_data_${symbol}_${timeframe}`;
+  
+  // Try to get from cache first if not forcing refresh
+  if (!forceRefresh) {
+    const cached = getFromCache<StockHistoricalData[]>(cacheKey);
+    if (cached) {
+      console.log(`Using cached data for ${symbol} (${timeframe})`);
+      return cached;
+    }
+  }
+  
+  // Always use mock data in development if the env var is set
+  if (import.meta.env.VITE_USE_MOCK_DATA === 'true') {
+    console.log(`Using mock data for ${symbol} (environment setting)`);
+    const mockData = generateMockHistoricalData(symbol, timeframe === '1d' ? 90 : 260);
+    saveToCache(cacheKey, mockData, HISTORICAL_CACHE_DURATION);
+    return mockData;
+  }
+
+  // Define possible endpoint formats to try
+  const endpointFormats = [
+    `stocks/historical/${symbol}?timeframe=${timeframe}`,
+    `api/stocks/historical/${symbol}?timeframe=${timeframe}`,
+    `quotes/${symbol}/history?range=${timeframe}`,
+    `history/${symbol}?period=${timeframe}`
+  ];
+  
+  // Try each format until one works
+  for (const endpoint of endpointFormats) {
+    try {
+      console.log(`Trying endpoint: ${endpoint}`);
+      
+      // Add a timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(apiUrl(endpoint), { 
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+      clearTimeout(timeoutId);
+      
+      // Skip to next endpoint if this one fails
+      if (!response.ok) {
+        console.warn(`API endpoint ${endpoint} returned status ${response.status}`);
+        continue;
+      }
+      
+      // Check content type
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn(`API endpoint ${endpoint} returned non-JSON response`);
+        continue;
+      }
+      
+      // Parse response
+      const data = await response.json();
+      
+      // Validate data structure
+      if (!Array.isArray(data) || data.length === 0) {
+        console.warn(`API endpoint ${endpoint} returned invalid or empty data`);
+        continue;
+      }
+      
+      console.log(`Found working endpoint: ${endpoint}`);
+      
+      // Format the data to match our interface
+      const historicalData: StockHistoricalData[] = data.map(item => ({
+        timestamp: typeof item.timestamp === 'string' ? new Date(item.timestamp).getTime() : item.timestamp,
+        open: Number(item.open),
+        high: Number(item.high),
+        low: Number(item.low),
+        close: Number(item.close),
+        volume: Number(item.volume || 0)
+      }));
+      
+      // Cache the result
+      saveToCache(cacheKey, historicalData, HISTORICAL_CACHE_DURATION);
+      
+      return historicalData;
+    } catch (error) {
+      console.error(`Error trying endpoint ${endpoint}:`, error);
+      // Continue to next endpoint format
+    }
+  }
+  
+  // If all endpoints failed, use mock data
+  console.log(`All API endpoints failed for ${symbol}, using mock data`);
+  const mockData = generateMockHighQualityData(symbol, timeframe);
+  saveToCache(cacheKey, mockData, HISTORICAL_CACHE_DURATION / 2);
+  return mockData;
 };
+
+// Add fallback mode flag that other parts of the app can check
+export const isUsingFallbackMode = (): boolean => {
+  // If we haven't checked the health endpoint yet, check if most endpoints fail
+  if (API_STATUS.checkedEndpoints.size > 0) {
+    const failRate = 1 - (API_STATUS.workingEndpoints.size / API_STATUS.checkedEndpoints.size);
+    return failRate > 0.5; // If more than half of endpoints fail, we're in fallback mode
+  }
+  return false;
+};
+
+// Add a helper function to generate fallback historical data
+function getFallbackHistoricalData(symbol: string): StockHistoricalData[] {
+  // Create some synthetic data points as fallback
+  const fallbackData: StockHistoricalData[] = [];
+  const now = new Date();
+  
+  // Generate 100 days of dummy data (increased from 90)
+  for (let i = 100; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(now.getDate() - i);
+    date.setHours(0, 0, 0, 0);
+    
+    // Base price varies by symbol to make them look different
+    const basePrice = 100 + (symbol.charCodeAt(0) % 10) * 10;
+    
+    // Small random variations with a slight trend based on symbol
+    const trend = (symbol.charCodeAt(0) % 3 - 1) * 0.1; // -0.1, 0, or 0.1
+    const dayVariation = (Math.sin(i/10) * 10) + (Math.random() * 5 - 2.5) + (i * trend);
+    const open = basePrice + dayVariation;
+    const close = open + (Math.random() * 4 - 2);
+    const high = Math.max(open, close) + (Math.random() * 2);
+    const low = Math.min(open, close) - (Math.random() * 2);
+    
+    fallbackData.push({
+      timestamp: date.getTime(),
+      open,
+      high,
+      low,
+      close, 
+      volume: Math.floor(Math.random() * 1000000) + 500000
+    });
+  }
+  
+  return fallbackData;
+}
 
 // Add this helper function to generate mock data
 function generateMockHistoricalData(symbol: string, days: number): SharedStockHistoricalData[] {
@@ -269,24 +425,143 @@ function generateMockHistoricalData(symbol: string, days: number): SharedStockHi
   return mockData;
 }
 
-// Update the health check function to use the proper type
-export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
-  try {
-    const response = await fetch('/api/health');
-    const data = await response.json();
-    return {
-      status: data.status,
-      message: data.message,
-      version: data.version,
-      timestamp: new Date(data.timestamp) // Timestamp is now expected in the type
-    };
-  } catch (error) {
-    return {
-      status: 'error',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date() // Timestamp is now expected in the type
-    };
+// Generate better quality mock data with realistic patterns
+function generateMockHighQualityData(symbol: string, timeframe: string): StockHistoricalData[] {
+  console.log(`Generating realistic mock data for ${symbol}`);
+  
+  // Determine number of data points based on timeframe
+  const dataPoints = timeframe === '1d' ? 90 : 
+                     timeframe === '1wk' ? 156 : 
+                     timeframe === '1mo' ? 60 : 200;
+  
+  const mockData: StockHistoricalData[] = [];
+  const today = new Date();
+  
+  // Base price varies by symbol to differentiate them
+  let basePrice = 100 + (symbol.charCodeAt(0) % 50);
+  
+  // Trend parameters
+  const trendStrength = (symbol.charCodeAt(0) % 5) / 100; // 0-0.05 trend strength
+  const isBullish = symbol.charCodeAt(1) % 2 === 0; // Alternate trend direction
+  const trend = isBullish ? trendStrength : -trendStrength;
+  
+  // Volatility based on symbol
+  const volatility = 0.01 + (symbol.charCodeAt(2) % 10) / 100; // 0.01-0.11
+  
+  // Time unit based on timeframe
+  const timeUnit = timeframe === '1d' ? 'days' : 
+                  timeframe === '1wk' ? 'weeks' : 'months';
+                  
+  for (let i = dataPoints; i >= 0; i--) {
+    const date = new Date(today);
+    if (timeUnit === 'days') {
+      date.setDate(today.getDate() - i);
+    } else if (timeUnit === 'weeks') {
+      date.setDate(today.getDate() - (i * 7));
+    } else {
+      date.setMonth(today.getMonth() - i);
+    }
+    date.setHours(0, 0, 0, 0);
+    
+    // Add some cyclicality to price movements
+    const cycle = Math.sin(i / 20) * volatility * 10;
+    const randomWalk = (Math.random() - 0.5) * volatility * 2;
+    const trendComponent = trend * i;
+    
+    // Calculate price movement
+    const change = cycle + randomWalk + trendComponent;
+    basePrice = Math.max(1, basePrice * (1 + change));
+    
+    // Daily volatility
+    const dayVolatility = volatility * (0.5 + Math.random() * 0.5);
+    const high = basePrice * (1 + dayVolatility);
+    const low = basePrice * (1 - dayVolatility);
+    
+    // Determine if this is an up or down day
+    const isUpDay = Math.random() > 0.5 - (isBullish ? 0.1 : -0.1);
+    
+    // Set open and close based on up/down day
+    let open, close;
+    if (isUpDay) {
+      open = low + Math.random() * (basePrice - low);
+      close = basePrice + Math.random() * (high - basePrice);
+    } else {
+      open = basePrice + Math.random() * (high - basePrice);
+      close = low + Math.random() * (basePrice - low);
+    }
+    
+    // Volume varies with volatility and has occasional spikes
+    const volumeBase = 100000 + Math.random() * 900000;
+    const volumeSpike = Math.random() > 0.95 ? 3 : 1;
+    const volume = Math.floor(volumeBase * (1 + dayVolatility * 5) * volumeSpike);
+    
+    mockData.push({
+      timestamp: date.getTime(),
+      open,
+      high,
+      low,
+      close,
+      volume
+    });
   }
+  
+  return mockData;
+}
+
+// Update the health check function to handle errors better
+
+// Update the checkBackendHealth function to be more robust
+export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
+  // Define potential health endpoint paths
+  const healthEndpoints = [
+    'health',
+    'api/health',
+    'status',
+    'api/status'
+  ];
+  
+  // Try each endpoint
+  for (const endpoint of healthEndpoints) {
+    try {
+      // Add timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      const response = await fetch(apiUrl(endpoint), { 
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+      clearTimeout(timeoutId);
+      
+      // Skip to next if this fails
+      if (!response.ok) continue;
+      
+      // Check content type
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) continue;
+      
+      // We found a working health endpoint
+      console.log(`Found working health endpoint: ${endpoint}`);
+      const data = await response.json();
+      
+      return {
+        status: data.status || 'ok',
+        message: data.message || 'API is online',
+        version: data.version,
+        timestamp: new Date(data.timestamp || Date.now())
+      };
+    } catch (error) {
+      // Skip to next endpoint
+    }
+  }
+  
+  // All endpoints failed, return error
+  console.warn('All health endpoints failed');
+  return {
+    status: 'error',
+    message: 'API is not available',
+    timestamp: new Date()
+  };
 };
 
 // Fix the quotes mapping

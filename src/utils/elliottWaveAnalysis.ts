@@ -530,28 +530,36 @@ const completeWaveAnalysis = (
 /**
  * Try multiple threshold combinations to find waves
  */
-export const analyzeElliottWaves = (
-  data: StockHistoricalData[], 
-  onProgress?: (waves: Wave[]) => void
-): WaveAnalysisResult => {
+export const analyzeElliottWaves = async (
+  symbol: string,
+  priceData: StockHistoricalData[],
+  isCancelled: () => boolean = () => false,
+  onProgress?: (waves: Wave[]) => void  // Add this parameter
+): Promise<WaveAnalysisResult> => {
+  // Add validation at the beginning
+  const MIN_REQUIRED_POINTS = 50;
+  if (!priceData || priceData.length < MIN_REQUIRED_POINTS) {
+    throw new Error(`Insufficient data points: ${priceData?.length || 0} (minimum ${MIN_REQUIRED_POINTS} required)`);
+  }
+
   try {
     console.log('\n=== Starting Elliott Wave Analysis ===');
-    console.log(`Analyzing ${data.length} data points from:`, {
-      start: new Date(data[0].timestamp).toLocaleDateString(),
-      end: new Date(data[data.length - 1].timestamp).toLocaleDateString()
+    console.log(`Analyzing ${priceData.length} data points from:`, {
+      start: new Date(priceData[0].timestamp).toLocaleDateString(),
+      end: new Date(priceData[priceData.length - 1].timestamp).toLocaleDateString()
     });
 
     // Basic validation
-    if (!data || data.length < 10) {
-      console.error(`Insufficient data points: ${data?.length}`);
+    if (!priceData || priceData.length < 10) {
+      console.error(`Insufficient data points: ${priceData?.length}`);
       return generateEmptyAnalysisResult();
     }
 
     // Calculate price range
     try {
       const priceRange = {
-        low: Math.min(...data.map(d => d.low)),
-        high: Math.max(...data.map(d => d.high))
+        low: Math.min(...priceData.map(d => d.low)),
+        high: Math.max(...priceData.map(d => d.high))
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -559,7 +567,7 @@ export const analyzeElliottWaves = (
     }
     
     // Filter valid data points
-    const validData = data.filter(point => {
+    const validData = priceData.filter(point => {
       return point && 
              point.timestamp &&
              typeof point.close === 'number' &&
@@ -567,7 +575,7 @@ export const analyzeElliottWaves = (
              typeof point.low === 'number';
     });
     
-    console.log(`Valid data points: ${validData.length} of ${data.length}`);
+    console.log(`Valid data points: ${validData.length} of ${priceData.length}`);
     
     // MOVE THIS CODE INSIDE THE FUNCTION
     // Reduce data size for performance if needed

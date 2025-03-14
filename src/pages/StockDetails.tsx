@@ -59,7 +59,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     waves: [],
     currentWave: null,
     fibTargets: [],
-    trend: 'neutral',
+    trend: 'neutral' as 'bullish' | 'bearish' | 'neutral',
     impulsePattern: false,
     correctivePattern: false
   });
@@ -88,10 +88,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         }
         
         // Load both historical data and wave analysis in parallel
-        const [historicalData, waveAnalysis] = await Promise.all([
-          getHistoricalData(symbol, '1d'),
-          getAnalysis(symbol, '1d')
-        ]);
+        const historicalData = await getHistoricalData(symbol, '1d');
+        const waveAnalysis = await getAnalysis(symbol, historicalData);
         
         // Set historical data
         setHistoricalData(historicalData);
@@ -100,7 +98,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         if (waveAnalysis) {
           setAnalysis({
             ...waveAnalysis,
-            trend: waveAnalysis.trend as 'bullish' | 'bearish' | 'neutral' // Force the correct type
+            trend: waveAnalysis.trend
           });
         } else {
           // Only show error if we have historical data but no analysis

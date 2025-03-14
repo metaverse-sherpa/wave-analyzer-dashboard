@@ -28,11 +28,11 @@ export interface StockHistoricalData {
 
 export interface WaveAnalysisResult {
   waves: Wave[];
-  currentWave: Wave | null;
+  currentWave: Wave;
   fibTargets: FibTarget[];
-  trend: 'bullish' | 'bearish' | 'neutral';
-  impulsePattern: boolean;
-  correctivePattern: boolean;
+  trend: 'bullish' | 'bearish' | 'neutral'; // Add 'neutral' to the allowed values
+  impulsePattern?: boolean;
+  correctivePattern?: boolean;
 }
 
 export interface StockData {

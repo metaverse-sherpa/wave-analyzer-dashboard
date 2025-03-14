@@ -1,68 +1,106 @@
 import React, { useState, useEffect } from 'react';
-import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { apiUrl } from '@/utils/apiConfig';
 
-const ApiStatusCheck: React.FC = () => {
-  const [apiStatus, setApiStatus] = useState<'checking' | 'ok' | 'error'>('checking');
-  const [message, setMessage] = useState('Checking API endpoint...');
-  
-  const checkApi = async () => {
-    setApiStatus('checking');
-    setMessage('Checking API endpoint...');
-    
+const ApiStatusCheck = () => {
+  const [status, setStatus] = useState<'loading' | 'online' | 'offline' | 'error'>('loading');
+  const [details, setDetails] = useState<string>('Checking API status...');
+  const [lastChecked, setLastChecked] = useState<string>('');
+
+  // Function to check API health
+  const checkApiStatus = async () => {
     try {
-      // Check health endpoint
-      const healthResponse = await fetch('/api/health');
-      if (!healthResponse.ok) {
-        setApiStatus('error');
-        setMessage('API health check failed. Server may be down.');
-        return;
+      setStatus('loading');
+      setDetails('Checking API status...');
+      
+      // Use the apiUrl utility instead of hardcoded URL
+      const response = await fetch(apiUrl('health'), { 
+        headers: { 'Accept': 'application/json' },
+      });
+      
+      // Check if it's a JSON response
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        // Get a preview of what we received
+        const text = await response.text();
+        const preview = text.substring(0, 100);
+        throw new Error(`API returned non-JSON response: ${preview}...`);
       }
       
-      // Check historical data endpoint with a simple request
-      const historicalResponse = await fetch('/api/historical?symbol=AAPL&timeframe=1d');
-      if (!historicalResponse.ok) {
-        setApiStatus('error');
-        setMessage('Historical data API endpoint is not responding correctly.');
-        return;
-      }
+      const data = await response.json();
       
-      const data = await historicalResponse.json();
-      if (!Array.isArray(data) || data.length === 0) {
-        setApiStatus('error');
-        setMessage('Historical data API returned empty or invalid response.');
-        return;
+      if (data.status === 'ok') {
+        setStatus('online');
+        setDetails(`API version: ${data.version || 'unknown'}`);
+      } else {
+        setStatus('error');
+        setDetails(data.message || 'API reported an error');
       }
-      
-      setApiStatus('ok');
-      setMessage(`API is working properly. Retrieved ${data.length} data points.`);
     } catch (error) {
-      setApiStatus('error');
-      setMessage(`API connection error: ${error instanceof Error ? error.message : String(error)}`);
+      setStatus('offline');
+      setDetails(error instanceof Error ? error.message : 'Failed to connect to API');
+      console.error('API connection error:', error);
+    } finally {
+      setLastChecked(`Last checked: ${new Date().toLocaleTimeString()}`);
     }
   };
-  
+
+  // Check status on component mount
   useEffect(() => {
-    checkApi();
+    checkApiStatus();
+    
+    // Set up periodic checks every minute
+    const interval = setInterval(checkApiStatus, 60000);
+    
+    return () => clearInterval(interval);
   }, []);
-  
+
   return (
-    <div className="p-4 bg-background border rounded-lg shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-medium">API Status</h3>
-        <div className={`w-3 h-3 rounded-full ${
-          apiStatus === 'checking' ? 'bg-yellow-500' :
-          apiStatus === 'ok' ? 'bg-green-500' : 'bg-red-500'
-        }`}></div>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          {status === 'online' && (
+            <CheckCircle className="h-5 w-5 text-green-500" />
+          )}
+          {status === 'offline' && (
+            <XCircle className="h-5 w-5 text-red-500" />
+          )}
+          {(status === 'loading' || status === 'error') && (
+            <AlertCircle className={`h-5 w-5 ${status === 'loading' ? 'text-yellow-500' : 'text-red-500'}`} />
+          )}
+          <span>API Status:</span>
+        </div>
+        
+        <Badge
+          variant={
+            status === 'online' ? 'default' :
+            status === 'offline' ? 'destructive' :
+            status === 'error' ? 'outline' : 'secondary'
+          }
+          className={status === 'loading' ? 'animate-pulse' : ''}
+        >
+          {status === 'online' ? 'Online' :
+           status === 'offline' ? 'Offline' :
+           status === 'error' ? 'Error' : 'Checking...'}
+        </Badge>
       </div>
-      <p className="text-sm text-muted-foreground mb-4">{message}</p>
-      <Button 
-        size="sm" 
-        variant="outline" 
-        onClick={checkApi}
-        disabled={apiStatus === 'checking'}
-      >
-        {apiStatus === 'checking' ? 'Checking...' : 'Check Again'}
-      </Button>
+      
+      <div className="text-sm text-muted-foreground space-y-1">
+        <p>{details}</p>
+        <p className="text-xs">{lastChecked}</p>
+      </div>
+      
+      {status !== 'online' && (
+        <div className="mt-2 text-sm">
+          <button 
+            onClick={checkApiStatus}
+            className="text-blue-500 hover:underline flex items-center"
+          >
+            Retry connection
+          </button>
+        </div>
+      )}
     </div>
   );
 };

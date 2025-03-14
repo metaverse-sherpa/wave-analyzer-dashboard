@@ -45,7 +45,7 @@ import WaveAnalysis, { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { HistoricalDataProvider } from '@/context/HistoricalDataContext';
 import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { KillSwitchProvider, useKillSwitch } from './context/KillSwitchContext';
+import { KillSwitchProvider, useKillSwitch, KillSwitchContext } from './context/KillSwitchContext';
 import DataInitializer from './context/DataInitializer';
 import AdminDashboard from "./pages/Admin";
 import { toast } from "@/components/ui/use-toast";
@@ -222,9 +222,9 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <TooltipProvider>
-            <KillSwitchProvider>
+            <KillSwitchContext.Provider value={{ killSwitch: calculationKillSwitch, setKillSwitch: setCalculationKillSwitch }}>
               <HistoricalDataProvider>
-                <WaveAnalysis.Provider killSwitch={calculationKillSwitch}>
+                <WaveAnalysis.Provider>
                   <AnalysisStatusTracker />
                   {loadState === 'loading' ? (
                     <div className="flex items-center justify-center h-screen">
@@ -295,7 +295,7 @@ const App = () => {
                   {/* Your emergency buttons */}
                 </WaveAnalysis.Provider>
               </HistoricalDataProvider>
-            </KillSwitchProvider>
+            </KillSwitchContext.Provider>
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

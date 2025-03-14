@@ -1,47 +1,62 @@
-// First, create a new file: src/components/AnalysisStatusTracker.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { toast } from '@/components/ui/use-toast';
+
+// Remove the direct useNavigate import
+// import { useNavigate } from 'react-router-dom';
 
 const AnalysisStatusTracker: React.FC = () => {
-  const [activeCount, setActiveCount] = useState(0);
   const { analysisEvents } = useWaveAnalysis();
-
+  const [processedEvents, setProcessedEvents] = useState<Set<number>>(new Set());
+  
+  // Don't use navigation hooks here
+  // const navigate = useNavigate();
+  
+  // Track analysis events with useEffect
   useEffect(() => {
-    const handleAnalysisStart = () => {
-      setActiveCount(prev => prev + 1);
-    };
-
-    const handleAnalysisComplete = () => {
-      setActiveCount(prev => Math.max(0, prev - 1));
-    };
-
-    const handleAnalysisError = () => {
-      setActiveCount(prev => Math.max(0, prev - 1));
-    };
-
-    // Add event listeners
-    analysisEvents.addEventListener('analysisStart', handleAnalysisStart);
-    analysisEvents.addEventListener('analysisComplete', handleAnalysisComplete);
-    analysisEvents.addEventListener('analysisError', handleAnalysisError);
-    analysisEvents.addEventListener('complete', handleAnalysisComplete);
-
-    // Cleanup
-    return () => {
-      analysisEvents.removeEventListener('analysisStart', handleAnalysisStart);
-      analysisEvents.removeEventListener('analysisComplete', handleAnalysisComplete);
-      analysisEvents.removeEventListener('analysisError', handleAnalysisError);
-      analysisEvents.removeEventListener('complete', handleAnalysisComplete);
-    };
-  }, [analysisEvents]);
-
-  if (activeCount === 0) return null;
-
-  return (
-    <div className="fixed bottom-4 right-4 bg-black/80 text-white p-2 px-4 rounded-full text-sm z-50 flex items-center gap-2">
-      <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse"></div>
-      <span>AnalysisStatusTracker: {activeCount} analyses loaded</span>
-    </div>
-  );
+    // Process any new events we haven't seen before
+    const newEvents = analysisEvents.filter(event => !processedEvents.has(event.timestamp));
+    
+    if (newEvents.length > 0) {
+      const newProcessed = new Set(processedEvents);
+      
+      // Process each new event
+      newEvents.forEach(event => {
+        newProcessed.add(event.timestamp);
+        
+        // Show toast notification for completed analyses
+        if (event.status === 'completed') {
+          toast({
+            description: `Analysis completed for ${event.symbol}`,
+            // Use window.location instead of navigate for global use
+            action: (
+              <button 
+                onClick={() => {
+                  window.location.href = `/stock/${event.symbol}`;
+                }}
+                className="bg-primary text-white px-3 py-1 rounded-md text-xs"
+              >
+                View
+              </button>
+            )
+          });
+        } 
+        // Show error notification
+        else if (event.status === 'error') {
+          toast({
+            variant: "destructive",
+            description: `Analysis error for ${event.symbol}: ${event.message || 'Unknown error'}`
+          });
+        }
+      });
+      
+      // Update the processed events
+      setProcessedEvents(newProcessed);
+    }
+  }, [analysisEvents, processedEvents]);
+  
+  // This component doesn't render anything visible
+  return null;
 };
 
 export default AnalysisStatusTracker;

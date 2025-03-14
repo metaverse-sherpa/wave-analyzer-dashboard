@@ -1,123 +1,105 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { StockHistoricalData, fetchHistoricalData } from '@/services/yahooFinanceService';
-import { storeHistoricalData, retrieveHistoricalData, isHistoricalDataExpired, getAllHistoricalData } from '@/services/databaseService';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import { fetchHistoricalData } from '@/services/yahooFinanceService';
+import type { StockHistoricalData } from '@/types/shared';
 
-interface HistoricalDataContextType {
-  data: Record<string, StockHistoricalData[]>;
-  getHistoricalData: (symbol: string, timeframe: string) => Promise<StockHistoricalData[]>;
-  isLoading: boolean;
+// 1. Define a clear interface for the context value
+interface HistoricalDataContextValue {
+  historicalData: Record<string, StockHistoricalData[]>;
+  getHistoricalData: (symbol: string, timeframe?: string, forceRefresh?: boolean) => Promise<StockHistoricalData[]>;
   preloadHistoricalData: (symbols: string[]) => Promise<void>;
+  clearHistoricalData: (symbol?: string) => void;
 }
 
-const HistoricalDataContext = createContext<HistoricalDataContextType>({
-  data: {},
+// 2. Create the context with a proper default value
+const HistoricalDataContext = createContext<HistoricalDataContextValue>({
+  historicalData: {},
   getHistoricalData: async () => [],
-  isLoading: false,
-  preloadHistoricalData: async () => {}
+  preloadHistoricalData: async () => {},
+  clearHistoricalData: () => {},
 });
 
-export const useHistoricalData = () => useContext(HistoricalDataContext);
-
+// 3. Export the provider component separately from the hook
 export const HistoricalDataProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
-  const [data, setData] = useState<Record<string, StockHistoricalData[]>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  
-  // Load any cached historical data from localStorage when the app starts
-  useEffect(() => {
-    const loadCachedData = async () => {
-      const allCachedData = getAllHistoricalData();
-      const validData: Record<string, StockHistoricalData[]> = {};
-      
-      // Filter out expired data
-      Object.entries(allCachedData).forEach(([key, cachedItem]) => {
-        if (!isHistoricalDataExpired(cachedItem.timestamp)) {
-          validData[key] = cachedItem.historicalData;
-        }
-      });
-      
-      setData(validData);
-    };
-    
-    loadCachedData();
-  }, []);
-  
-  // Function to get historical data for a single symbol
-  const getHistoricalData = async (symbol: string, timeframe: string = '1d'): Promise<StockHistoricalData[]> => {
+  const [historicalData, setHistoricalData] = useState<Record<string, StockHistoricalData[]>>({});
+
+  // Function to get historical data for a symbol
+  const getHistoricalData = useCallback(async (
+    symbol: string, 
+    timeframe: string = '1d',
+    forceRefresh: boolean = false
+  ): Promise<StockHistoricalData[]> => {
     const cacheKey = `${symbol}_${timeframe}`;
     
-    // First check if we already have it in state
-    if (data[cacheKey]) {
-      return data[cacheKey];
+    // If we already have this data and not forcing refresh, return it
+    if (!forceRefresh && historicalData[cacheKey]) {
+      return historicalData[cacheKey];
     }
     
-    // Next check localStorage
-    const cachedData = retrieveHistoricalData(symbol, timeframe);
-    if (cachedData && !isHistoricalDataExpired(cachedData.timestamp)) {
-      // Store in state for future quick access
-      setData(prev => ({
-        ...prev,
-        [cacheKey]: cachedData.historicalData
-      }));
-      
-      return cachedData.historicalData;
-    }
-    
-    // If not in cache or expired, fetch data
     try {
-      // Fetch historical data
-      const historicalResponse = await fetchHistoricalData(symbol, timeframe);
-      const historicalData = historicalResponse.historicalData;
+      // Fetch new data
+      const data = await fetchHistoricalData(symbol, timeframe, forceRefresh);
       
-      // After fetching fresh data
-      console.log(`Fetched historical data for ${symbol}: Length = ${historicalData.length}`);
-      if (historicalData.length === 0) {
-        console.error(`No historical data returned from API for ${symbol}`);
-      }
-      
-      // Store in cache
-      storeHistoricalData(symbol, timeframe, historicalData);
-      
-      // Update state
-      setData(prev => ({
+      // Update state with new data
+      setHistoricalData(prev => ({
         ...prev,
-        [cacheKey]: historicalData
+        [cacheKey]: data
       }));
       
-      return historicalData;
+      return data;
     } catch (error) {
-      console.error(`Error fetching historical data for ${symbol}:`, error);
+      console.error(`Failed to fetch historical data for ${symbol}:`, error);
+      
+      // Return empty array instead of throwing
       return [];
     }
-  };
-  
-  // Function to preload historical data for multiple symbols
-  const preloadHistoricalData = async (symbols: string[]) => {
-    setIsLoading(true);
-    
-    try {
-      // Process in batches to avoid overloading the browser
-      const batchSize = 5;
-      for (let i = 0; i < symbols.length; i += batchSize) {
-        const batch = symbols.slice(i, i + batchSize);
-        await Promise.all(batch.map(symbol => getHistoricalData(symbol, '1d')));
-      }
-    } catch (error) {
-      console.error('Error preloading historical data:', error);
-    } finally {
-      setIsLoading(false);
+  }, [historicalData]);
+
+  // Function to preload data for multiple symbols
+  const preloadHistoricalData = useCallback(async (symbols: string[]): Promise<void> => {
+    await Promise.all(symbols.map(symbol => getHistoricalData(symbol)));
+  }, [getHistoricalData]);
+
+  // Function to clear historical data
+  const clearHistoricalData = useCallback((symbol?: string) => {
+    if (symbol) {
+      setHistoricalData(prev => {
+        const newData = {...prev};
+        // Remove all entries for this symbol (different timeframes)
+        Object.keys(newData).forEach(key => {
+          if (key.startsWith(symbol)) {
+            delete newData[key];
+          }
+        });
+        return newData;
+      });
+    } else {
+      // Clear all data
+      setHistoricalData({});
     }
-  };
-  
-  const value = {
-    data,
+  }, []);
+
+  // Create context value object with memoization
+  const contextValue = useMemo(() => ({
+    historicalData,
     getHistoricalData,
-    isLoading,
-    preloadHistoricalData
-  };
-  
+    preloadHistoricalData,
+    clearHistoricalData
+  }), [historicalData, getHistoricalData, preloadHistoricalData, clearHistoricalData]);
+
   return (
-    <HistoricalDataContext.Provider value={value}>
+    <HistoricalDataContext.Provider value={contextValue}>
       {children}
     </HistoricalDataContext.Provider>
   );
+};
+
+// 4. Define the hook separately and export it consistently
+export const useHistoricalData = (): HistoricalDataContextValue => {
+  const context = useContext(HistoricalDataContext);
+  
+  if (context === undefined) {
+    throw new Error('useHistoricalData must be used within a HistoricalDataProvider');
+  }
+  
+  return context;
 };

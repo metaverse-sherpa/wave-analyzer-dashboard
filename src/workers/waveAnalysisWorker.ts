@@ -145,7 +145,7 @@ function completeAnalysis(waves: Wave[], data: StockHistoricalData[]): WaveAnaly
     waves,
     currentWave,
     fibTargets,
-    trend: determineTrend(waves),
+    trend: determineTrend(waves) as 'bullish' | 'bearish' | 'neutral',
     impulsePattern: hasImpulsePattern(waves),
     correctivePattern: hasCorrectivePattern(waves)
   };

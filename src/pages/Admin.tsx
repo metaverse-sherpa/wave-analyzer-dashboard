@@ -41,47 +41,22 @@ const AdminDashboard = () => {
   const [selectedData, setSelectedData] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
+  const [historicalData, setHistoricalData] = useState<Record<string, any>>({});
+  const [waveAnalyses, setWaveAnalyses] = useState<Record<string, any>>({});
 
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
   const { getHistoricalData, preloadHistoricalData: contextPreloadHistoricalData } = useHistoricalData();
 
   // 1. MOVE loadCacheData definition BEFORE any functions that depend on it
-  const loadCacheData = useCallback(() => {
+  const loadCacheData = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // Initialize with empty objects by default
-      const waveData = { waves: {} };
-      const histData = { historical: {} };
+      const analyses = await getAllAnalyses() || {};
+      const historicalData = await getAllHistoricalData() || {};
       
-      // Scan localStorage for entries
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('wave_analysis_')) {
-          try {
-            const data = JSON.parse(localStorage.getItem(key) || '{}');
-            const symbol = key.replace('wave_analysis_', '').split('_')[0];
-            waveData.waves[symbol] = data;
-          } catch (e) {
-            console.error(`Error parsing cache data for ${key}:`, e);
-          }
-        } else if (key.startsWith('historical_data_')) {
-          try {
-            const data = JSON.parse(localStorage.getItem(key) || '{}');
-            const symbol = key.replace('historical_data_', '').split('_')[0];
-            histData.historical[symbol] = data;
-          } catch (e) {
-            console.error(`Error parsing cache data for ${key}:`, e);
-          }
-        }
-      });
-      
-      // Update the single cacheData state with both components
-      setCacheData({
-        waves: waveData.waves,
-        historical: histData.historical
-      });
-      
-      console.log("Cache data loaded:", waveData.waves, histData.historical);
+      setWaveAnalyses(analyses);
+      setHistoricalData(historicalData);
     } catch (error) {
       console.error('Error loading cache data:', error);
     } finally {
@@ -101,7 +76,19 @@ const AdminDashboard = () => {
       for (const symbol of stocks) {
         console.log(`Analyzing ${symbol}...`);
         try {
-          await getAnalysis(symbol, '1d', true); // Force refresh for admin analysis
+          // First get historical data to check the length
+          const historicalData = await getHistoricalData(symbol, '1d');
+          
+          // Require at least 50 data points for analysis (you can adjust this threshold)
+          if (!historicalData || historicalData.length < 50) {
+            console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
+            toast.warning(`Skipping ${symbol} - insufficient data points (${historicalData?.length || 0})`);
+            continue; // Skip this stock
+          }
+          
+          // Now analyze with validated data
+          await getAnalysis(symbol, historicalData, true); // Force refresh for admin analysis
+          
           // Small delay between stocks
           await new Promise(r => setTimeout(r, 500));
         } catch (err) {
@@ -117,7 +104,7 @@ const AdminDashboard = () => {
     } finally {
       setIsRefreshing(false);
     }
-  }, [getAnalysis, loadCacheData]);
+  }, [getAnalysis, getHistoricalData, loadCacheData]);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
@@ -144,25 +131,21 @@ const AdminDashboard = () => {
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
-    waveEntryCount: cacheData.waves ? Object.keys(cacheData.waves).length : 0,
-    histEntryCount: cacheData.historical ? Object.keys(cacheData.historical).length : 0,
+    waveEntryCount: Object.keys(waveAnalyses).length,
+    histEntryCount: Object.keys(historicalData).length,
     totalSize: Math.round(
       (
-        JSON.stringify(cacheData.waves || {}).length +
-        JSON.stringify(cacheData.historical || {}).length
+        JSON.stringify(waveAnalyses || {}).length +
+        JSON.stringify(historicalData || {}).length
       ) / 1024
     ),
-    oldestWave: cacheData.waves ? 
-      Object.entries(cacheData.waves).reduce((oldest, [key, data]) => {
-        return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
-      }, { key: '', timestamp: Date.now() }) : 
-      { key: '', timestamp: Date.now() },
-    oldestHistorical: cacheData.historical ? 
-      Object.entries(cacheData.historical).reduce((oldest, [key, data]) => {
-        return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
-      }, { key: '', timestamp: Date.now() }) :
-      { key: '', timestamp: Date.now() }
-  }), [cacheData]);
+    oldestWave: Object.entries(waveAnalyses).reduce((oldest, [key, data]) => {
+      return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
+    }, { key: '', timestamp: Date.now() }),
+    oldestHistorical: Object.entries(historicalData).reduce((oldest, [key, data]) => {
+      return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
+    }, { key: '', timestamp: Date.now() })
+  }), [waveAnalyses, historicalData]);
 
   // Handlers
   // Title effect
@@ -172,114 +155,6 @@ const AdminDashboard = () => {
       document.title = "EW Analyzer";
     };
   }, []);
-
-  // Analysis events effect
-  useEffect(() => {
-    type AnalysisEvent = CustomEvent<{
-      symbol: string;
-      startTime?: number;
-      waves?: Wave[];
-      error?: string;
-    }>;
-
-    const handleAnalysisStart = (e: Event) => {
-      const event = e as AnalysisEvent;
-      const { symbol, startTime = Date.now() } = event.detail;
-      
-      setActiveAnalyses(prev => ({
-        ...prev,
-        [symbol]: {
-          symbol,
-          startTime,
-          waves: [],
-          status: 'running'
-        }
-      }));
-    };
-
-    const handleAnalysisProgress = (e: Event) => {
-      const event = e as AnalysisEvent;
-      const { symbol, waves = [] } = event.detail;
-      
-      setActiveAnalyses(prev => ({
-        ...prev,
-        [symbol]: {
-          ...prev[symbol],
-          waves: waves, // Simply use all waves from the event
-          status: 'running'
-        }
-      }));
-    };
-
-    const handleAnalysisComplete = (e: Event) => {
-      const event = e as AnalysisEvent;
-      const { symbol } = event.detail;
-      
-      setActiveAnalyses(prev => ({
-        ...prev,
-        [symbol]: {
-          ...prev[symbol],
-          status: 'completed'
-        }
-      }));
-
-      // Refresh cache data immediately when analysis completes
-      loadCacheData();
-
-      // Remove from active analyses after delay
-      setTimeout(() => {
-        setActiveAnalyses(prev => {
-          const newState = { ...prev };
-          delete newState[symbol];
-          return newState;
-        });
-      }, 10000);
-    };
-
-    const handleAnalysisError = (e: Event) => {
-      const event = e as AnalysisEvent;
-      const { symbol, error } = event.detail;
-      
-      setActiveAnalyses(prev => ({
-        ...prev,
-        [symbol]: {
-          ...prev[symbol],
-          status: 'error'
-        }
-      }));
-    };
-
-    // Add event listeners
-    analysisEvents.addEventListener('analysisStart', handleAnalysisStart);
-    analysisEvents.addEventListener('analysisProgress', handleAnalysisProgress);
-    analysisEvents.addEventListener('analysisComplete', handleAnalysisComplete);
-    analysisEvents.addEventListener('analysisError', handleAnalysisError);
-
-    // Cleanup
-    return () => {
-      analysisEvents.removeEventListener('analysisStart', handleAnalysisStart);
-      analysisEvents.removeEventListener('analysisProgress', handleAnalysisProgress);
-      analysisEvents.removeEventListener('analysisComplete', handleAnalysisComplete);
-      analysisEvents.removeEventListener('analysisError', handleAnalysisError);
-    };
-  }, [analysisEvents]);
-
-  // Add listener for analysis cancellation events
-  useEffect(() => {
-    const handleAnalysisCancelled = () => {
-      // Clear active analyses display
-      setActiveAnalyses({});
-      toast.info('All analyses cancelled');
-    };
-
-    // Add event listener
-    analysisEvents.addEventListener('analysisCancelled', handleAnalysisCancelled);
-
-    // Cleanup
-    return () => {
-      analysisEvents.removeEventListener('analysisCancelled', handleAnalysisCancelled);
-    };
-  }, [analysisEvents]);
 
   // Make sure loadCacheData sets a default empty state
   useEffect(() => {
@@ -318,11 +193,29 @@ const AdminDashboard = () => {
         // Cancel any running analyses first
         cancelAllAnalyses();
         
-        // Use the clearCache from the destructured hook at the top level
+        // Use the clearCache from context (which might handle some cache)
         clearCache();
         
+        // Also manually clear all localStorage entries with any wave-related prefixes
+        // This ensures we catch all cache formats across the application
+        Object.keys(localStorage).forEach(key => {
+          // Clear both formats: 'wave_analysis_' and 'wave-analysis:'
+          if (key.startsWith('wave_analysis_') || 
+              key.startsWith('wave-analysis:') ||
+              key.includes('_waves_') ||
+              key.includes('wave-pattern')) {
+            localStorage.removeItem(key);
+          }
+        });
+        
+        // Also clear memo cache from Elliott wave analysis
+        clearMemoCache();
+        
+        // Update display
         loadCacheData();
         toast.success('Wave analysis cache cleared successfully');
+        
+        console.log("All wave caches cleared");
       } catch (error) {
         console.error('Error clearing wave cache:', error);
         toast.error('Failed to clear wave analysis cache');
@@ -389,6 +282,99 @@ const AdminDashboard = () => {
 
   // Call it after loadCacheData()
   debugStorageContents();
+
+  // Use useEffect to respond to changes in analysisEvents
+  useEffect(() => {
+    // Find any new events that we need to handle
+    if (!analysisEvents || analysisEvents.length === 0) return;
+    
+    // Get the most recent event (they should be ordered newest first)
+    const latestEvent = analysisEvents[0];
+    
+    if (latestEvent.status === 'started') {
+      // Handle analysis start
+      setActiveAnalyses(prev => {
+        if (!latestEvent.symbol) return prev;
+        
+        // Create a properly typed object
+        const newAnalysis: ActiveAnalysis = {
+          symbol: latestEvent.symbol,
+          startTime: latestEvent.timestamp,
+          waves: [],
+          status: 'running'
+        };
+        
+        // Return with proper type
+        return {
+          ...prev,
+          [latestEvent.symbol]: newAnalysis
+        };
+      });
+    }
+    else if (latestEvent.status === 'completed') {
+      // Handle analysis complete
+      setActiveAnalyses(prev => {
+        if (!prev[latestEvent.symbol]) return prev;
+        
+        // Create a properly typed updated object
+        const updated: Record<string, ActiveAnalysis> = {
+          ...prev,
+          [latestEvent.symbol]: {
+            ...prev[latestEvent.symbol],
+            status: 'completed' as const  // Use a literal with const assertion
+          }
+        };
+        
+        // Load the completed analysis data
+        getAnalysis(latestEvent.symbol, [])
+          .then(analysis => {
+            if (analysis && analysis.waves) {
+              setActiveAnalyses(current => ({
+                ...current,
+                [latestEvent.symbol]: {
+                  ...current[latestEvent.symbol],
+                  waves: analysis.waves
+                }
+              }));
+            }
+          });
+        
+        // Refresh cache data
+        loadCacheData();
+        
+        // Remove from active analyses after delay
+        setTimeout(() => {
+          setActiveAnalyses(current => {
+            const next = {...current};
+            delete next[latestEvent.symbol];
+            return next;
+          });
+        }, 10000);
+        
+        return updated;
+      });
+    }
+    else if (latestEvent.status === 'error' && latestEvent.message === 'Analysis canceled by user') {
+      // Handle analysis error
+      setActiveAnalyses(prev => {
+        if (!prev[latestEvent.symbol]) return prev;
+        
+        return {
+          ...prev,
+          [latestEvent.symbol]: {
+            ...prev[latestEvent.symbol],
+            status: 'error'
+          }
+        };
+      });
+    }
+    // Special case for cancel all
+    else if (latestEvent.status === 'error' && latestEvent.message === 'Analysis canceled by user') {
+      // Clear all active analyses
+      setActiveAnalyses({});
+      toast.info('All analyses cancelled');
+    }
+  }, [analysisEvents, getAnalysis, loadCacheData]);
 
   return (
     <div className="container mx-auto p-4">
@@ -551,50 +537,42 @@ const AdminDashboard = () => {
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                     Updating wave analysis data...
                   </div>
-                ) : Object.keys(cacheData.waves).length === 0 ? (
+                ) : Object.keys(waveAnalyses || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
                     No wave analysis cache data found
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {Object.entries(cacheData.waves).map(([key, data]) => (
+                    {Object.entries(waveAnalyses || {}).map(([key, data]) => (
                       <Card key={key} className="cursor-pointer hover:bg-accent/5 transition-colors">
                         <CardContent className="p-3 flex items-center justify-between">
                           <div 
                             className="flex-1"
                             onClick={() => setSelectedData({ type: 'waves', key, data })}
                           >
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-medium">{key}</h4>
-                              <span className="text-xs text-muted-foreground">
-                                {getAgeString(data.timestamp)}
+                            <div className="flex justify-between">
+                              <span className="font-medium">{key}</span>
+                              <span className="text-sm text-muted-foreground">
+                                {/* Add null checks here */}
+                                {data?.analysis?.waves?.length || 0} waves
                               </span>
                             </div>
-                            <div className="flex gap-2 mt-1 flex-wrap">
-                              <Badge 
-                                variant="outline" 
-                                className={`text-xs ${
-                                  data.trend === 'bullish' ? 'bg-green-50 text-green-700 border-green-200' : 
-                                  data.trend === 'bearish' ? 'bg-red-50 text-red-700 border-red-200' : 
-                                  'bg-gray-50'
-                                }`}
-                              >
-                                {data.trend || 'neutral'}
-                              </Badge>
-                              
-                              {data.currentWave?.number && (
-                                <Badge variant="outline" className="text-xs">
-                                  Wave {data.currentWave.number}
-                                </Badge>
-                              )}
+                            <div className="text-sm text-muted-foreground flex justify-between mt-1">
+                              <span>
+                                {formatTime(data?.timestamp || Date.now())}
+                              </span>
+                              <span>
+                                {getAgeString(data?.timestamp || Date.now())}
+                              </span>
                             </div>
                           </div>
-                          
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => deleteCacheItem(key, 'waves')}
-                            className="h-8 w-8"
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteCacheItem(key, 'waves');
+                            }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -609,44 +587,42 @@ const AdminDashboard = () => {
             <TabsContent value="historical" className="border rounded-md p-4 min-h-[500px]">
               <h3 className="text-lg font-medium mb-2">Historical Price Data</h3>
               <ScrollArea className="h-[500px]">
-                {Object.keys(cacheData.historical).length === 0 ? (
+                {Object.keys(historicalData || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
                     No historical data cache found
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {Object.entries(cacheData.historical).map(([key, data]) => (
+                    {Object.entries(historicalData || {}).map(([key, data]) => (
                       <Card key={key} className="cursor-pointer hover:bg-accent/5 transition-colors">
                         <CardContent className="p-3 flex items-center justify-between">
                           <div 
                             className="flex-1"
                             onClick={() => setSelectedData({ type: 'historical', key, data })}
                           >
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-medium">{key}</h4>
-                              <span className="text-xs text-muted-foreground">
-                                {getAgeString(data.timestamp)}
+                            <div className="flex justify-between">
+                              <span className="font-medium">{key}</span>
+                              <span className="text-sm text-muted-foreground">
+                                {/* Add null checks here */}
+                                {data?.data?.length || 0} points
                               </span>
                             </div>
-                            <div className="flex gap-2 mt-1">
-                              <Badge variant="outline" className="text-xs">
-                                {data.historicalData.length} data points
-                              </Badge>
-                              
-                              {data.historicalData.length > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  {new Date(normalizeTimestamp(data.historicalData[0].timestamp)).toLocaleDateString()} - 
-                                  {new Date(normalizeTimestamp(data.historicalData[data.historicalData.length-1].timestamp)).toLocaleDateString()}
-                                </span>
-                              )}
+                            <div className="text-sm text-muted-foreground flex justify-between mt-1">
+                              <span>
+                                {formatTime(data?.timestamp || Date.now())}
+                              </span>
+                              <span>
+                                {getAgeString(data?.timestamp || Date.now())}
+                              </span>
                             </div>
                           </div>
-                          
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => deleteCacheItem(key, 'historical')}
-                            className="h-8 w-8"
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteCacheItem(key, 'historical');
+                            }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
