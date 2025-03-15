@@ -72,9 +72,10 @@ const Dashboard: React.FC<DashboardProps> = ({
     );
   }, []);
   
-  // Fixed loadStocks function without problematic dependencies
+  // Add this flag at the top of the Dashboard component
+  const ENABLE_AUTO_PRELOAD = false; // Set to false to prevent auto-loading data
+
   const loadStocks = useCallback(async () => {
-    // Use ref instead of state for the loading check
     if (isLoadingRef.current) return;
     
     isLoadingRef.current = true;
@@ -84,12 +85,13 @@ const Dashboard: React.FC<DashboardProps> = ({
       const data = await fetchTopStocks(100);
       setStocks(data);
       
-      // DON'T set filteredStocks here at all
-      
-      // Preload data for top 10 stocks
-      const symbols = data.slice(0, 10).map(stock => stock.symbol);
-      await preloadHistoricalData(symbols);
-      await preloadAnalyses(symbols);
+      // Only preload if the flag is enabled
+      if (ENABLE_AUTO_PRELOAD) {
+        // Preload data for top 10 stocks - now controlled by flag
+        const symbols = data.slice(0, 10).map(stock => stock.symbol);
+        await preloadHistoricalData(symbols);
+        await preloadAnalyses(symbols);
+      }
     } catch (error) {
       console.error('Failed to load stocks:', error);
       toast({
@@ -100,8 +102,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       setLoading(false);
       isLoadingRef.current = false;
     }
-  }, [preloadAnalyses, preloadHistoricalData]); // Remove loading dependency
-  
+  }, [preloadHistoricalData, preloadAnalyses]);
+
   // Initial load - use empty dependency array to only run ONCE
   useEffect(() => {
     loadStocks();

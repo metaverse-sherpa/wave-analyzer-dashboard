@@ -20,6 +20,9 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
   const initializationInProgress = useRef(false);
   const safetyCalled = useRef(false);
   
+  // Add this at the top of the DataInitializer component (around line 25-30)
+  const DISABLE_ALL_AUTO_INITIALIZATION = true; // Master switch to disable all initialization
+
   // Check if we already have analysis data in the context
   const hasExistingAnalyses = Object.keys(analyses).length > 0;
   
@@ -36,6 +39,14 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
   useEffect(() => {
     const checkApiAndInitialize = async () => {
       try {
+        // Skip everything if the master disable flag is set
+        if (DISABLE_ALL_AUTO_INITIALIZATION) {
+          //console.log("Auto-initialization is disabled");
+          setInitialized(true);
+          onDataLoaded();
+          return;
+        }
+        
         // Set a flag to indicate we're in initialization mode
         initializationInProgress.current = true;
         
@@ -64,27 +75,23 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
         const MAX_SYMBOLS = usingFallback ? 5 : MAX_STOCKS_TO_INITIALIZE;
         const symbols = initialStocksList.slice(0, MAX_SYMBOLS);
         
-        // Only log in development mode
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`Initializing data for ${symbols.length} symbols`);
-        }
+    
     
         // Track success/failure for logging
         let successCount = 0;
         let failureCount = 0;
         
-        // First, preload all historical data with longer time period
-        // Only log in development mode
-        if (process.env.NODE_ENV === 'development') {
-          console.log("Preloading historical data...");
-        }
+        // Add this flag near line 97 (before the historical data loading loop)
+        // Add a config flag for historical data preloading (similar to wave analysis)
+        const ENABLE_AUTO_DATA_LOADING = false;
+        const dataSymbols = ENABLE_AUTO_DATA_LOADING ? symbols : [];
         
-        for (const symbol of symbols) {
+        // Then replace the existing historical data loading loop with:
+        for (const symbol of dataSymbols) {
           try {
             // Try to get historical data, but don't block on errors
             await getHistoricalData(symbol, '1d', true)
               .catch(err => {
-                // Only log failures, not successes
                 console.log(`Using generated data for ${symbol} (API unavailable)`);
                 return []; // Continue with empty array on failure
               });
@@ -112,8 +119,9 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
         
         let analysisSuccessCount = 0;
         
-        // Process a smaller batch of symbols for wave analysis
-        const analysisSymbols = symbols.slice(0, 3); // Just do 3 symbols initially
+        // Add a config flag that can be toggled if needed in the future
+        const ENABLE_AUTO_ANALYSIS = false;
+        const analysisSymbols = ENABLE_AUTO_ANALYSIS ? symbols.slice(0, 3) : [];
         
         for (const symbol of analysisSymbols) {
           try {
@@ -168,8 +176,9 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
       }
     };
     
-    // Only run initialization once
-    if (!initialized && !initializationInProgress.current) {
+    // Only run if not already initialized
+    if (!initialized && !initializationInProgress.current && !safetyCalled.current) {
+      initializationInProgress.current = true;
       checkApiAndInitialize();
     }
     

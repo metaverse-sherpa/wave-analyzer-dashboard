@@ -5,6 +5,9 @@ import type { WaveAnalysisResult, StockHistoricalData } from '@/types/shared';
 import { supabase } from '@/lib/supabase';
 import { saveToCache } from '@/services/cacheService';
 
+// Add this flag at the top of the file with your other imports
+const AUTO_LOAD_ANALYSES_FROM_SUPABASE = false;
+
 // Define a type for analysis events
 export type AnalysisEvent = {
   symbol: string;
@@ -308,9 +311,11 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     }
   }, [supabase]);
 
-  // Call this function on component mount
+  // Then modify the useEffect that calls loadAllAnalysesFromSupabase
   useEffect(() => {
-    loadAllAnalysesFromSupabase();
+    if (AUTO_LOAD_ANALYSES_FROM_SUPABASE) {
+      loadAllAnalysesFromSupabase();
+    }
   }, [loadAllAnalysesFromSupabase]);
 
   // Create memoized context value

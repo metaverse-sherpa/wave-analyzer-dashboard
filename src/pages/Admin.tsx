@@ -30,6 +30,14 @@ import {
 import { X } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
+import { 
+  Cog,
+  Settings as SettingsIcon
+} from 'lucide-react';
+import {
+  Slider
+} from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
 
 interface ActiveAnalysis {
   symbol: string;
@@ -106,6 +114,10 @@ const AdminDashboard = () => {
 
   // Add this state near your other state variables
   const [currentApiCall, setCurrentApiCall] = useState<string | null>(null);
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [stockCount, setStockCount] = useState(100);
+  const [settingsChanged, setSettingsChanged] = useState(false);
 
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
@@ -254,7 +266,7 @@ const loadCacheData = useCallback(async () => {
     setIsRefreshing(true);
     try {
       // Use all stocks from the topStockSymbols array
-      const stocks = topStockSymbols;
+      const stocks = topStockSymbols.slice(0, stockCount);
       
       // Initialize progress tracking
       setHistoryLoadProgress({
@@ -369,6 +381,15 @@ const loadCacheData = useCallback(async () => {
             
             console.log(`DEBUG: Stored data for ${symbol}:`, storedData?.data?.length || 0);
             
+            // Update the local state incrementally without fetching from Supabase
+            setHistoricalData(prev => ({
+              ...prev,
+              [symbol]: {
+                data: formattedData,
+                timestamp: Date.now()
+              }
+            }));
+            
             completed++;
             
             // Update progress
@@ -419,7 +440,7 @@ const loadCacheData = useCallback(async () => {
       setCurrentApiCall(null);
       setIsRefreshing(false);
     }
-  }, [loadCacheData, supabase]);
+  }, [loadCacheData, supabase, stockCount]);
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
@@ -772,6 +793,140 @@ const loadCacheData = useCallback(async () => {
     }
   };
 
+  // Add this function to save settings to Supabase
+const saveSettings = useCallback(async (settings: { stockCount: number }) => {
+  try {
+    setIsRefreshing(true);
+    
+    // Save to Supabase with a special key for admin settings
+    await supabase
+      .from('cache')
+      .upsert({
+        key: 'admin_settings',
+        data: settings,
+        timestamp: Date.now(),
+        duration: 365 * 24 * 60 * 60 * 1000, // 1 year
+      }, { onConflict: 'key' });
+      
+    toast.success('Settings saved successfully');
+    setSettingsChanged(true);
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    toast.error('Failed to save settings');
+  } finally {
+    setIsRefreshing(false);
+  }
+}, [supabase]);
+
+// Add this function to load settings from Supabase
+const loadSettings = useCallback(async () => {
+  try {
+    const { data, error } = await supabase
+      .from('cache')
+      .select('data')
+      .eq('key', 'admin_settings')
+      .single();
+      
+    if (error) {
+      // If settings don't exist yet, use defaults
+      console.log('No saved settings found, using defaults');
+      return;
+    }
+    
+    if (data?.data?.stockCount) {
+      setStockCount(data.data.stockCount);
+    }
+  } catch (error) {
+    console.error('Error loading settings:', error);
+  }
+}, [supabase]);
+
+// Add effect to load settings when component mounts
+useEffect(() => {
+  loadSettings();
+}, [loadSettings]);
+
+// Add this effect to prompt for data reload when settings change
+useEffect(() => {
+  if (settingsChanged) {
+    const handleSettingsChange = async () => {
+      // Reset the flag first
+      setSettingsChanged(false);
+      
+      // Ask if user wants to reload data with new settings
+      if (window.confirm('Settings updated. Would you like to reload historical data with the new stock count?')) {
+        await preloadHistoricalData();
+      }
+    };
+    
+    handleSettingsChange();
+  }
+}, [settingsChanged, preloadHistoricalData]);
+
+  // Move the SettingsDialog component here
+  const SettingsDialog = () => {
+    const [localStockCount, setLocalStockCount] = useState(stockCount);
+    
+    const handleSave = () => {
+      saveSettings({ stockCount: localStockCount });
+      setSettingsOpen(false);
+    };
+    
+    return (
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SettingsIcon className="h-5 w-5" />
+              Admin Settings
+            </DialogTitle>
+            <DialogDescription>
+              Configure admin preferences and system parameters.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-6">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="stocks-to-analyze">Number of Stocks to Analyze</Label>
+                <span className="text-sm font-medium">{localStockCount}</span>
+              </div>
+              <Slider
+                id="stocks-to-analyze"
+                min={10}
+                max={500}
+                step={10}
+                value={[localStockCount]}
+                onValueChange={(value) => setLocalStockCount(value[0])}
+                className="mt-2"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                This controls how many top stocks are loaded and analyzed. 
+                Higher numbers require more processing time.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={isRefreshing}>
+              {isRefreshing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Settings'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center">
@@ -860,10 +1015,20 @@ const loadCacheData = useCallback(async () => {
                 Clear Wave Analysis
               </Button>
               
+              <div className="border-t my-1"></div>
+                
+              {/* Settings button */}
+              <Button 
+                onClick={() => setSettingsOpen(true)}
+                variant="outline" 
+                size="sm" 
+                className="w-full"
+              >
+                <Cog className="h-4 w-4 mr-2" />
+                Admin Settings
+              </Button>
             </CardContent>
           </Card>
-
-
         </div>
         
         {/* Right column - Tabs */}
@@ -1017,15 +1182,6 @@ const loadCacheData = useCallback(async () => {
                   </p>
                 </div>
               )}
-
-              {/* Add API call display below the progress bar */}
-              {historyLoadProgress.inProgress && currentApiCall && (
-                <div className="mb-4 text-xs text-muted-foreground">
-                  <p>
-                    <span className="font-medium">Current API Call:</span> {currentApiCall}
-                  </p>
-                </div>
-              )}
               
               <ScrollArea className="h-[500px]">
                 {Object.keys(filteredHistoricalData || {}).length === 0 ? (
@@ -1113,6 +1269,19 @@ const loadCacheData = useCallback(async () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Add this settings button */}
+      <Button 
+        variant="outline" 
+        onClick={() => setSettingsOpen(true)} 
+        className="fixed bottom-4 right-4"
+      >
+        <Cog className="h-5 w-5 mr-2" />
+        Settings
+      </Button>
+
+      {/* Add the settings dialog */}
+      <SettingsDialog />
     </div>
   );
 };

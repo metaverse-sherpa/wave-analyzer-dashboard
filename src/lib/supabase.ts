@@ -11,5 +11,5 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // For debugging in non-production environments
 if (import.meta.env.NODE_ENV !== 'production') {
-  console.log('Supabase client initialized with URL:', supabaseUrl);
+  //console.log('Supabase client initialized with URL:', supabaseUrl);
 }

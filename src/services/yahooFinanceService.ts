@@ -519,7 +519,7 @@ export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
     try {
       // Don't use buildApiUrl - instead use relative paths to leverage Vite proxy
       const fullUrl = endpoint;
-      console.log(`Checking health endpoint: ${fullUrl}`);
+      //console.log(`Checking health endpoint: ${fullUrl}`);
       
       // Add timeout
       const controller = new AbortController();
@@ -545,7 +545,7 @@ export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
       }
       
       // We found a working health endpoint
-      console.log(`Found working health endpoint: ${fullUrl}`);
+      //console.log(`Found working health endpoint: ${fullUrl}`);
       const data = await response.json();
       
       return {

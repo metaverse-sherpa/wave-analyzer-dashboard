@@ -47,6 +47,6 @@ localStorage.getItem = function(key) {
 
 // Original initialization function
 export const initStorageMonitor = () => {
-  console.log('Storage monitor initialized with explicit allowed keys:', ALLOWED_KEYS.join(', '));
-  console.log('Also allowing all Supabase authentication keys (starting with "sb-")');
+  //console.log('Storage monitor initialized with explicit allowed keys:', ALLOWED_KEYS.join(', '));
+  //console.log('Also allowing all Supabase authentication keys (starting with "sb-")');
 };
