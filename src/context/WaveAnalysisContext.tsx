@@ -372,10 +372,8 @@ export const useWaveAnalysis = (): WaveAnalysisContextValue => {
 const WaveAnalysis = {
   Provider: WaveAnalysisProvider,
   useWaveAnalysis,
+  // Define the function directly in the object
   forcePreload: (symbols: string[]) => Promise.resolve()
 };
-
-// Initialize the forcePreload function
-WaveAnalysis.forcePreload = (symbols: string[]) => Promise.resolve();
 
 export default WaveAnalysis;

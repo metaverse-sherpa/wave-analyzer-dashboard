@@ -113,7 +113,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         
         // Load historical data with force refresh to ensure we get the right data
         console.log(`Fetching historical data for ${symbol}`);
-        const historicalData = await getHistoricalData(symbol, '1d', true);
+        const historicalData = await getHistoricalData(symbol, '1d', false);
         
         if (!historicalData || historicalData.length === 0) {
           toast.error(`No historical data found for ${symbol}`);

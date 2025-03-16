@@ -478,10 +478,11 @@ const completeWaveAnalysis = (
   console.log('✅ Initial pivot sequence validated');
   
   const waves: Wave[] = [];
+  let pendingWaves: Wave[] = []; // Store potential waves here until validated
   let waveCount = 1;
   let phase: 'impulse' | 'corrective' = 'impulse';
   
-  // Create pivot pairs - but keep track of previous wave for continuity
+  // Create pivot pairs
   const pivotPairs = [];
   for (let i = 0; i < pivots.length - 1; i++) {
     pivotPairs.push({
@@ -494,6 +495,7 @@ const completeWaveAnalysis = (
   // Analyze waves
   let previousWave: Wave | null = null;
   let skipToIndex = -1;
+  let patternInvalidated = false;
 
   for (let i = 0; i < pivotPairs.length; i++) {
     // Skip indices that were consumed by wave 3 extension
@@ -501,25 +503,22 @@ const completeWaveAnalysis = (
       continue;
     }
 
-    // Instead of destructuring with const, destructure with let for variables we might change
-    const { startPoint, isUpMove } = pivotPairs[i];
-    let { endPoint } = pivotPairs[i];  // Use let for endPoint
-    
-    // Special handling for Wave 3
-    if (waveCount === 3 && phase === 'impulse') {
-      // Look ahead to find the highest pivot before a significant reversal
-      const wave3PeakIndex = findWave3Peak(pivots, i + 1);
+    // Reset pattern if prior wave was invalidated
+    if (patternInvalidated) {
+      console.log('Pattern invalidated, looking for new Wave 1');
+      phase = 'impulse';
+      waveCount = 1;
+      patternInvalidated = false;
+      pendingWaves = []; // Clear pending waves when pattern is invalidated
       
-      // If we found a higher peak, use that instead
-      if (wave3PeakIndex > i + 1) {
-        console.log(`Extending Wave 3 to pivot ${wave3PeakIndex} for higher peak`);
-        endPoint = pivots[wave3PeakIndex]; // Now this will work
-        skipToIndex = wave3PeakIndex - 1; // Skip the intermediate pivots we consumed
+      // Start a new pattern only at a low pivot point (trough)
+      if (pivotPairs[i].startPoint.type !== 'trough' && i < pivotPairs.length - 1) {
+        continue;
       }
     }
-    
-    // Create the wave - with proper type assignment based on Elliott Wave rules
-    let waveNumber = phase === 'impulse' ? waveCount : ['A', 'B', 'C'][waveCount - 1];
+
+    const { startPoint, isUpMove } = pivotPairs[i];
+    let { endPoint } = pivotPairs[i];
     
     // Special handling for Wave 3
     if (waveCount === 3 && phase === 'impulse') {
@@ -534,13 +533,16 @@ const completeWaveAnalysis = (
       }
     }
     
+    // Create the wave - with proper type assignment based on Elliott Wave rules
+    let waveNumber = phase === 'impulse' ? waveCount : ['A', 'B', 'C'][waveCount - 1];
+    
     // Determine wave's start attributes from previous wave when available
     const startPrice = previousWave ? previousWave.endPrice : (isUpMove ? startPoint.low : startPoint.high);
     const startTimestamp = previousWave ? previousWave.endTimestamp : startPoint.timestamp;
     
     let wave: Wave = {
       number: waveNumber,
-      startTimestamp: startTimestamp, // Use previous wave's end timestamp when available
+      startTimestamp: startTimestamp,
       endTimestamp: endPoint.timestamp,
       startPrice: startPrice,
       endPrice: isUpMove ? endPoint.high : endPoint.low,
@@ -550,62 +552,116 @@ const completeWaveAnalysis = (
     };
 
     // Validate wave based on position
-    switch (waveCount) {
-      case 4:
-        if (endPoint.low <= waves[0].endPrice!) {
-          console.log("Wave 4 violated Wave 1 territory");
-          continue;
-        }
-        // Add this check inside the Wave 4 validation
-        if (waveCount === 4) {
-          const wave3 = waves.find(w => w.number === 3);
-          if (wave3) {
-            const wave3Range = wave3.endPrice! - wave3.startPrice!;
-            const wave4Retracement = wave3.endPrice! - endPoint.low;
-            const retracementPercentage = wave4Retracement / wave3Range;
-            
-            // Check if Wave 4 retracement is within typical range
-            const isNormalRetracement = retracementPercentage >= 0.382 && retracementPercentage <= 0.618;
-            console.log(`Wave 4 retracement: ${(retracementPercentage * 100).toFixed(2)}% of Wave 3`);
-            
-            // Don't reject the wave, but log if it's unusual
-            if (!isNormalRetracement) {
-              console.log(`Unusual Wave 4 retracement (${(retracementPercentage * 100).toFixed(2)}%)`);
+    let waveValid = true;
+    let confirmPattern = false;
+    
+    switch (phase) {
+      case 'impulse':
+        switch (waveCount) {
+          case 1:
+            // Wave 1 must be upward
+            if (!isUpMove) {
+              console.log("Wave 1 invalidated - must be upward");
+              patternInvalidated = true;
+              waveValid = false;
             }
-          }
-        }
-        break;
-        
-      case 5:
-        if (phase === 'impulse') {
-          // Only transition to corrective phase if Wave 5 meets minimum criteria
-          if (endPoint.high > waves[2].endPrice!) { // Wave 5 should ideally exceed Wave 3
-            phase = 'corrective';
-            waveCount = 0; // Will be incremented to 1 for Wave A
+            break;
+            
+          case 2:
+            // Wave 2 cannot go below Wave 1 start
+            if (pendingWaves.length === 0) {
+              console.log("Wave 2 invalidated - no Wave 1 in pending waves");
+              patternInvalidated = true;
+              waveValid = false;
+            } else if (endPoint.low <= pendingWaves[0].startPrice!) {
+              console.log("Wave 2 invalidated - retraced beyond Wave 1 start");
+              patternInvalidated = true;
+              waveValid = false;
+            }
+            break;
+            
+          case 3:
+            // Wave 3 must exceed Wave 1 end
+            if (pendingWaves.length === 0) {
+              console.log("Wave 3 invalidated - no Wave 1 in pending waves");
+              patternInvalidated = true;
+              waveValid = false;
+            } else if (endPoint.high <= pendingWaves[0].endPrice!) {
+              console.log("Wave 3 invalidated - didn't exceed Wave 1 end");
+              patternInvalidated = true;
+              waveValid = false;
+            } else {
+              // Wave 3 confirms the pattern! Commit pending waves to results
+              console.log("✅ Wave 3 confirmed - committing pattern to results");
+              confirmPattern = true;
+            }
+            break;
+            
+          case 4:
+            if (pendingWaves.length === 0 && waves.length === 0) {
+              console.log("Wave 4 invalidated - no prior waves");
+              patternInvalidated = true;
+              waveValid = false;
+            } else if (pendingWaves.length > 0 && endPoint.low <= pendingWaves[0].endPrice!) {
+              console.log("Wave 4 invalidated - overlaps Wave 1 territory (from pending)");
+              patternInvalidated = true;
+              waveValid = false;
+            } else if (waves.length > 0 && endPoint.low <= waves[0].endPrice!) {
+              console.log("Wave 4 invalidated - overlaps Wave 1 territory (from confirmed)");
+              patternInvalidated = true;
+              waveValid = false;
+            }
+            break;
+            
+          case 5:
+            // ALWAYS transition to corrective pattern after Wave 5, regardless of amplitude
             console.log("Completed impulse pattern 1-5, transitioning to corrective A-B-C pattern");
-          } else {
-            console.log("Wave 5 didn't meet criteria - not transitioning to corrective phase yet");
-          }
+            phase = 'corrective';
+            waveCount = 0; // Will increment to 1 for Wave A
+            break;
+        }
+        break;
+
+      case 'corrective':
+        switch (waveCount) {
+          case 3: // Wave C
+            // After completing Wave C, reset to look for new impulse pattern
+            console.log("Completed corrective pattern A-B-C, looking for new impulse pattern");
+            phase = 'impulse';
+            waveCount = 0; // Will increment to 1 for new Wave 1
+            break;
         }
         break;
     }
 
-    // Add to the wave validation logic
-    if (waveCount === 5) {
-      const wave3 = waves.find(w => w.number === 3);
-      if (wave3 && endPoint.high < wave3.endPrice!) {
-        console.log("Truncated Wave 5 detected - didn't exceed Wave 3 peak");
-        // Truncation is allowed but worth noting
+    if (waveValid) {
+      // If this is wave 3 and it's valid, commit all pending waves
+      if (confirmPattern) {
+        console.log(`Committing ${pendingWaves.length} pending waves plus current wave to results`);
+        waves.push(...pendingWaves, wave);
+        pendingWaves = []; // Clear pending now that we've committed them
+      } 
+      // For waves >= 3, add directly to results as we're already in a confirmed pattern
+      else if (waveCount >= 3) {
+        waves.push(wave);
+      } 
+      // For waves 1-2, add to pending until wave 3 confirms the pattern
+      else {
+        pendingWaves.push(wave);
+        console.log(`Added wave ${waveNumber} to pending (${pendingWaves.length} pending waves)`);
       }
+      
+      previousWave = wave;
+    } else if (patternInvalidated) {
+      pendingWaves = []; // Clear pending waves if pattern is invalidated
     }
-
-    waves.push(wave);
-    previousWave = wave; // Store this wave for the next iteration
+    
     waveCount++;
 
-    // Report progress
+    // Report progress but include both confirmed and pending waves
     if (onProgress) {
-      onProgress([...waves]);
+      // Show both confirmed and pending waves in progress updates
+      onProgress([...waves, ...pendingWaves.map(w => ({...w, isPending: true}))]);
     }
   }
 
@@ -613,7 +669,7 @@ const completeWaveAnalysis = (
   console.log(`Found ${waves.length} valid waves:`, 
     waves.map(w => `Wave ${w.number}: ${w.type}`).join(', '));
 
-  // Return complete analysis result
+  // Return complete analysis result with only confirmed waves
   return {
     waves,
     currentWave: waves[waves.length - 1] || {
@@ -662,7 +718,7 @@ export const analyzeElliottWaves = async (
     try {
       const priceRange = {
         low: Math.min(...priceData.map(d => d.low)),
-        high: Math.max(...priceData.map(d => d.high))
+        high: Math.max(...priceData.map(d => d.high))  // Fixed with arrow function
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -810,7 +866,7 @@ const isImpulseWave = (waveNumber: string | number): boolean => {
     // Waves 1, 3, 5 are impulse; Waves 2, 4 are corrective
     return waveNumber % 2 === 1;
   } else {
-    // Wave B is impulse; Waves A, C are corrective
+    // Wave B is the only corrective wave that's impulsive in direction
     return waveNumber === 'B';
   }
 };
@@ -890,14 +946,17 @@ type WaveWithConfidence = Wave & { confidence: number };
 const calculateWaveConfidence = (wave: Wave, waves: Wave[], data: StockHistoricalData[]): number => {
   let confidence = 100;
   
-  // Rules-based deductions
-  if (wave.number === 2 && wave.endPrice! < wave.startPrice! * 0.9) confidence -= 10; // Deep Wave 2
-  if (wave.number === 3 && wave.endPrice! < waves[0].endPrice! * 1.5) confidence -= 10; // Weak Wave 3
-  if (wave.number === 4 && wave.endPrice! < waves[0].endPrice!) confidence -= 25; // Wave 4 overlap
+  // Rules-based deductions with safety checks
+  if (wave.number === 2 && wave.endPrice && wave.startPrice && wave.endPrice < wave.startPrice * 0.9) 
+    confidence -= 10; // Deep Wave 2
   
-  // Add duration checks
-  // Add Fibonacci relationship checks
-  // Add volume confirmation
+  if (wave.number === 3 && wave.endPrice && waves.length > 0 && waves[0].endPrice && 
+      wave.endPrice < waves[0].endPrice * 1.5) 
+    confidence -= 10; // Weak Wave 3
+  
+  if (wave.number === 4 && wave.endPrice && waves.length > 0 && waves[0].endPrice && 
+      wave.endPrice < waves[0].endPrice) 
+    confidence -= 25; // Wave 4 overlap
   
   return Math.max(0, Math.min(100, confidence));
 };

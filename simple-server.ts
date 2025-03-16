@@ -5,9 +5,20 @@ import cors from 'cors';
 import yahooFinance from 'yahoo-finance2';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import fetch from 'node-fetch';
 
 // Suppress the deprecated method warning
 yahooFinance.suppressNotices(['ripHistorical']);
+
+// Add this near the top of your file, right after importing yahooFinance
+// Suppress validation errors that are causing failures
+yahooFinance.setGlobalConfig({ 
+  validation: {
+    logErrors: false,
+    logWarnings: false,
+    ignoreValidationErrors: true // This is the crucial setting
+  }
+});
 
 // When using ESM, __dirname is not available, so create it
 const __filename = fileURLToPath(import.meta.url);
@@ -121,7 +132,7 @@ const topStockSymbols = [
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  console.log('Health check request received');
+  //console.log('Health check request received');
   res.status(200).json({ 
     status: 'ok',
     message: 'API server is online',
@@ -332,7 +343,7 @@ app.get('/api/historical', async (req, res) => {
           }))
           .filter(item => item.open !== null && item.high !== null && item.close !== null && item.low !== null);
           
-          console.log(`Transformed to ${data.length} valid data points`);
+          //console.log(`Transformed to ${data.length} valid data points`);
           return data;
         } catch (error) {
           console.error('Error in chart request:', error);
@@ -425,7 +436,7 @@ app.get('/api/stocks/historical/:symbol', async (req, res) => {
           throw new Error('Invalid response from Yahoo Finance chart API');
         }
         
-        console.log(`Yahoo returned ${result.quotes.length} data points`);
+        //console.log(`Yahoo returned ${result.quotes.length} data points`);
         
         // Transform into the expected format
         const data = result.quotes
@@ -440,7 +451,7 @@ app.get('/api/stocks/historical/:symbol', async (req, res) => {
             volume: quote.volume ?? 0
           }));
         
-        console.log(`Transformed ${data.length} valid data points for ${symbol}`);
+        //console.log(`Transformed ${data.length} valid data points for ${symbol}`);
         return data;
       } catch (error) {
         console.error('Error in Yahoo Finance chart request:', error);
@@ -455,7 +466,7 @@ app.get('/api/stocks/historical/:symbol', async (req, res) => {
     try {
       const data = await getCachedData(cacheKey, fetchHistoricalData, cacheTTL);
       
-      console.log(`Returning ${data.length} real data points for ${symbol}`);
+      //console.log(`Returning ${data.length} real data points for ${symbol}`);
       return res.json(data);
       
     } catch (yahooError) {
@@ -474,71 +485,196 @@ app.get('/api/stocks/historical/:symbol', async (req, res) => {
   }
 });
 
-// Update the top stocks endpoint to use Yahoo Finance screener
-app.get('/api/stocks/top', async (req, res) => {
+// Replace your current /api/stocks/top endpoint with this enhanced version
+app.get('/api/stocks/top', async function (req, res) {
   try {
-    const limit = parseInt(req.query.limit?.toString() || '20', 10);
+    const limit = parseInt(req.query.limit?.toString() || '50', 10);
+    console.log(`Top stocks request received, limit: ${limit}`);
     
-    // Use cached data or fetch from Yahoo Finance
-    const fetchTopStocks = async () => {
-      console.log(`Fetching top ${limit} most active stocks from Yahoo Finance`);
-      
-      try {
-        // Correct options format with scrIds instead of screenerType
-        const queryOptions = { 
-          scrIds: 'most_actives', 
-          count: limit,
-          region: 'US',
-          lang: 'en-US'
-        };
-        
-        const result = await yahooFinance.screener(queryOptions);
-        
-        if (!result?.quotes || !Array.isArray(result.quotes)) {
-          console.error('Invalid response format from Yahoo Finance screener:', result);
-          throw new Error('Invalid response format from screener API');
-        }
-        
-        console.log(`Retrieved ${result.quotes.length} stocks from screener`);
-        
-        // Transform to expected format
-        return result.quotes.map(quote => ({
-          symbol: quote.symbol,
-          shortName: quote.shortName || `${quote.symbol} Inc.`,
-          regularMarketPrice: quote.regularMarketPrice || 0,
-          regularMarketChange: quote.regularMarketChange || 0,
-          regularMarketChangePercent: quote.regularMarketChangePercent || 0,
-          regularMarketVolume: quote.regularMarketVolume || 0,
-          marketCap: quote.marketCap || 0,
-          averageVolume: quote.averageDailyVolume3Month || quote.averageVolume || 0
-        }));
-      } catch (error) {
-        console.error('Error fetching from Yahoo Finance screener:', error);
-        
-        // Fallback to predefined list when Yahoo Finance fails
-        console.log('Falling back to predefined stock list');
-        return topStockSymbols.slice(0, limit).map(symbol => ({
-          symbol,
-          shortName: `${symbol} Inc.`,
-          regularMarketPrice: 100 + Math.random() * 100,
-          regularMarketChange: (Math.random() * 10) - 5,
-          regularMarketChangePercent: (Math.random() * 10) - 5,
-          regularMarketVolume: Math.floor(Math.random() * 10000000),
-          marketCap: Math.floor(Math.random() * 1000000000000),
-          averageVolume: Math.floor(Math.random() * 5000000)
-        }));
-      }
-    };
+    // Use cached data or fetch new
+    const cacheKey = `top_stocks_${limit}`;
+    const stocks = await getCachedData(cacheKey, async () => {
+      return await fetchLargeNumberOfStocks(limit);
+    }, 30); // Cache for 30 minutes
     
-    // Get data with 10-minute cache TTL
-    const stocks = await getCachedData(`top_stocks_${limit}`, fetchTopStocks, 10);
-    
-    res.json(stocks);
+    return res.json(stocks);
   } catch (error) {
     console.error('Error in /api/stocks/top:', error);
-    res.status(500).json({ error: 'Server error', message: (error as Error).message });
+    res.status(500).json({ error: 'Server error', message: error.message });
   }
 });
+
+// This function will fetch a large number of stocks using multiple API calls
+async function fetchLargeNumberOfStocks(limit: number) {
+  console.log(`Fetching ${limit} stocks from Yahoo Finance APIs`);
+  
+  // Track unique symbols to avoid duplicates
+  const uniqueSymbols = new Set<string>();
+  const results: any[] = [];
+  
+  // Get the Yahoo Finance cookie and crumb (required for API calls)
+  const { cookie, crumb } = await getYahooCookieAndCrumb();
+  
+  // List of different screeners to try (each can provide ~100-200 stocks)
+  const screeners = [
+    'most_actives',        // Most actively traded
+    'day_gainers',         // Biggest daily gains
+    'day_losers',          // Biggest daily drops
+    'undervalued_growth',  // Undervalued growth stocks
+    'growth_technology_stocks', // Tech growth stocks
+    'aggressive_small_caps',    // Small cap stocks
+    'small_cap_gainers',        // Small caps with momentum
+    'portfolio_anchors',        // Stable large caps
+    'solid_large_growth_funds', // Large growth stocks
+    'solid_midcap_growth_funds' // Mid cap growth stocks
+  ];
+  
+  // Try each screener until we have enough stocks
+  for (const screener of screeners) {
+    if (results.length >= limit) break;
+    
+    try {
+      console.log(`Fetching stocks from "${screener}" screener...`);
+      
+      // Make direct fetch request to Yahoo Finance screener API
+      const url = `https://query1.finance.yahoo.com/v1/finance/screener?crumb=${crumb}&lang=en-US&region=US&formatted=true&corsDomain=finance.yahoo.com&count=250&scrIds=${screener}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Cookie': cookie,
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Yahoo Finance API returned status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Extract and process stocks
+      if (data?.finance?.result?.[0]?.quotes && Array.isArray(data.finance.result[0].quotes)) {
+        const quotes = data.finance.result[0].quotes;
+        
+        console.log(`Got ${quotes.length} stocks from "${screener}" screener`);
+        
+        // Add unique stocks to our results
+        for (const quote of quotes) {
+          if (uniqueSymbols.has(quote.symbol)) continue;
+          
+          uniqueSymbols.add(quote.symbol);
+          results.push({
+            symbol: quote.symbol,
+            shortName: quote.shortName || quote.symbol,
+            regularMarketPrice: quote.regularMarketPrice || 0,
+            regularMarketChange: quote.regularMarketChange || 0,
+            regularMarketChangePercent: quote.regularMarketChangePercent || 0,
+            regularMarketVolume: quote.regularMarketVolume || 0,
+            marketCap: quote.marketCap || 0,
+            averageVolume: quote.averageDailyVolume3Month || quote.averageVolume || 0
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`Error fetching "${screener}" screener:`, error);
+      // Continue to next screener on error
+    }
+    
+    // Add a small delay between screener requests to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  
+  console.log(`Total unique stocks collected: ${uniqueSymbols.size}`);
+  
+  // If we still don't have enough stocks, fetch some by market cap
+  if (results.length < limit) {
+    console.log(`Need ${limit - results.length} more stocks, fetching by market cap...`);
+    
+    try {
+      // Use a custom market cap query to get more stocks
+      const url = `https://query1.finance.yahoo.com/v1/finance/screener?crumb=${crumb}&lang=en-US&region=US&formatted=true&corsDomain=finance.yahoo.com&count=250&sortField=marketCap&sortType=DESC&quoteType=EQUITY`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Cookie': cookie,
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Yahoo Finance API returned status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Extract and process stocks
+      if (data?.finance?.result?.[0]?.quotes && Array.isArray(data.finance.result[0].quotes)) {
+        const quotes = data.finance.result[0].quotes;
+        
+        for (const quote of quotes) {
+          if (uniqueSymbols.has(quote.symbol)) continue;
+          
+          uniqueSymbols.add(quote.symbol);
+          results.push({
+            symbol: quote.symbol,
+            shortName: quote.shortName || quote.symbol,
+            regularMarketPrice: quote.regularMarketPrice || 0,
+            regularMarketChange: quote.regularMarketChange || 0,
+            regularMarketChangePercent: quote.regularMarketChangePercent || 0,
+            regularMarketVolume: quote.regularMarketVolume || 0,
+            marketCap: quote.marketCap || 0,
+            averageVolume: quote.averageDailyVolume3Month || quote.averageVolume || 0
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching additional stocks by market cap:', error);
+    }
+  }
+  
+  // If we STILL don't have enough stocks, use the extended list fallback
+  if (results.length < limit) {
+    const remainingNeeded = limit - results.length;
+    console.log(`Using fallback for ${remainingNeeded} more stocks`);
+    
+    // Use the existing fallback generator, but only for the additional needed stocks
+    const fallbackStocks = generateFallbackStocks(remainingNeeded);
+    
+    // Filter out any duplicates
+    for (const stock of fallbackStocks) {
+      if (uniqueSymbols.has(stock.symbol)) continue;
+      uniqueSymbols.add(stock.symbol);
+      results.push(stock);
+    }
+  }
+  
+  // Return exactly the requested number of stocks
+  return results.slice(0, limit);
+}
+
+// Helper function to get Yahoo Finance cookie and crumb
+async function getYahooCookieAndCrumb() {
+  try {
+    // First request to get cookies
+    const firstResponse = await fetch('https://finance.yahoo.com/quote/AAPL');
+    const cookies = firstResponse.headers.get('set-cookie') || '';
+    
+    // Extract main cookie string
+    const cookie = cookies.split(';').find(c => c.includes('A3')) || '';
+    
+    // Second request to get crumb
+    const crumbResponse = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { 'Cookie': cookie }
+    });
+    
+    const crumb = await crumbResponse.text();
+    
+    return { cookie, crumb };
+  } catch (error) {
+    console.error('Error getting Yahoo cookie and crumb:', error);
+    return { cookie: '', crumb: '' };
+  }
+}
 
 // Add to simple-server.ts
 app.get('/api/stocks/:symbol', async (req, res) => {
@@ -607,3 +743,62 @@ app.listen(PORT, () => {
   console.log(`Server running in ${NODE_ENV} mode at http://localhost:${PORT}`);
   console.log(`API available at ${NODE_ENV === 'production' ? '' : 'http://localhost:' + PORT}/api`);
 });
+
+// Add this helper function at the top of your file:
+function generateFallbackStocks(count: number) {
+  // Extended stock symbol list
+  const extendedSymbols = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'LLY', 
+    'JPM', 'V', 'AVGO', 'XOM', 'PG', 'MA', 'COST', 'HD', 'CVX', 'MRK',
+    'ABBV', 'KO', 'PEP', 'ADBE', 'WMT', 'BAC', 'CRM', 'TMO', 'CSCO', 'ACN', 
+    'MCD', 'ABT', 'NFLX', 'LIN', 'DHR', 'AMD', 'CMCSA', 'VZ', 'INTC', 'DIS',
+    'PM', 'TXN', 'WFC', 'BMY', 'UPS', 'COP', 'NEE', 'RTX', 'ORCL', 'HON',
+    'LOW', 'UNP', 'QCOM', 'IBM', 'AMAT', 'DE', 'CAT', 'AXP', 'LMT', 'SPGI',
+    'GE', 'SBUX', 'GILD', 'MMM', 'AMT', 'MDLZ', 'ADI', 'TJX', 'REGN', 'ETN',
+    'BKNG', 'GS', 'ISRG', 'BLK', 'VRTX', 'TMUS', 'PLD', 'C', 'MS', 'ZTS',
+    'MRNA', 'PANW', 'PYPL', 'ABNB', 'COIN', 'SNOW', 'CRM', 'SHOP', 'SQ', 'PLTR'
+  ];
+  
+  // If we need more than our extended list, generate random symbols
+  let result = [];
+  
+  // First use all extended symbols
+  for (let i = 0; i < Math.min(count, extendedSymbols.length); i++) {
+    const symbol = extendedSymbols[i];
+    result.push({
+      symbol,
+      shortName: `${symbol} Inc.`,
+      regularMarketPrice: 100 + Math.random() * 100,
+      regularMarketChange: (Math.random() * 10) - 5,
+      regularMarketChangePercent: (Math.random() * 10) - 5,
+      regularMarketVolume: Math.floor(Math.random() * 10000000),
+      marketCap: Math.floor(Math.random() * 1000000000000),
+      averageVolume: Math.floor(Math.random() * 5000000)
+    });
+  }
+  
+  // If we need more, generate synthetic ones
+  if (count > extendedSymbols.length) {
+    for (let i = extendedSymbols.length; i < count; i++) {
+      // Generate 2-4 letter symbol
+      const length = Math.floor(Math.random() * 3) + 2;
+      let symbol = '';
+      for (let j = 0; j < length; j++) {
+        symbol += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      }
+      
+      result.push({
+        symbol,
+        shortName: `${symbol} Inc.`,
+        regularMarketPrice: 100 + Math.random() * 100,
+        regularMarketChange: (Math.random() * 10) - 5,
+        regularMarketChangePercent: (Math.random() * 10) - 5,
+        regularMarketVolume: Math.floor(Math.random() * 10000000),
+        marketCap: Math.floor(Math.random() * 1000000000000),
+        averageVolume: Math.floor(Math.random() * 5000000)
+      });
+    }
+  }
+  
+  return result;
+}

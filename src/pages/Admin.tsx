@@ -119,6 +119,9 @@ const AdminDashboard = () => {
   const [stockCount, setStockCount] = useState(100);
   const [settingsChanged, setSettingsChanged] = useState(false);
 
+  // First, add a new state at the top of your component to store the fetched top stocks
+  const [topStocks, setTopStocks] = useState<{symbol: string}[]>([]);
+
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
@@ -194,7 +197,8 @@ const loadCacheData = useCallback(async () => {
       const stocksToAnalyze = (histData || [])
         .map(item => item.key.replace('historical_data_', ''))
         .filter(key => key.includes('_1d'))
-        .map(key => key.split('_')[0]);
+        .map(key => key.split('_')[0])
+        .slice(0, stockCount); // Limit by stockCount
       
       if (stocksToAnalyze.length === 0) {
         toast.error('No historical data found in Supabase. Please preload historical data first.');
@@ -225,7 +229,19 @@ const loadCacheData = useCallback(async () => {
           }
           
           // Now analyze with validated data
-          await getAnalysis(symbol, historicalData, true, true); // Added silent parameter
+          const analysis = await getAnalysis(symbol, historicalData, true, true); // Added silent parameter
+          
+          // Add this section to update the state incrementally
+          if (analysis && analysis.waves) {
+            // Update the waveAnalyses state incrementally
+            setWaveAnalyses(prev => ({
+              ...prev,
+              [`${symbol}_1d`]: {
+                analysis: analysis,
+                timestamp: Date.now()
+              }
+            }));
+          }
           
           // Update progress
           completed++;
@@ -241,7 +257,7 @@ const loadCacheData = useCallback(async () => {
         }
       }
       
-      // Finish up
+      // Finish up - still load from the database to ensure everything is consistent
       loadCacheData();
       toast.success(`Wave analysis completed for ${completed} stocks`);
     } catch (error) {
@@ -256,7 +272,26 @@ const loadCacheData = useCallback(async () => {
       });
       setIsRefreshing(false);
     }
-  }, [getAnalysis, getHistoricalData, loadCacheData, supabase]);
+  }, [getAnalysis, getHistoricalData, loadCacheData, supabase, stockCount]);
+
+  // Add a function to fetch the top stocks
+  const fetchTopStocks = useCallback(async (limit: number) => {
+    try {
+      console.log(`DEBUG: Fetching top stocks with limit: ${limit}`);
+      const response = await fetch(`/api/stocks/top?limit=${limit}`);
+      if (!response.ok) {
+        throw new Error(`API returned status ${response.status}`);
+      }
+      const data = await response.json();
+      console.log(`DEBUG: API returned only ${data.length} stocks (requested ${limit})`);
+      setTopStocks(data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching top stocks:', error);
+      toast.error('Failed to fetch top stocks');
+      return [];
+    }
+  }, []);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
@@ -265,12 +300,13 @@ const loadCacheData = useCallback(async () => {
     
     setIsRefreshing(true);
     try {
-      // Use all stocks from the topStockSymbols array
-      const stocks = topStockSymbols.slice(0, stockCount);
+      // First fetch the top stocks from the API based on stockCount
+      const stocks = await fetchTopStocks(stockCount);
+      const symbols = stocks.map(stock => stock.symbol);
       
-      // Initialize progress tracking
+      // Initialize progress tracking with the actual fetched symbols
       setHistoryLoadProgress({
-        total: stocks.length,
+        total: symbols.length,
         current: 0,
         inProgress: true
       });
@@ -281,8 +317,8 @@ const loadCacheData = useCallback(async () => {
       
       // Process stocks in batches to avoid overwhelming the browser
       const batchSize = 5;
-      for (let i = 0; i < stocks.length; i += batchSize) {
-        const batch = stocks.slice(i, i + batchSize);
+      for (let i = 0; i < symbols.length; i += batchSize) {
+        const batch = symbols.slice(i, i + batchSize);
         
         // Process each stock in the batch concurrently
         await Promise.all(batch.map(async (symbol) => {
@@ -440,7 +476,7 @@ const loadCacheData = useCallback(async () => {
       setCurrentApiCall(null);
       setIsRefreshing(false);
     }
-  }, [loadCacheData, supabase, stockCount]);
+  }, [loadCacheData, supabase, stockCount, fetchTopStocks]);
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
@@ -586,6 +622,64 @@ const loadCacheData = useCallback(async () => {
     }
   };
 
+// Add this function near your other clear functions - this one skips the confirmation dialog
+const clearHistoricalCacheWithoutConfirm = async () => {
+  try {
+    setIsRefreshing(true);
+    
+    // Delete all historical data entries from Supabase
+    const { error } = await supabase
+      .from('cache')
+      .delete()
+      .like('key', 'historical_data_%');
+    
+    if (error) {
+      throw error;
+    }
+    
+    await loadCacheData();
+    toast.success('Historical data cache cleared successfully');
+  } catch (error) {
+    console.error('Error clearing historical cache:', error);
+    toast.error('Failed to clear historical data cache');
+    throw error; // Re-throw to handle in caller
+  } finally {
+    // Don't set isRefreshing to false here - the caller will handle that
+  }
+};
+
+// Add a function to clear wave cache without confirmation (similar to historical)
+const clearWaveCacheWithoutConfirm = async () => {
+  try {
+    setIsRefreshing(true);
+    
+    // Cancel any running analyses first
+    cancelAllAnalyses();
+    
+    // Use the clearCache from context (which might handle some cache)
+    clearCache();
+    
+    // Delete all wave analysis entries from Supabase
+    const { error } = await supabase
+      .from('cache')
+      .delete()
+      .like('key', 'wave_analysis_%');
+    
+    if (error) {
+      throw error;
+    }
+    
+    await loadCacheData();
+    toast.success('Wave analysis cache cleared successfully');
+  } catch (error) {
+    console.error('Error clearing wave cache:', error);
+    toast.error('Failed to clear wave analysis cache');
+    throw error; // Re-throw to handle in caller
+  } finally {
+    // Don't set isRefreshing to false here - the caller will handle that
+  }
+};
+
   // Delete a single item from cache
   const deleteCacheItem = async (key: string, type: 'waves' | 'historical') => {
     if (window.confirm(`Are you sure you want to delete ${key}?`)) {
@@ -634,7 +728,7 @@ const loadCacheData = useCallback(async () => {
       
       // Log each item from Supabase
       waveAnalysisData?.forEach(item => {
-        console.log(`${item.key}: ${item.data?.waves?.length || 0} waves`);
+        //console.log(`${item.key}: ${item.data?.waves?.length || 0} waves`);
       });
       
     } catch (e) {
@@ -853,79 +947,110 @@ useEffect(() => {
       // Reset the flag first
       setSettingsChanged(false);
       
-      // Ask if user wants to reload data with new settings
-      if (window.confirm('Settings updated. Would you like to reload historical data with the new stock count?')) {
-        await preloadHistoricalData();
+      // Ask once for confirmation of the complete process
+      if (window.confirm('This will clear existing data and perform a full analysis with the new stock count. This process may take several minutes. Continue?')) {
+        try {
+          // First clear the historical cache, then load new data
+          await clearHistoricalCacheWithoutConfirm();
+          await preloadHistoricalData();
+          
+          // Then clear the wave analysis cache and analyze waves
+          await clearWaveCacheWithoutConfirm();
+          await analyzeWaves();
+          
+          toast.success('Settings applied and data fully refreshed');
+        } catch (error) {
+          console.error('Error during settings update process:', error);
+          toast.error('An error occurred during the refresh process');
+        }
       }
     };
     
     handleSettingsChange();
   }
-}, [settingsChanged, preloadHistoricalData]);
+}, [settingsChanged, preloadHistoricalData, analyzeWaves]);
 
   // Move the SettingsDialog component here
-  const SettingsDialog = () => {
-    const [localStockCount, setLocalStockCount] = useState(stockCount);
+  // Update the SettingsDialog component's handleSave function
+const SettingsDialog = () => {
+  // Replace the existing useState line with this:
+  const [localStockCount, setLocalStockCount] = useState(stockCount);
+  
+  // Add this useEffect to reset the local state when dialog opens
+  useEffect(() => {
+    // Reset to the current stockCount whenever the dialog opens
+    if (settingsOpen) {
+      setLocalStockCount(stockCount);
+    }
+  }, [settingsOpen, stockCount]);
+  
+  const handleSave = () => {
+    // Update the local state immediately before saving to Supabase
+    setStockCount(localStockCount);
     
-    const handleSave = () => {
-      saveSettings({ stockCount: localStockCount });
-      setSettingsOpen(false);
-    };
-    
-    return (
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <SettingsIcon className="h-5 w-5" />
-              Admin Settings
-            </DialogTitle>
-            <DialogDescription>
-              Configure admin preferences and system parameters.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-4 space-y-6">
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="stocks-to-analyze">Number of Stocks to Analyze</Label>
-                <span className="text-sm font-medium">{localStockCount}</span>
-              </div>
-              <Slider
-                id="stocks-to-analyze"
-                min={10}
-                max={500}
-                step={10}
-                value={[localStockCount]}
-                onValueChange={(value) => setLocalStockCount(value[0])}
-                className="mt-2"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                This controls how many top stocks are loaded and analyzed. 
-                Higher numbers require more processing time.
-              </p>
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSettingsOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={isRefreshing}>
-              {isRefreshing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                'Save Settings'
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
+    // Then save to Supabase
+    saveSettings({ stockCount: localStockCount });
+    setSettingsOpen(false);
   };
+  
+  // Rest of the component remains the same
+  return (
+    <Dialog open={settingsOpen} onOpenChange={(open) => {
+      // When closing without saving, discard changes
+      setSettingsOpen(open);
+    }}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <SettingsIcon className="h-5 w-5" />
+            Cache Settings
+          </DialogTitle>
+          <DialogDescription>
+            Configure admin preferences and system parameters.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="py-4 space-y-6">
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label htmlFor="stocks-to-analyze">Number of Stocks to Analyze</Label>
+              <span className="text-sm font-medium">{localStockCount}</span>
+            </div>
+            <Slider
+              id="stocks-to-analyze"
+              min={10}
+              max={5000}
+              step={10}
+              value={[localStockCount]}
+              onValueChange={(value) => setLocalStockCount(value[0])}
+              className="mt-2"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              This controls how many top stocks are loaded and analyzed. 
+              Higher numbers require more processing time.
+            </p>
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setSettingsOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isRefreshing}>
+            {isRefreshing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Settings'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
   return (
     <div className="container mx-auto p-6">
@@ -1025,7 +1150,7 @@ useEffect(() => {
                 className="w-full"
               >
                 <Cog className="h-4 w-4 mr-2" />
-                Admin Settings
+                Cache Settings
               </Button>
             </CardContent>
           </Card>
@@ -1269,16 +1394,6 @@ useEffect(() => {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Add this settings button */}
-      <Button 
-        variant="outline" 
-        onClick={() => setSettingsOpen(true)} 
-        className="fixed bottom-4 right-4"
-      >
-        <Cog className="h-5 w-5 mr-2" />
-        Settings
-      </Button>
 
       {/* Add the settings dialog */}
       <SettingsDialog />
