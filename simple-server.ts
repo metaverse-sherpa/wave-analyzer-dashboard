@@ -805,3 +805,125 @@ function generateFallbackStocks(count: number) {
   return result;
 }
 
+// Function to fetch stock data with better error handling
+async function fetchStockData(symbol: string) {
+  try {
+    // Attempt to fetch quote data
+    const quoteData = await yahooFinance.quote(symbol);
+    
+    // If we get here, the quote was successful
+    return quoteData;
+  } catch (error) {
+    // Check if this is a validation error from Yahoo
+    if (error.name === 'FailedYahooValidationError') {
+      console.log(`Warning: Incomplete data for ${symbol}. Trying fallback method...`);
+      
+      // Try to extract useful data from the error response if available
+      if (error.result && Array.isArray(error.result) && error.result.length > 0) {
+        const partialData = error.result[0];
+        
+        // If we at least have a symbol, construct a minimal response
+        if (partialData.symbol) {
+          return {
+            symbol: partialData.symbol,
+            shortName: partialData.shortName || `${partialData.symbol} Stock`,
+            longName: partialData.longName || `${partialData.symbol} Stock`,
+            regularMarketPrice: partialData.regularMarketPrice || 0,
+            regularMarketChange: partialData.regularMarketChange || 0,
+            regularMarketChangePercent: partialData.regularMarketChangePercent || 0,
+            regularMarketVolume: partialData.regularMarketVolume || 0,
+            marketCap: partialData.marketCap || 0,
+            exchange: partialData.exchange || 'Unknown',
+            _incomplete: true // Flag to indicate this is incomplete data
+          };
+        }
+      }
+      
+      // If we couldn't salvage any useful data, throw a more user-friendly error
+      throw new Error(`Unable to fetch complete data for ${symbol}. This stock may not be available or have limited information.`);
+    }
+    
+    // For other errors, just pass through
+    throw error;
+  }
+}
+
+// Now update your route handler to use this function:
+app.get('/stocks/:symbol', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  
+  try {
+    console.log(`API request: GET /stocks/${symbol}`);
+    
+    // Use our enhanced fetch function
+    const stockData = await fetchStockData(symbol);
+    
+    // Add a warning if the data was incomplete
+    if (stockData._incomplete) {
+      console.log(`Returned incomplete data for ${symbol}`);
+      delete stockData._incomplete; // Remove our internal flag
+    }
+    
+    res.json(stockData);
+  } catch (error) {
+    console.error(`Error fetching stock: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Also update the historical data endpoint if needed:
+app.get('/stocks/:symbol/history', async (req, res) => {
+  const symbol = req.params.symbol.toUpperCase();
+  const period = req.query.period as string || '1y';
+  const interval = req.query.interval as string || '1d';
+  
+  try {
+    console.log(`API request: GET /stocks/${symbol}/history (${period}, ${interval})`);
+    
+    // Try fetching historical data
+    try {
+      const historicalData = await yahooFinance.historical(symbol, {
+        period1: getStartDate(period),
+        interval: interval as any
+      });
+      
+      res.json(historicalData);
+    } catch (histError) {
+      // If we have a validation error, try with more limited params
+      if (histError.name === 'FailedYahooValidationError') {
+        console.log(`Warning: Trying fallback historical data fetch for ${symbol}`);
+        
+        // Simpler fetch attempt
+        const fallbackData = await yahooFinance.historical(symbol, {
+          period1: getStartDate('6mo'), // Use shorter time period
+          interval: '1d'               // Always use daily interval
+        });
+        
+        res.json(fallbackData);
+      } else {
+        // For other errors, throw them to be caught by the outer catch
+        throw histError;
+      }
+    }
+  } catch (error) {
+    console.error(`Error fetching historical data: ${error.message}`);
+    res.status(500).json({ error: `Failed to fetch historical data: ${error.message}` });
+  }
+});
+
+// Helper function to get start date based on period
+function getStartDate(period: string): string {
+  const now = new Date();
+  
+  switch (period) {
+    case '1d': return new Date(now.setDate(now.getDate() - 1)).toISOString();
+    case '5d': return new Date(now.setDate(now.getDate() - 5)).toISOString();
+    case '1mo': return new Date(now.setMonth(now.getMonth() - 1)).toISOString();
+    case '3mo': return new Date(now.setMonth(now.getMonth() - 3)).toISOString();
+    case '6mo': return new Date(now.setMonth(now.getMonth() - 6)).toISOString();
+    case '1y': return new Date(now.setFullYear(now.getFullYear() - 1)).toISOString();
+    case '2y': return new Date(now.setFullYear(now.getFullYear() - 2)).toISOString();
+    case '5y': return new Date(now.setFullYear(now.getFullYear() - 5)).toISOString();
+    default: return new Date(now.setFullYear(now.getFullYear() - 1)).toISOString();
+  }
+}

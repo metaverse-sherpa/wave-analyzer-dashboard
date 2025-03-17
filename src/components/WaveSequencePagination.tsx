@@ -143,49 +143,69 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
               </div>
               
               {/* Fibonacci Targets Table - Only show for current wave */}
-              {isCurrent && fibTargets.length > 0 && (
+              {isCurrent && (
                 <div className="mt-2 mb-4 pl-4 pr-2 py-3 bg-secondary/30 rounded-lg border border-border/50">
                   <h4 className="text-xs font-medium text-muted-foreground mb-2">
                     Fibonacci {wave.type === 'impulse' ? 'Extension' : 'Retracement'} Targets:
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                    {fibTargets
-                      // Filter targets based on wave type
-                      .filter(target => {
-                        const currentPrice = wave.endPrice || 0;
-                        if (wave.type === 'impulse') {
-                          // For impulsive waves, show only targets above current price
-                          return target.price > currentPrice;
-                        } else {
-                          // For corrective waves, show only targets below current price
-                          return target.price < currentPrice;
-                        }
-                      })
-                      .map((target, i) => {
-                        const percentChange = calculatePercentChange(target.price, wave.endPrice || 0);
-                        
-                        return (
-                          <div 
-                            key={`${target.label}-${i}`} 
-                            className="flex items-center gap-2"
-                          >
-                            <span className={`${target.isExtension ? 'text-purple-400' : 'text-blue-400'} min-w-[40px]`}>
-                              {target.label}:
-                            </span>
-                            <span className={`font-medium ${
-                              target.price > (wave.endPrice || 0) ? 'text-bullish' : 'text-bearish'
-                            }`}>
-                              {formatPrice(target.price)}
-                            </span>
-                            <span className={`ml-1 text-xs ${
-                              percentChange.startsWith('+') ? 'text-green-400' : 'text-red-400'
-                            }`}>
-                              ({percentChange})
-                            </span>
+                  
+                  {/* Filter relevant targets */}
+                  {(() => {
+                    const relevantTargets = fibTargets.filter(target => {
+                      const currentPrice = wave.endPrice || 0;
+                      if (wave.type === 'impulse') {
+                        return target.price > currentPrice;
+                      } else {
+                        return target.price < currentPrice;
+                      }
+                    });
+                    
+                    // If no targets are left, all have been met
+                    if (relevantTargets.length === 0 && fibTargets.length > 0) {
+                      return (
+                        <div className="py-2 px-1">
+                          <div className="flex items-center gap-2 text-sm text-amber-500 font-medium">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-pulse">
+                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                              <line x1="12" y1="9" x2="12" y2="13"></line>
+                              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                            </svg>
+                            All targets met. Likely reversal point.
                           </div>
-                        );
-                      })}
-                  </div>
+                        </div>
+                      );
+                    }
+                    
+                    // Otherwise show the targets
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                        {relevantTargets.map((target, i) => {
+                          const percentChange = calculatePercentChange(target.price, wave.endPrice || 0);
+                          
+                          return (
+                            <div 
+                              key={`${target.label}-${i}`} 
+                              className="flex items-center gap-2"
+                            >
+                              <span className={`${target.isExtension ? 'text-purple-400' : 'text-blue-400'} min-w-[40px]`}>
+                                {target.label}:
+                              </span>
+                              <span className={`font-medium ${
+                                target.price > (wave.endPrice || 0) ? 'text-bullish' : 'text-bearish'
+                              }`}>
+                                {formatPrice(target.price)}
+                              </span>
+                              <span className={`ml-1 text-xs ${
+                                percentChange.startsWith('+') ? 'text-green-400' : 'text-red-400'
+                              }`}>
+                                ({percentChange})
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

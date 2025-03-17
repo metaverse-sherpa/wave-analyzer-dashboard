@@ -602,14 +602,24 @@ const completeWaveAnalysis = (
               console.log("Wave 4 invalidated - no prior waves");
               patternInvalidated = true;
               waveValid = false;
-            } else if (pendingWaves.length > 0 && endPoint.low <= pendingWaves[0].endPrice!) {
-              console.log("Wave 4 invalidated - overlaps Wave 1 territory (from pending)");
-              patternInvalidated = true;
-              waveValid = false;
-            } else if (waves.length > 0 && endPoint.low <= waves[0].endPrice!) {
-              console.log("Wave 4 invalidated - overlaps Wave 1 territory (from confirmed)");
-              patternInvalidated = true;
-              waveValid = false;
+            } 
+            // Check for overlap with Wave 1's end price (stricter rule)
+            else if (waves.length > 0) {
+              const wave1 = waves.find(w => w.number === 1);
+              if (wave1 && endPoint.low <= wave1.endPrice!) {
+                console.log("Wave 4 invalidated - overlaps Wave 1 END territory");
+                patternInvalidated = true;
+                waveValid = false;
+              }
+            } 
+            // Check if there's a Wave 1 in pending waves
+            else if (pendingWaves.length > 0) {
+              const wave1 = pendingWaves.find(w => w.number === 1);
+              if (wave1 && endPoint.low <= wave1.endPrice!) {
+                console.log("Wave 4 invalidated - overlaps Wave 1 END territory (from pending)");
+                patternInvalidated = true;
+                waveValid = false;
+              }
             }
             break;
             
@@ -993,6 +1003,25 @@ const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
     return false;
   }
 
+  // Find wave 1 and wave 4
+  const wave1 = waves.find(w => w.number === 1);
+  const wave4 = waves.find(w => w.number === 4);
+  
+  // Implement strict Wave 4 non-overlap rule with Wave 1
+  if (wave1 && wave4) {
+    // Wave 4 cannot retrace below the end of Wave 1
+    if (wave4.endPrice && wave1.endPrice && wave4.endPrice < wave1.endPrice) {
+      console.log(`⚠️ Wave 4 invalidated - retraced below Wave 1 end (${wave4.endPrice} < ${wave1.endPrice})`);
+      return false;
+    }
+    
+    // For ongoing Wave 4, check if current price violates the rule
+    if (!wave4.endPrice && currentPrice < wave1.endPrice) {
+      console.log(`⚠️ Current price ${currentPrice} invalidates Wave 4 - below Wave 1 end (${wave1.endPrice})`);
+      return false;
+    }
+  }
+
   // Check for consistency in wave sequence
   for (let i = 1; i < waves.length; i++) {
     const prevWave = waves[i-1];
@@ -1002,16 +1031,6 @@ const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
     if (prevWave.endPrice !== currentWave.startPrice) {
       console.log(`⚠️ Wave continuity broken between Wave ${prevWave.number} and Wave ${currentWave.number}`);
       return false;
-    }
-    
-    // For wave 3, make additional validations
-    if (currentWave.number === 3) {
-      // Wave 3 should never go below the start of Wave 1
-      const wave1 = waves.find(w => w.number === 1);
-      if (wave1 && currentWave.endPrice && currentWave.endPrice <= wave1.startPrice) {
-        console.log(`⚠️ Wave 3 invalidated - price fell below Wave 1 start`);
-        return false;
-      }
     }
   }
   
@@ -1028,6 +1047,14 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[]): boolean 
   const wave3 = waves.find(w => w.number === 3);
   if (wave3 && currentPrice < wave3.startPrice) {
     console.log(`Current price invalidates Wave 3 pattern - price fell below where Wave 3 started`);
+    return false;
+  }
+  
+  // Add Wave 4 violation check
+  const wave4 = waves.find(w => w.number === 4);
+  const wave1 = waves.find(w => w.number === 1);
+  if (wave4 && wave1 && currentPrice < wave1.endPrice!) {
+    console.log(`Current price invalidates Wave 4 pattern - price fell below where Wave 1 ended`);
     return false;
   }
   

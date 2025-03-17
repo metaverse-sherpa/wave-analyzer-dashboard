@@ -42,7 +42,9 @@ function getTimestampValue(timestamp: string | number): number {
   return typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp;
 }
 
-function getWaveColor(waveNumber: string | number): string {
+// The getWaveColor function is returning white for non-current waves:
+function getWaveColor(waveNumber: string | number, isCurrentWave: boolean = false, currentWaveType?: string): string {
+  // Define colors for all waves
   const WAVE_COLORS: Record<string | number, string> = {
     1: '#4CAF50', // Green
     2: '#FF9800', // Orange
@@ -54,6 +56,20 @@ function getWaveColor(waveNumber: string | number): string {
     'C': '#00BCD4'  // Cyan
   };
   
+  // For non-current waves, use the distinct color with reduced opacity
+  if (!isCurrentWave) {
+    const baseColor = WAVE_COLORS[waveNumber] || '#FFFFFF';
+    // Convert hex to rgba with 70% opacity
+    if (baseColor.startsWith('#')) {
+      const r = parseInt(baseColor.slice(1, 3), 16);
+      const g = parseInt(baseColor.slice(3, 5), 16);
+      const b = parseInt(baseColor.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, 0.7)`;
+    }
+    return baseColor;
+  }
+  
+  // For the current wave, use the color with full opacity
   return WAVE_COLORS[waveNumber] || '#FFFFFF';
 }
 
@@ -120,6 +136,15 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     }));
   }, [data, mostRecentWave1]);
   
+  // Add a function to check if a wave belongs to the current sequence
+  const isWaveInCurrentSequence = (wave: Wave): boolean => {
+    // If no mostRecentWave1 exists, we can't determine the current sequence
+    if (!mostRecentWave1) return false;
+    
+    // Check if this wave starts at or after the most recent Wave 1
+    return getTimestampValue(wave.startTimestamp) >= getTimestampValue(mostRecentWave1.startTimestamp);
+  };
+
   // Format chart data for ChartJS with correct typing
   const chartData: ChartData<'line'> = {
     labels: ohlcData.map(d => new Date(d.timestamp).toLocaleDateString()),
@@ -143,50 +168,83 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         }
       },
       // Wave lines - one dataset per wave
-      ...waves.map(wave => ({
-        type: 'line' as const,
-        label: `Wave ${wave.number}`,
-        data: ohlcData.map(d => {
-          const timestamp = d.timestamp;
-          const startTime = getTimestampValue(wave.startTimestamp);
-          const endTime = getTimestampValue(wave.endTimestamp);
-          
-          if (timestamp >= startTime && timestamp <= endTime) {
-            // Linear interpolation between start and end prices
-            const progress = (timestamp - startTime) / (endTime - startTime);
-            return wave.startPrice + progress * (wave.endPrice - wave.startPrice);
-          }
-          return null as any; // No value outside the wave timeframe
-        }),
-        borderColor: getWaveColor(wave.number),
-        pointBackgroundColor: getWaveColor(wave.number),
-        pointRadius: (context: any) => {
-          const dataIndex = context.dataIndex;
-          const timestamp = ohlcData[dataIndex]?.timestamp;
-          return timestamp === getTimestampValue(wave.endTimestamp) ? 5 : 0;
-        },
-        pointHoverRadius: 5,
-        borderWidth: 2.5, // Increase from 2 to 2.5
-        fill: false,
-        tension: 0,
-        spanGaps: true,
-        z: 10, // Ensure wave lines appear on top
-        datalabels: {
-          display: (ctx: any) => {
-            const dataIndex = ctx.dataIndex;
-            const timestamp = ohlcData[dataIndex]?.timestamp;
-            return timestamp === getTimestampValue(wave.endTimestamp);
-          },
-          backgroundColor: getWaveColor(wave.number),
-          borderRadius: 10,
-          color: 'white',
-          font: {
-            weight: 'bold' as const
-          },
-          padding: 4,
-          formatter: () => String(wave.number)
+      ...waves.map(wave => {
+        const isCurrentWave = currentWave && wave.number === currentWave.number;
+        
+        // Instead of calculating points for every timestamp, just add the start and end points
+        const dataArray = Array(ohlcData.length).fill(null);
+        
+        // Find the indexes corresponding to start and end timestamps
+        const startIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.startTimestamp));
+        let endIndex = -1;
+        
+        if (wave.endTimestamp) {
+          endIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.endTimestamp));
+        } else {
+          // For the current wave without an end timestamp, use the last data point
+          endIndex = ohlcData.length - 1;
         }
-      })),
+        
+        // Force valid indexes to ensure lines appear
+        if (startIndex === -1 && endIndex !== -1) {
+          dataArray[0] = wave.startPrice || 0; // Fallback to beginning of chart
+        } else if (startIndex !== -1) {
+          dataArray[startIndex] = wave.startPrice;
+        }
+        
+        // Always ensure the end point has data
+        if (endIndex !== -1) {
+          dataArray[endIndex] = wave.endPrice || (wave.startPrice * 1.1); // Fallback if no end price
+          console.log(`Set data point for Wave ${wave.number} at index ${endIndex} to ${dataArray[endIndex]}`);
+        } else if (startIndex !== -1) {
+          // Fallback to an arbitrary end point if we have a start but no end
+          dataArray[Math.min(startIndex + 5, ohlcData.length - 1)] = wave.endPrice || (wave.startPrice * 1.1);
+        }
+        
+        return {
+          type: 'line' as const,
+          label: `Wave ${wave.number}`,
+          data: dataArray,
+          borderColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
+          pointBackgroundColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
+          pointRadius: (ctx: any) => {
+            const dataIndex = ctx.dataIndex;
+            const dataValue = ctx.dataset.data[dataIndex];
+            return dataValue !== null ? (isCurrentWave ? 6 : 4) : 0;
+          },
+          pointHoverRadius: 6,
+          borderWidth: isCurrentWave ? 3 : 2,
+          fill: false,
+          tension: 0,
+          spanGaps: true,
+          stepped: false,
+          z: isCurrentWave ? 15 : 5,
+          datalabels: {
+            // Only display labels at the end of waves in the current sequence
+            display: (ctx: any) => {
+              const dataIndex = ctx.dataIndex;
+              // Check if this wave is part of the current sequence AND this is the end point
+              return isWaveInCurrentSequence(wave) && dataIndex === endIndex;
+            },
+            backgroundColor: getWaveColor(wave.number, isCurrentWave),
+            borderRadius: 4,
+            color: 'white',
+            font: {
+              weight: 'bold' as const,
+              size: isCurrentWave ? 14 : 11
+            },
+            padding: { left: 5, right: 5, top: 3, bottom: 3 },
+            formatter: () => String(wave.number),
+            // Position at the end of the wave line
+            anchor: 'end',
+            align: 'top',
+            // Make sure current wave labels appear on top
+            z: isCurrentWave ? 200 : 100,
+            // Prevent labels from overlapping
+            offset: isCurrentWave ? 8 : 0
+          }
+        };
+      }),
       // Fibonacci targets
       ...fibTargets
         .filter(target => {
@@ -203,6 +261,11 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           const startTime = getTimestampValue(currentWave!.startTimestamp);
           const startPrice = currentWave!.startPrice;
           
+          // Get color based on current wave type
+          const fibColor = currentWave!.type === 'impulse' 
+            ? 'rgba(59, 130, 246, 0.8)' // Blue for bullish (impulse)
+            : 'rgba(239, 68, 68, 0.8)';  // Red for bearish (corrective)
+          
           const startIndex = ohlcData.findIndex(d => d.timestamp >= startTime);
           
           const dataArray = Array(ohlcData.length).fill(null);
@@ -213,19 +276,15 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           
           dataArray[dataArray.length - 1] = target.price;
           
-          // Log for debugging
-          console.log(`Fibonacci line for ${target.label}: Starting from current wave ${currentWave!.number} at price $${startPrice}`);
-          
-          // Keep the rest of the code the same
           return {
             type: 'line' as const,
             label: `${target.label}: $${target.price.toFixed(2)}`,
             data: dataArray,
-            borderColor: target.isExtension ? "#9C27B0" : "#3F51B5",
+            borderColor: fibColor,
             borderWidth: 1.5,
             borderDash: [5, 5],
             pointStyle: 'circle',
-            pointBackgroundColor: target.isExtension ? "#9C27B0" : "#3F51B5",
+            pointBackgroundColor: fibColor,
             pointBorderColor: 'white',
             pointBorderWidth: 1,
             // Show point only at the very end
@@ -235,7 +294,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             fill: false,
             tension: 0,
             spanGaps: true,
-            z: 5,
+            z: 10,
             datalabels: {
               // Keep the existing datalabels configuration
               display: (ctx: any) => {
@@ -243,7 +302,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               },
               align: 'right',
               anchor: 'end',
-              backgroundColor: target.isExtension ? "#9C27B0" : "#3F51B5",
+              backgroundColor: fibColor,
               borderRadius: 4,
               color: 'white',
               font: {
@@ -313,7 +372,34 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         overlap: false,
         // Ensure visibility
         clip: false
+      },
+      // Remove or comment out this entire annotations section
+      /*
+      annotation: {
+        annotations: waves.map((wave, index) => {
+          const isCurrentWave = currentWave && wave.number === currentWave.number;
+          const endIndex = wave.endTimestamp 
+            ? ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.endTimestamp))
+            : ohlcData.length - 1;
+          
+          return {
+            type: 'label',
+            id: `wave-${wave.number}`,
+            content: String(wave.number),
+            xValue: endIndex,
+            yValue: wave.endPrice || 0,
+            backgroundColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
+            borderRadius: 10,
+            color: 'white',
+            font: {
+              weight: 'bold',
+              size: isCurrentWave ? 12 : 10
+            },
+            padding: { left: 4, right: 4, top: 2, bottom: 2 }
+          };
+        })
       }
+      */
     },
     // Add this to make space for labels on the right side
     layout: {
@@ -370,15 +456,22 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       {/* Wave legend */}
       <div className="mt-2 flex flex-wrap gap-2">
         {/* Fix the type issue in the map function */}
-        {Array.from(new Set(waves.map(w => w.number))).map((number: string | number) => (
-          <div key={String(number)} className="flex items-center">
-            <div 
-              className="w-3 h-3 rounded-full mr-1" 
-              style={{ backgroundColor: getWaveColor(number) }} 
-            />
-            <span className="text-xs">Wave {number}</span>
-          </div>
-        ))}
+        {Array.from(new Set(waves.map(w => w.number))).map((number: string | number) => {
+          const isCurrentWaveNumber = currentWave && number === currentWave.number;
+          const color = getWaveColor(number, isCurrentWaveNumber, currentWave?.type);
+          
+          return (
+            <div key={String(number)} className="flex items-center">
+              <div 
+                className="w-3 h-3 rounded-full mr-1" 
+                style={{ backgroundColor: color }} 
+              />
+              <span className={`text-xs ${isCurrentWaveNumber ? 'font-bold' : ''}`}>
+                Wave {number} {isCurrentWaveNumber ? '(current)' : ''}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
