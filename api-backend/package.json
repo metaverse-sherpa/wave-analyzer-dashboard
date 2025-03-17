@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "deploy:frontend": "npm run build && wrangler pages deploy dist",
     "dev:server": "tsx simple-server.ts",
     "dev:client": "vite",
     "start:backend": "tsx simple-server.ts",
@@ -91,6 +90,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250313.0",
     "@eslint/js": "^9.9.0",
     "@tailwindcss/typography": "^0.5.15",
     "@types/cors": "^2.8.17",
