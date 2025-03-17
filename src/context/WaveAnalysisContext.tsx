@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { saveToCache } from '@/services/cacheService';
 
 // Add this flag at the top of the file with your other imports
-const AUTO_LOAD_ANALYSES_FROM_SUPABASE = false;
+const AUTO_LOAD_ANALYSES_FROM_SUPABASE = true;  // Set this to true
 
 // Define a type for analysis events
 export type AnalysisEvent = {
@@ -26,6 +26,7 @@ interface WaveAnalysisContextValue {
   cancelAnalysis: (symbol: string) => void;
   cancelAllAnalyses: () => void;
   analysisEvents: AnalysisEvent[];
+  loadAllAnalysesFromSupabase: () => Promise<void>; // Add this line
 }
 
 // 2. Create the context with a proper default value
@@ -38,7 +39,8 @@ const WaveAnalysisContext = createContext<WaveAnalysisContextValue>({
   clearCache: () => {},
   cancelAnalysis: () => {},
   cancelAllAnalyses: () => {},
-  analysisEvents: []
+  analysisEvents: [],
+  loadAllAnalysesFromSupabase: async () => {}
 });
 
 // 3. Export the provider component
@@ -50,6 +52,15 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
   // Track active analyses
   const activeAnalysesRef = React.useRef<Record<string, boolean>>({});
   
+  // Add this ref definition near your other refs
+  const analysesRef = React.useRef<Record<string, WaveAnalysisResult>>({}); 
+
+  // And update your state setter to keep the ref in sync
+  const setAnalysesWithRef = useCallback((newAnalyses: Record<string, WaveAnalysisResult>) => {
+    analysesRef.current = newAnalyses;
+    setAnalyses(newAnalyses);
+  }, []);
+
   // Function to add an event
   const addEvent = useCallback((event: AnalysisEvent) => {
     setAnalysisEvents(prev => [event, ...prev].slice(0, 100)); // Keep last 100 events
@@ -263,53 +274,40 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
   
   // Function to load all analyses from Supabase
   const loadAllAnalysesFromSupabase = useCallback(async () => {
+    console.log('Loading all analyses from Supabase...');
     try {
-      // Query all wave analysis entries from Supabase
       const { data, error } = await supabase
         .from('cache')
-        .select('key, data, timestamp')
+        .select('key, data')
         .like('key', 'wave_analysis_%');
         
-      if (error) throw error;
-      
-      const analysesData = {};
-      
-      if (data) {
-        for (const item of data) {
-          try {
-            const key = item.key.replace('wave_analysis_', '');
-            
-            // Extract the actual analysis from the nested data structure
-            // The data is likely stored with different nesting than expected
-            let analysisData = item.data;
-            
-            // Normalize the data structure to ensure it has currentWave
-            if (!analysisData.currentWave) {
-              // If there's an analysis property, that might have the structure we need
-              if (analysisData.analysis) {
-                analysisData = analysisData.analysis;
-              }
-              
-              // If still no currentWave but we have waves array, use the last wave
-              if (!analysisData.currentWave && Array.isArray(analysisData.waves) && analysisData.waves.length > 0) {
-                analysisData.currentWave = analysisData.waves[analysisData.waves.length - 1];
-              }
-            }
-            
-            // Store the normalized data
-            analysesData[key] = analysisData;
-          } catch (err) {
-            console.error(`Error processing analysis for ${item.key}:`, err);
-          }
-        }
-        
-        console.log(`Loaded and normalized ${Object.keys(analysesData).length} analyses from Supabase`);
-        setAnalyses(analysesData);
+      if (error) {
+        console.error('Error loading analyses from Supabase:', error);
+        return;
       }
-    } catch (error) {
-      console.error('Error loading analyses from Supabase:', error);
+      
+      console.log(`Found ${data?.length} wave analyses in Supabase`);
+      
+      // Update analyses state with data from Supabase
+      if (data && data.length > 0) {
+        // IMPORTANT: Don't spread the current analyses state here
+        // Create a brand new object instead 
+        const newAnalyses = {}; // <-- CHANGE: Don't use { ...analyses }
+        
+        data.forEach(item => {
+          const key = item.key.replace('wave_analysis_', '').replace('_1d', '');
+          if (item.data) {
+            newAnalyses[key] = item.data;
+          }
+        });
+        
+        setAnalyses(newAnalyses); // Set analyses state directly
+        console.log(`Updated analyses state with ${Object.keys(newAnalyses).length} items`);
+      }
+    } catch (err) {
+      console.error('Error in loadAllAnalysesFromSupabase:', err);
     }
-  }, [supabase]);
+  }, [supabase]); // <-- CHANGE: Remove 'analyses' from the dependency array
 
   // Then modify the useEffect that calls loadAllAnalysesFromSupabase
   useEffect(() => {
@@ -327,7 +325,8 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     clearCache,
     cancelAnalysis,
     cancelAllAnalyses,
-    analysisEvents
+    analysisEvents,
+    loadAllAnalysesFromSupabase
   }), [
     analyses,
     getAnalysis,
@@ -336,7 +335,8 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     clearCache,
     cancelAnalysis,
     cancelAllAnalyses,
-    analysisEvents
+    analysisEvents,
+    loadAllAnalysesFromSupabase
   ]);
   
   return (
@@ -361,19 +361,16 @@ export const useWaveAnalysis = (): WaveAnalysisContextValue => {
       clearCache: () => {},
       cancelAnalysis: () => {},
       cancelAllAnalyses: () => {},
-      analysisEvents: []
+      analysisEvents: [],
+      loadAllAnalysesFromSupabase: async () => {}
     };
   }
   
   return context;
 };
 
-// Convenience object for exports
-const WaveAnalysis = {
-  Provider: WaveAnalysisProvider,
-  useWaveAnalysis,
-  // Define the function directly in the object
-  forcePreload: (symbols: string[]) => Promise.resolve()
+// Replace your default export with this:
+export const forcePreload = async (symbols: string[]): Promise<void> => {
+  // Implementation of force preload functionality
+  return Promise.resolve();
 };
-
-export default WaveAnalysis;

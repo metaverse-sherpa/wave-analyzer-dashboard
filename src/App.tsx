@@ -41,7 +41,7 @@ import Index from "./pages/Index";
 import StockDetails from "./pages/StockDetails";
 import NotFound from "./pages/NotFound";
 import Dashboard from './components/Dashboard';
-import WaveAnalysis, { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { WaveAnalysisProvider, useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { HistoricalDataProvider } from '@/context/HistoricalDataContext';
 import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -230,7 +230,7 @@ const App = () => {
           <TooltipProvider>
             <KillSwitchContext.Provider value={{ killSwitch: calculationKillSwitch, setKillSwitch: setCalculationKillSwitch }}>
               <HistoricalDataProvider>
-                <WaveAnalysis.Provider>
+                <WaveAnalysisProvider>
                   <AnalysisStatusTracker />
                   {loadState === 'loading' ? (
                     <div className="flex items-center justify-center h-screen">
@@ -299,7 +299,7 @@ const App = () => {
                   />
                   
                   {/* Your emergency buttons */}
-                </WaveAnalysis.Provider>
+                </WaveAnalysisProvider>
               </HistoricalDataProvider>
             </KillSwitchContext.Provider>
           </TooltipProvider>

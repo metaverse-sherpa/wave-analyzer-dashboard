@@ -6,6 +6,7 @@ import { fetchTopStocks, StockData } from '@/services/yahooFinanceService';
 import { toast } from '@/lib/toast';
 import { Loader2 } from 'lucide-react';
 import Dashboard from '../components/Dashboard';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -15,6 +16,13 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [assetType, setAssetType] = useState<'stocks' | 'crypto' | 'forex'>('stocks');
   
+  const { loadAllAnalysesFromSupabase } = useWaveAnalysis();
+
+  useEffect(() => {
+    // Load wave analyses when the Index component mounts
+    loadAllAnalysesFromSupabase();
+  }, [loadAllAnalysesFromSupabase]);
+
   useEffect(() => {
     loadStocks();
   }, [assetType]);

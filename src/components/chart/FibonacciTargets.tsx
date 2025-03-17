@@ -1,14 +1,14 @@
 import React from 'react';
 import { ReferenceLine } from 'recharts';
 import { FibTarget } from "@/utils/elliottWaveAnalysis";
-import WaveAnalysis from '@/context/WaveAnalysisContext';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
 interface FibonacciTargetsProps {
   fibTargets: FibTarget[];
 }
 
 const FibonacciTargets: React.FC<FibonacciTargetsProps> = ({ fibTargets }) => {
-  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
+  const { analyses, getAnalysis } = useWaveAnalysis();
 
   return (
     <>

@@ -485,22 +485,24 @@ app.get('/api/stocks/historical/:symbol', async (req, res) => {
   }
 });
 
-// Replace your current /api/stocks/top endpoint with this enhanced version
+// Replace your /api/stocks/top endpoint with this more efficient version
 app.get('/api/stocks/top', async function (req, res) {
   try {
     const limit = parseInt(req.query.limit?.toString() || '50', 10);
     console.log(`Top stocks request received, limit: ${limit}`);
     
-    // Use cached data or fetch new
+    // Use cached data or generate new fallback data
     const cacheKey = `top_stocks_${limit}`;
     const stocks = await getCachedData(cacheKey, async () => {
-      return await fetchLargeNumberOfStocks(limit);
+      console.log(`Generating ${limit} stocks from fallback data`);
+      // Skip the Yahoo Finance API calls and use the fallback generator directly
+      return generateFallbackStocks(limit);
     }, 30); // Cache for 30 minutes
     
     return res.json(stocks);
   } catch (error) {
     console.error('Error in /api/stocks/top:', error);
-    res.status(500).json({ error: 'Server error', message: error.message });
+    res.status(500).json({ error: 'Server error', message: (error as Error).message });
   }
 });
 

@@ -122,6 +122,9 @@ const AdminDashboard = () => {
   // First, add a new state at the top of your component to store the fetched top stocks
   const [topStocks, setTopStocks] = useState<{symbol: string}[]>([]);
 
+  // Add this state variable at the top of AdminDashboard, near your other settings
+  const [cacheExpiryDays, setCacheExpiryDays] = useState(7); // Default to 7 days
+
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
@@ -404,7 +407,7 @@ const loadCacheData = useCallback(async () => {
                 key: cacheKey,
                 data: formattedData,
                 timestamp: Date.now(),
-                duration: 7 * 24 * 60 * 60 * 1000, // 7 days
+                duration: cacheExpiryDays * 24 * 60 * 60 * 1000, // Use cacheExpiryDays
                 is_string: false
               }, { onConflict: 'key' });
             
@@ -476,7 +479,7 @@ const loadCacheData = useCallback(async () => {
       setCurrentApiCall(null);
       setIsRefreshing(false);
     }
-  }, [loadCacheData, supabase, stockCount, fetchTopStocks]);
+  }, [loadCacheData, supabase, stockCount, fetchTopStocks, cacheExpiryDays]);
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
@@ -888,11 +891,13 @@ const clearWaveCacheWithoutConfirm = async () => {
   };
 
   // Add this function to save settings to Supabase
-const saveSettings = useCallback(async (settings: { stockCount: number }) => {
+const saveSettings = useCallback(async (settings: { 
+  stockCount: number,
+  cacheExpiryDays: number 
+}) => {
   try {
     setIsRefreshing(true);
     
-    // Save to Supabase with a special key for admin settings
     await supabase
       .from('cache')
       .upsert({
@@ -904,9 +909,6 @@ const saveSettings = useCallback(async (settings: { stockCount: number }) => {
       
     toast.success('Settings saved successfully');
     setSettingsChanged(true);
-  } catch (error) {
-    console.error('Error saving settings:', error);
-    toast.error('Failed to save settings');
   } finally {
     setIsRefreshing(false);
   }
@@ -929,6 +931,10 @@ const loadSettings = useCallback(async () => {
     
     if (data?.data?.stockCount) {
       setStockCount(data.data.stockCount);
+    }
+    
+    if (data?.data?.cacheExpiryDays !== undefined) {
+      setCacheExpiryDays(data.data.cacheExpiryDays);
     }
   } catch (error) {
     console.error('Error loading settings:', error);
@@ -975,21 +981,24 @@ useEffect(() => {
 const SettingsDialog = () => {
   // Replace the existing useState line with this:
   const [localStockCount, setLocalStockCount] = useState(stockCount);
+  const [localCacheExpiryDays, setLocalCacheExpiryDays] = useState(cacheExpiryDays);
   
   // Add this useEffect to reset the local state when dialog opens
   useEffect(() => {
     // Reset to the current stockCount whenever the dialog opens
     if (settingsOpen) {
       setLocalStockCount(stockCount);
+      setLocalCacheExpiryDays(cacheExpiryDays);
     }
-  }, [settingsOpen, stockCount]);
+  }, [settingsOpen, stockCount, cacheExpiryDays]);
   
   const handleSave = () => {
     // Update the local state immediately before saving to Supabase
     setStockCount(localStockCount);
+    setCacheExpiryDays(localCacheExpiryDays);
     
     // Then save to Supabase
-    saveSettings({ stockCount: localStockCount });
+    saveSettings({ stockCount: localStockCount, cacheExpiryDays: localCacheExpiryDays });
     setSettingsOpen(false);
   };
   
@@ -1028,6 +1037,24 @@ const SettingsDialog = () => {
             <p className="text-xs text-muted-foreground mt-1">
               This controls how many top stocks are loaded and analyzed. 
               Higher numbers require more processing time.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label htmlFor="cache-expiry-days">Cache Expiry (Days)</Label>
+              <span className="text-sm font-medium">{localCacheExpiryDays}</span>
+            </div>
+            <Slider
+              id="cache-expiry-days"
+              min={1}
+              max={30}
+              step={1}
+              value={[localCacheExpiryDays]}
+              onValueChange={(value) => setLocalCacheExpiryDays(value[0])}
+              className="mt-2"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              This controls how long cached data is retained before being refreshed.
             </p>
           </div>
         </div>

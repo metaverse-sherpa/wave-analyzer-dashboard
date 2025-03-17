@@ -26,6 +26,9 @@ import WaveSequencePagination from '@/components/WaveSequencePagination';
 import { Card, CardContent } from "@/components/ui/card";
 import { getWavePatternDescription } from '@/components/chart/waveChartUtils';
 import type { Wave, WaveAnalysisResult, StockData, StockHistoricalData } from '@/types/shared';
+import { isCacheExpired } from '@/utils/cacheUtils';
+import { supabase } from '@/lib/supabase';
+import { formatChartData } from '@/utils/chartUtils';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -62,6 +65,26 @@ const getMostRecentWaves = (waves: Wave[], count: number = 7): Wave[] => {
     .slice(0, count); // Take only the first 'count' waves
 };
 
+const MAX_CACHE_AGE_DAYS = 1; // Only use cache if less than a week old
+
+const getAgeString = (timestamp: number): string => {
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  
+  // Convert to days/hours/minutes
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  
+  if (diffDays > 0) {
+    return `${diffDays} day${diffDays === 1 ? '' : 's'}`;
+  } else if (diffHours > 0) {
+    return `${diffHours} hour${diffHours === 1 ? '' : 's'}`;
+  } else {
+    return `${diffMins} minute${diffMins === 1 ? '' : 's'}`;
+  }
+};
+
 const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => {
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
@@ -80,6 +103,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const { getAnalysis } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
+  const [chartData, setChartData] = useState<any[]>([]);
   
   // Move this outside of useEffect - this is the key fix
   const dataLoadedRef = useRef(false);
@@ -88,56 +112,82 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     // Now we use the ref that's defined at component level
     // instead of creating it inside the effect
     const loadData = async () => {
-      if (!symbol || dataLoadedRef.current) return;
-      dataLoadedRef.current = true;
+      setLoading(true);
+      
+      if (!symbol) {
+        setLoading(false);
+        return;
+      }
       
       try {
-        setLoading(true);
-        console.log(`Loading data for ${symbol}...`);
+        // First check if cached data exists and whether it's expired
+        let forceRefresh = false;
         
-        // Get stock info directly by symbol instead of filtering top stocks
-        try {
-          const stockData = await fetch(`/api/stocks/${symbol}`).then(r => r.json());
-          
-          if (stockData) {
-            setStockData(stockData);
-          } else {
-            toast.error(`Stock ${symbol} not found`);
-            navigate('/');
-            return;
-          }
-        } catch (err) {
-          console.log("Error fetching stock details:", err);
-          // Continue with historical data anyway
-        }
+        const { data: cachedEntry, error: cacheError } = await supabase
+          .from('cache')
+          .select('timestamp')
+          .eq('key', `historical_data_${symbol}_1d`)
+          .single();
         
-        // Load historical data with force refresh to ensure we get the right data
-        console.log(`Fetching historical data for ${symbol}`);
-        const historicalData = await getHistoricalData(symbol, '1d', false);
-        
-        if (!historicalData || historicalData.length === 0) {
-          toast.error(`No historical data found for ${symbol}`);
-          setLoading(false);
-          return;
-        }
-        
-        console.log(`Successfully loaded ${historicalData.length} historical data points for ${symbol}`);
-        setHistoricalData(historicalData);
-        
-        // Get wave analysis with the fresh data
-        console.log(`Analyzing waves for ${symbol}`);
-        const waveAnalysis = await getAnalysis(symbol, historicalData);
-        
-        if (waveAnalysis) {
-          console.log(`Analysis complete for ${symbol}: Found ${waveAnalysis.waves.length} waves`);
-          setAnalysis(waveAnalysis);
+        if (cacheError) {
+          console.log(`No cache found for ${symbol}, will fetch fresh data`);
+          forceRefresh = true;
+        } else if (await isCacheExpired(cachedEntry.timestamp)) {
+          console.log(`Cached data for ${symbol} is ${getAgeString(cachedEntry.timestamp)} old - refreshing`);
+          forceRefresh = true;
         } else {
-          console.warn(`No wave analysis returned for ${symbol}`);
-          toast.error(`Could not analyze waves for ${symbol}`);
+          console.log(`Using cached data for ${symbol} (age: ${getAgeString(cachedEntry.timestamp)})`);
         }
+        
+        console.log(`Fetching historical data for ${symbol} (forceRefresh: ${forceRefresh})`);
+        const historicalData = await getHistoricalData(symbol, '1d', forceRefresh);
+        
+        // Update all required state variables
+        setHistoricalData(historicalData);
+        setChartData(formatChartData(historicalData));
+        
+        // Fetch stock information 
+        try {
+          const { data: stockResult } = await supabase
+            .from('cache')
+            .select('data')
+            .eq('key', `stock_${symbol}`)
+            .single();
+            
+          if (stockResult?.data) {
+            setStockData(stockResult.data);
+          } else {
+            // If no cached stock data, use a minimal object
+            setStockData({
+              ...defaultStock,
+              symbol,
+              shortName: symbol,
+            });
+          }
+        } catch (stockErr) {
+          console.error('Error fetching stock data:', stockErr);
+          // Set a minimal stock object if we can't get it from cache
+          setStockData({
+            ...defaultStock,
+            symbol,
+            shortName: symbol,
+          });
+        }
+        
+        // Get Elliott Wave analysis
+        const waveAnalysis = await getAnalysis(symbol, historicalData);
+        setAnalysis(waveAnalysis);
+        
+        console.log('Data loading complete:', {
+          histPoints: historicalData.length,
+          waves: waveAnalysis.waves.length
+        });
+        
+        // Mark as loaded
+        dataLoadedRef.current = true;
       } catch (error) {
-        console.error(`Error loading data for ${symbol}:`, error);
-        toast.error(`Failed to load data for ${symbol}`);
+        console.error('Error loading stock data:', error);
+        toast.error(`Failed to load stock data for ${symbol}`);
       } finally {
         setLoading(false);
       }

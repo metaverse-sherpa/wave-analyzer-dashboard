@@ -11,7 +11,6 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'; // Add these missing Lucide icon imports
-import WaveAnalysis from '@/context/WaveAnalysisContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import StockTrendList from './StockTrendList';
 import WavePatternChart from './WavePatternChart';

@@ -10,7 +10,7 @@ import {
   Tooltip,
   CartesianGrid
 } from 'recharts';
-import WaveAnalysis from '@/context/WaveAnalysisContext';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
 interface SimpleCandlestickChartProps {
   symbol: string;
@@ -24,7 +24,7 @@ const SimpleCandlestickChart: React.FC<SimpleCandlestickChartProps> = React.memo
   data,
   waves
 }) => {
-  const { analyses, getAnalysis } = WaveAnalysis.useWaveAnalysis();
+  const { analyses, getAnalysis } = useWaveAnalysis();
   
   // Return early if no data available
   if (!data || data.length === 0) {
