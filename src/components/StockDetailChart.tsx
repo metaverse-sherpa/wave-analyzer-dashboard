@@ -252,7 +252,10 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               },
               padding: { left: 6, right: 6, top: 3, bottom: 3 },
               // Simplified formatter - just show the price
-              formatter: () => `$${target.price.toFixed(2)}`,
+              formatter: () => {
+                // Return only the price - no percentage
+                return `$${target.price.toFixed(2)}`;
+              },
               offset: 20,
               clamp: true,
               textStrokeColor: 'black',
