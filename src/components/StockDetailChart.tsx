@@ -129,10 +129,18 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         type: 'line' as const,
         label: symbol,
         data: ohlcData.map(d => d.close),
-        borderColor: '#4caf50',
-        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+        borderColor: 'rgba(76, 175, 80, 0.5)', // Make more transparent
+        backgroundColor: 'rgba(76, 175, 80, 0.05)', // Make fill very light
+        borderWidth: 1, // Reduce from default (3) to 1
         fill: true,
         tension: 0.1,
+        pointRadius: 0, // Remove points on the price line
+        pointHoverRadius: 0, // No hover effect on points
+        z: 0, // Ensure price data stays behind wave lines
+        // Add explicit datalabels config to hide all labels for this dataset
+        datalabels: {
+          display: false
+        }
       },
       // Wave lines - one dataset per wave
       ...waves.map(wave => ({
@@ -158,10 +166,11 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           return timestamp === getTimestampValue(wave.endTimestamp) ? 5 : 0;
         },
         pointHoverRadius: 5,
-        borderWidth: 2,
+        borderWidth: 2.5, // Increase from 2 to 2.5
         fill: false,
         tension: 0,
         spanGaps: true,
+        z: 10, // Ensure wave lines appear on top
         datalabels: {
           display: (ctx: any) => {
             const dataIndex = ctx.dataIndex;
@@ -182,22 +191,76 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       ...fibTargets
         .filter(target => {
           if (!currentWave?.endPrice) return false;
+          
           if (currentWave.type === 'impulse') {
             return target.price > currentWave.endPrice;
           } else {
             return target.price < currentWave.endPrice;
           }
         })
-        .map(target => ({
-          type: 'line' as const,
-          label: `${target.label}: $${target.price.toFixed(2)}`,
-          data: ohlcData.map(() => target.price),
-          borderColor: target.isExtension ? "#9C27B0" : "#3F51B5",
-          borderWidth: 1,
-          borderDash: [5, 5],
-          pointRadius: 0,
-          fill: false,
-        })),
+        .map(target => {
+          // Always use the current wave's start point
+          const startTime = getTimestampValue(currentWave!.startTimestamp);
+          const startPrice = currentWave!.startPrice;
+          
+          const startIndex = ohlcData.findIndex(d => d.timestamp >= startTime);
+          
+          const dataArray = Array(ohlcData.length).fill(null);
+          
+          if (startIndex >= 0) {
+            dataArray[startIndex] = startPrice;
+          }
+          
+          dataArray[dataArray.length - 1] = target.price;
+          
+          // Log for debugging
+          console.log(`Fibonacci line for ${target.label}: Starting from current wave ${currentWave!.number} at price $${startPrice}`);
+          
+          // Keep the rest of the code the same
+          return {
+            type: 'line' as const,
+            label: `${target.label}: $${target.price.toFixed(2)}`,
+            data: dataArray,
+            borderColor: target.isExtension ? "#9C27B0" : "#3F51B5",
+            borderWidth: 1.5,
+            borderDash: [5, 5],
+            pointStyle: 'circle',
+            pointBackgroundColor: target.isExtension ? "#9C27B0" : "#3F51B5",
+            pointBorderColor: 'white',
+            pointBorderWidth: 1,
+            // Show point only at the very end
+            pointRadius: (ctx: any) => {
+              return ctx.dataIndex === dataArray.length - 1 ? 6 : 0;
+            },
+            fill: false,
+            tension: 0,
+            spanGaps: true,
+            z: 5,
+            datalabels: {
+              // Keep the existing datalabels configuration
+              display: (ctx: any) => {
+                return ctx.dataIndex === dataArray.length - 1;
+              },
+              align: 'right',
+              anchor: 'end',
+              backgroundColor: target.isExtension ? "#9C27B0" : "#3F51B5",
+              borderRadius: 4,
+              color: 'white',
+              font: {
+                size: 11,
+                weight: 'bold' as const
+              },
+              padding: { left: 6, right: 6, top: 3, bottom: 3 },
+              // Simplified formatter - just show the price
+              formatter: () => `$${target.price.toFixed(2)}`,
+              offset: 20,
+              clamp: true,
+              textStrokeColor: 'black',
+              textStrokeWidth: 0.5,
+              textShadow: '0px 0px 2px rgba(0,0,0,0.8)'
+            }
+          };
+        }),
     ] as ChartDataset<'line', any>[], // Type assertion to fix dataset type issues
   };
   
@@ -233,12 +296,28 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         mode: 'index' as const,
         intersect: false,
       },
-      // Configure datalabels plugin
+      // Configure datalabels plugin globally
       datalabels: {
-        align: 'center',
-        anchor: 'center',
+        // Set to "false" by default, but let individual datasets override this
+        display: false,
+        color: 'white',
+        font: {
+          weight: 'bold' as const
+        },
+        // Force always display the label regardless of chart area boundaries
+        clamp: true,
+        // Add some overlap prevention
+        overlap: false,
+        // Ensure visibility
+        clip: false
       }
     },
+    // Add this to make space for labels on the right side
+    layout: {
+      padding: {
+        right: 80
+      }
+    }
   } as ChartOptions<'line'>;
   
   // Mark chart as loaded on mount
