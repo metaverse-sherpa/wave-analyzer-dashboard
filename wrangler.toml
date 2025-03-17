@@ -1,7 +1,8 @@
-name = "wave-analyzer-dashboard-api"
-main = "worker.js"
-compatibility_date = "2024-09-23"  # Updated to the date mentioned in the error
-compatibility_flags = ["nodejs_compat"]
+name = "wave-analyzer-dashboard"
+compatibility_date = "2023-10-30"
+
+# Add this line for Pages deployment
+pages_build_output_dir = "dist"
 
 [vars]
 ENABLE_MOCK_DATA = "false"
@@ -14,3 +15,6 @@ ENABLE_CACHING = "true"
 
 [site]
 bucket = "./dist"  # For your frontend assets
+
+[env.production]
+# Your production settings...

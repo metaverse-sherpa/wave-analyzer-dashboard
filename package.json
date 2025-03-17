@@ -4,17 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "deploy:frontend": "npm run build && wrangler pages deploy dist",
-    "dev:server": "tsx simple-server.ts",
-    "dev:client": "vite",
-    "start:backend": "tsx simple-server.ts",
+    "dev": "vite",
+    "dev:worker": "wrangler dev",
+    "deploy:api": "wrangler deploy",
+    "deploy:frontend": "bash ./deploy-frontend.sh",
+    "deploy:all": "npm run deploy:api && npm run deploy:frontend",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "build:full": "npm run type-check && npm run build && npm run build:server",
-    "build:server": "tsc simple-server.ts --outDir dist/server",
-    "type-check": "tsc --noEmit --incremental false"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
