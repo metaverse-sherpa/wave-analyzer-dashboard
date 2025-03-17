@@ -804,3 +804,4 @@ function generateFallbackStocks(count: number) {
   
   return result;
 }
+

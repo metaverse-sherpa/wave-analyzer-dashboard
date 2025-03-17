@@ -129,6 +129,9 @@ const AdminDashboard = () => {
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
 
+  // Add this state variable at the top of your component
+  const [aiAnalysisCount, setAiAnalysisCount] = useState(0);
+
   // Fix loadCacheData function - it's incomplete in your code
 const loadCacheData = useCallback(async () => {
   setIsRefreshing(true);
@@ -145,8 +148,17 @@ const loadCacheData = useCallback(async () => {
       .select('key, data, timestamp')
       .like('key', 'historical_data_%');
     
+    // Update your loadCacheData function to also fetch AI analysis entries
+
+    // Add this to your loadCacheData function where you query other cache entries
+    const { data: aiData, error: aiError } = await supabase
+      .from('cache')
+      .select('key, data, timestamp')
+      .like('key', 'ai_elliott_wave_%');
+    
     if (waveError) throw waveError;
     if (histError) throw histError;
+    if (aiError) throw aiError;
     
     // Process wave analysis data
     const waveAnalyses = {};
@@ -170,6 +182,10 @@ const loadCacheData = useCallback(async () => {
           timestamp: item.timestamp
         };
       }
+    }
+
+    if (aiData) {
+      setAiAnalysisCount(aiData.length);
     }
     
     setWaveAnalyses(waveAnalyses);
@@ -328,11 +344,8 @@ const loadCacheData = useCallback(async () => {
           try {
             console.log(`Fetching historical data for ${symbol}...`);
             
-            // ========= DEBUG: Add direct API call ==========
-            const proxyUrl = `/api/stocks/historical/${symbol}?timeframe=1d`;
-            console.log(`DEBUG: Directly calling API for ${symbol}: ${proxyUrl}`);
-            
             // Update the currentApiCall state to show in UI
+            const proxyUrl = `/api/stocks/historical/${symbol}?timeframe=1d`;
             setCurrentApiCall(proxyUrl);
             
             const response = await fetch(proxyUrl);
@@ -343,30 +356,21 @@ const loadCacheData = useCallback(async () => {
             
             const apiData = await response.json();
             console.log(`DEBUG: API returned ${apiData.length} points for ${symbol}`);
-            console.log(`DEBUG: First data point:`, apiData[0]);
-            console.log(`DEBUG: Last data point:`, apiData[apiData.length - 1]);
             
-            // ========= Use this API data directly ========== 
-            // Skip getHistoricalData and use API data directly
-            const historicalData = apiData;
-            
-            // Validate the data
-            if (!historicalData || historicalData.length < 50) {
-              console.warn(`Not enough data points for ${symbol}: ${historicalData?.length || 0}`);
-              throw new Error(`Insufficient data points for ${symbol}: ${historicalData?.length || 0}`);
+            // Validate the data - BUT DON'T THROW ERROR, just log warning and continue
+            if (!apiData || apiData.length < 50) {
+              console.warn(`Not enough data points for ${symbol}: ${apiData?.length || 0}`);
+              // Store what we have anyway rather than failing completely
+              failed++;
+            } else {
+              completed++;
             }
             
-            // Ensure proper timestamp format
-            const formattedData = historicalData.map(item => {
-              // Debug the timestamp before conversion
-              if (item.date) {
-                console.log(`DEBUG: Found 'date' property instead of timestamp:`, item.date);
-              }
-              
+            // Ensure proper timestamp format even for insufficient data
+            const formattedData = apiData.map(item => {
               // Convert timestamps properly
               let timestamp;
               if (item.date) {
-                // Some APIs return date instead of timestamp
                 timestamp = new Date(item.date).getTime();
               } else if (typeof item.timestamp === 'string') {
                 timestamp = new Date(item.timestamp).getTime();
@@ -391,36 +395,20 @@ const loadCacheData = useCallback(async () => {
               };
             });
             
-            // Verify the data was converted properly
-            console.log(`DEBUG: Formatted ${formattedData.length} data points for ${symbol}`);
-            console.log(`DEBUG: First formatted point:`, formattedData[0]);
-            console.log(`DEBUG: Last formatted point:`, formattedData[formattedData.length - 1]);
-            console.log(`DEBUG: Sample date string:`, new Date(formattedData[0].timestamp).toISOString());
-            
-            // Store directly to Supabase with a 7-day cache duration
+            // Store directly to Supabase regardless of point count
             const cacheKey = `historical_data_${symbol}_1d`;
             
-            // Store the data with a verified timestamp format
             await supabase
               .from('cache')
               .upsert({
                 key: cacheKey,
                 data: formattedData,
                 timestamp: Date.now(),
-                duration: cacheExpiryDays * 24 * 60 * 60 * 1000, // Use cacheExpiryDays
+                duration: cacheExpiryDays * 24 * 60 * 60 * 1000,
                 is_string: false
               }, { onConflict: 'key' });
             
-            // Verify what's stored in Supabase
-            const { data: storedData } = await supabase
-              .from('cache')
-              .select('data')
-              .eq('key', cacheKey)
-              .single();
-            
-            console.log(`DEBUG: Stored data for ${symbol}:`, storedData?.data?.length || 0);
-            
-            // Update the local state incrementally without fetching from Supabase
+            // Update the local state incrementally
             setHistoricalData(prev => ({
               ...prev,
               [symbol]: {
@@ -429,9 +417,7 @@ const loadCacheData = useCallback(async () => {
               }
             }));
             
-            completed++;
-            
-            // Update progress
+            // Update progress regardless of success or failure
             setHistoryLoadProgress(prev => ({
               ...prev,
               current: completed + failed
@@ -496,8 +482,9 @@ const loadCacheData = useCallback(async () => {
     }, { key: '', timestamp: Date.now() }),
     oldestHistorical: Object.entries(historicalData).reduce((oldest, [key, data]) => {
       return data.timestamp < oldest.timestamp ? { key, timestamp: data.timestamp } : oldest;
-    }, { key: '', timestamp: Date.now() })
-  }), [waveAnalyses, historicalData]);
+    }, { key: '', timestamp: Date.now() }),
+    aiAnalysisCount: aiAnalysisCount,
+  }), [waveAnalyses, historicalData, aiAnalysisCount]);
 
   // Add these filtered data memos after your cacheStats memo
   const filteredWaveAnalyses = useMemo(() => {
@@ -680,6 +667,34 @@ const clearWaveCacheWithoutConfirm = async () => {
     throw error; // Re-throw to handle in caller
   } finally {
     // Don't set isRefreshing to false here - the caller will handle that
+  }
+};
+
+// Add this function alongside your other clear functions
+
+// Clear DeepSeek AI analysis cache
+const clearAIAnalysisCache = async () => {
+  if (window.confirm('Are you sure you want to clear all DeepSeek AI analysis cache?')) {
+    setIsRefreshing(true);
+    try {
+      // Delete all AI analysis entries from Supabase
+      const { error } = await supabase
+        .from('cache')
+        .delete()
+        .like('key', 'ai_elliott_wave_%');
+      
+      if (error) {
+        throw error;
+      }
+      
+      await loadCacheData();
+      toast.success('DeepSeek AI analysis cache cleared successfully');
+    } catch (error) {
+      console.error('Error clearing AI analysis cache:', error);
+      toast.error('Failed to clear AI analysis cache');
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 };
 
@@ -1178,6 +1193,15 @@ const SettingsDialog = () => {
               >
                 <Cog className="h-4 w-4 mr-2" />
                 Cache Settings
+              </Button>
+
+              {/* Add this button */}
+              <Button 
+                onClick={clearAIAnalysisCache}
+                variant="outline"
+                disabled={isRefreshing}
+              >
+                Clear DeepSeek Cache
               </Button>
             </CardContent>
           </Card>

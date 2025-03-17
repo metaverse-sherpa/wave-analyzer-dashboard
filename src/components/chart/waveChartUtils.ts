@@ -10,6 +10,17 @@ export interface WaveLine {
 
 // Define wave colors for consistency
 export const getWaveColor = (waveNumber: string | number): string => {
+  const WAVE_COLORS: Record<string | number, string> = {
+    1: '#4CAF50', // Green
+    2: '#FF9800', // Orange
+    3: '#2196F3', // Blue
+    4: '#F44336', // Red
+    5: '#9C27B0', // Purple
+    'A': '#FFEB3B', // Yellow
+    'B': '#795548', // Brown
+    'C': '#00BCD4'  // Cyan
+  };
+  
   return WAVE_COLORS[waveNumber] || '#FFFFFF';
 };
 

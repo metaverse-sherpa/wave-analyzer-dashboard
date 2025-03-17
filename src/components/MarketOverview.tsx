@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
-import { ArrowUpRight, ArrowDownRight, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
-// Move the helper function to the top of the file, outside of the component
+// Keep this helper function at the top
 const getTimestampValue = (timestamp: any): number => {
   if (!timestamp) return 0;
   
@@ -27,67 +27,17 @@ const MarketOverview: React.FC = () => {
   const [showMoreBullish, setShowMoreBullish] = useState(false);
   const [showMoreBearish, setShowMoreBearish] = useState(false);
   
-  // Debug: Log analyses to console to see what data we're getting
-  useEffect(() => {
-    console.log('Current wave analyses:', analyses);
-  }, [analyses]);
+  // Use a ref to track initialization
+  const initialized = useRef(false);
   
-  // Replace the entire useEffect block that's checking data format
+  // Only debug log once when analyses are loaded
   useEffect(() => {
-    // Debug the structure of analyses object
-    if (Object.keys(analyses).length > 0) {
-      const sampleKey = Object.keys(analyses)[0];
-      console.log(`Sample analysis structure for ${sampleKey}:`, analyses[sampleKey]);
-      
-      // Instead of throwing an error, let's just log what we find
-      if (analyses[sampleKey]?.currentWave?.number) {
-        console.log('Data format looks correct');
-      } else {
-        console.log('Note: Expected structure not found - attempting to adapt to available format');
-        // Log what we DO have to better understand the structure
-        console.log('Available structure:', Object.keys(analyses[sampleKey] || {}));
-        
-        // Try to find any waves array
-        const wavesArray = analyses[sampleKey]?.waves;
-        if (Array.isArray(wavesArray) && wavesArray.length > 0) {
-          console.log('Found waves array:', wavesArray);
-        }
-      }
-    } else {
-      console.log('No analyses data available');
+    if (Object.keys(analyses).length > 0 && !initialized.current) {
+      console.log('Wave analyses loaded:', Object.keys(analyses).length);
+      initialized.current = true;
     }
   }, [analyses]);
-  
-  // Add this to your MarketOverview component - safe fallback when there are no analyses
-  useEffect(() => {
-    // If no analyses are found after 3 seconds, create some fallback data for display
-    if (Object.keys(analyses).length === 0) {
-      const timer = setTimeout(() => {
-        if (Object.keys(analyses).length === 0) {
-          console.log("Creating fallback market data");
-          
-          // Create sample data for UI demonstration
-          const fallbackAnalyses = {
-            'AAPL_1d': { currentWave: { number: 5 } },
-            'MSFT_1d': { currentWave: { number: 3 } },
-            'GOOGL_1d': { currentWave: { number: 1 } },
-            'AMZN_1d': { currentWave: { number: 2 } },
-            'META_1d': { currentWave: { number: 4 } },
-            'TSLA_1d': { currentWave: { number: 'A' } },
-            'NVDA_1d': { currentWave: { number: 'B' } },
-            'JPM_1d': { currentWave: { number: 'C' } }
-          };
-          
-          // You'll need to add this setter to your context or find another way to provide fallback data
-          // This is just a conceptual example
-          // setAnalyses(fallbackAnalyses); 
-        }
-      }, 3000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [analyses]);
-  
+
   // Fix the categorization logic to correctly match with your Supabase data structure
   const categorizedStocks = React.useMemo(() => {
     console.log("Categorizing stocks from analyses:", Object.keys(analyses).length);
@@ -97,36 +47,25 @@ const MarketOverview: React.FC = () => {
       bearish: [] as {symbol: string, wave: string | number, startTimestamp?: number}[]
     };
     
+    // No need to process if no analyses
+    if (Object.keys(analyses).length === 0) {
+      return categorized;
+    }
+    
     // This should process the entire analyses object, regardless of key format
     Object.entries(analyses).forEach(([key, analysis]) => {
       try {
         // Extract the symbol from the key - just use the key directly as it seems to be the symbol
-        // The key is no longer in the format "wave_analysis_SYMBOL_1d", it's just "SYMBOL"
         const symbol = key;
         
         // Skip if no analysis or it's in an unexpected format
-        if (!analysis) {
-          console.warn("Skipping " + key + ": No analysis data");
+        if (!analysis || !analysis.currentWave || !analysis.currentWave.number) {
           return;
         }
         
-        // Look for the currentWave object directly
-        let currentWave = analysis.currentWave;
-        
-        if (!currentWave) {
-          console.warn("No current Wave found for " + key + ", skipping");
-          return;
-        }
-        
-        // Extract wave number
+        // Get current wave and number directly
+        const { currentWave } = analysis;
         const currentWaveNumber = currentWave.number;
-        
-        if (currentWaveNumber === undefined || currentWaveNumber === null) {
-          console.warn("Skipping", symbol, ": Invalid wave number:", currentWaveNumber);
-          return;
-        }
-        
-        // Extract startTimestamp
         const startTimestamp = getTimestampValue(currentWave.startTimestamp || 0);
         
         // Categorize based on wave number
@@ -146,17 +85,9 @@ const MarketOverview: React.FC = () => {
           }
         }
       } catch (error) {
-        console.error("Error processing", key, ":", error);
+        // Just silently skip problematic entries
       }
     });
-    
-    // DEBUG: Log some sample data to help diagnose the problem
-    console.log("First few entries in analyses:", Object.entries(analyses).slice(0, 2).map(([k, v]) => ({
-      key: k,
-      hasCurrentWave: !!v.currentWave,
-      waveNumber: v.currentWave?.number,
-      isWaveNumberValid: v.currentWave?.number !== undefined
-    })));
     
     // Sort both arrays by startTimestamp descending (most recent first)
     categorized.bullish.sort((a, b) => (b.startTimestamp || 0) - (a.startTimestamp || 0));
