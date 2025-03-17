@@ -15,11 +15,14 @@ import {
   ChartData,
   ChartOptions,
   ChartDataset,
-  Filler, // Add this import
+  Filler
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
-// Register ChartJS components
+// Import datalabels
+import ChartDataLabels from 'chartjs-plugin-datalabels';
+
+// Register basic Chart.js components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -28,8 +31,11 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  Filler // Add this registration
+  Filler
 );
+
+// Register DataLabels plugin separately
+ChartJS.register(ChartDataLabels);
 
 // Helper functions
 function getTimestampValue(timestamp: string | number): number {
@@ -51,6 +57,7 @@ function getWaveColor(waveNumber: string | number): string {
   return WAVE_COLORS[waveNumber] || '#FFFFFF';
 }
 
+// Define missing interface
 interface StockDetailChartProps {
   symbol: string;
   data: StockHistoricalData[];
@@ -61,6 +68,7 @@ interface StockDetailChartProps {
   onClearSelection: () => void;
 }
 
+// Define OHLCDataPoint interface
 interface OHLCDataPoint {
   timestamp: number;
   open: number;
@@ -81,14 +89,14 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [chartLoaded, setChartLoaded] = useState(false);
   
-  // Find most recent Wave 1
+  // Add the missing mostRecentWave1 calculation
   const mostRecentWave1 = useMemo(() => {
     const sortedWaves = [...waves]
       .sort((a, b) => getTimestampValue(b.startTimestamp) - getTimestampValue(a.startTimestamp));
     return sortedWaves.find(wave => wave.number === 1);
   }, [waves]);
   
-  // Prepare candlestick data with proper types
+  // Add the missing ohlcData calculation
   const ohlcData = useMemo(() => {
     if (!data || data.length === 0) return [] as OHLCDataPoint[];
     
@@ -103,7 +111,6 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       }
     }
     
-    // Create properly typed data objects
     return filteredData.map(d => ({
       timestamp: getTimestampValue(d.timestamp),
       open: d.open,
@@ -155,6 +162,21 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         fill: false,
         tension: 0,
         spanGaps: true,
+        datalabels: {
+          display: (ctx: any) => {
+            const dataIndex = ctx.dataIndex;
+            const timestamp = ohlcData[dataIndex]?.timestamp;
+            return timestamp === getTimestampValue(wave.endTimestamp);
+          },
+          backgroundColor: getWaveColor(wave.number),
+          borderRadius: 10,
+          color: 'white',
+          font: {
+            weight: 'bold' as const
+          },
+          padding: 4,
+          formatter: () => String(wave.number)
+        }
       })),
       // Fibonacci targets
       ...fibTargets
@@ -176,10 +198,10 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           pointRadius: 0,
           fill: false,
         })),
-    ],
+    ] as ChartDataset<'line', any>[], // Type assertion to fix dataset type issues
   };
   
-  const options: ChartOptions<'line'> = {
+  const options = {
     responsive: true,
     maintainAspectRatio: false,
     animation: {
@@ -210,9 +232,14 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       tooltip: {
         mode: 'index' as const,
         intersect: false,
+      },
+      // Configure datalabels plugin
+      datalabels: {
+        align: 'center',
+        anchor: 'center',
       }
     },
-  };
+  } as ChartOptions<'line'>;
   
   // Mark chart as loaded on mount
   useEffect(() => {
@@ -260,8 +287,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       
       {/* Wave legend */}
       <div className="mt-2 flex flex-wrap gap-2">
-        {Array.from(new Set(waves.map(w => w.number))).map(number => (
-          <div key={number} className="flex items-center">
+        {/* Fix the type issue in the map function */}
+        {Array.from(new Set(waves.map(w => w.number))).map((number: string | number) => (
+          <div key={String(number)} className="flex items-center">
             <div 
               className="w-3 h-3 rounded-full mr-1" 
               style={{ backgroundColor: getWaveColor(number) }} 
