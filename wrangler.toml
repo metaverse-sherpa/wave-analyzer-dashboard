@@ -1,0 +1,16 @@
+name = "wave-analyzer-dashboard-api"
+main = "worker.js"
+compatibility_date = "2024-09-23"  # Updated to the date mentioned in the error
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENABLE_MOCK_DATA = "false"
+ENABLE_CACHING = "true"
+
+# If you created a KV namespace, include it here
+# [[kv_namespaces]]
+# binding = "CACHE_STORAGE"
+# id = "your-kv-namespace-id"
+
+[site]
+bucket = "./dist"  # For your frontend assets
