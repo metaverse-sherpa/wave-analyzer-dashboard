@@ -21,6 +21,27 @@ const getTimestampValue = (timestamp: any): number => {
   return 0;
 };
 
+// Format a date to show how recent it is (e.g., "2d ago", "5h ago")
+const getTimeAgo = (timestamp: number): string => {
+  const now = Date.now();
+  const diff = now - timestamp;
+  
+  // Convert to appropriate units
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) {
+    return `${days}d ago`;
+  } else if (hours > 0) {
+    return `${hours}h ago`;
+  } else if (minutes > 0) {
+    return `${minutes}m ago`;
+  } else {
+    return 'just now';
+  }
+};
+
 const MarketOverview: React.FC = () => {
   const navigate = useNavigate();
   const { analyses } = useWaveAnalysis();
@@ -141,7 +162,7 @@ const MarketOverview: React.FC = () => {
               <>
                 {/* Display all bullish stocks - simplified approach */}
                 {categorizedStocks.bullish.slice(0, showMoreBullish ? undefined : 5).map(stock => (
-                  <div key={stock.symbol} className="flex items-center">
+                  <div key={stock.symbol} className="flex items-center justify-between">
                     <Button 
                       variant="link"
                       className="h-6 p-0 text-green-600 hover:text-green-700 text-left"
@@ -149,6 +170,11 @@ const MarketOverview: React.FC = () => {
                     >
                       {stock.symbol} <span className="text-xs ml-1">(Wave {stock.wave})</span>
                     </Button>
+                    {stock.startTimestamp && (
+                      <span className="text-xs text-muted-foreground">
+                        {getTimeAgo(stock.startTimestamp)}
+                      </span>
+                    )}
                   </div>
                 ))}
                 
@@ -194,7 +220,7 @@ const MarketOverview: React.FC = () => {
               <>
                 {/* Display all bearish stocks - simplified approach */}
                 {categorizedStocks.bearish.slice(0, showMoreBearish ? undefined : 5).map(stock => (
-                  <div key={stock.symbol} className="flex items-center">
+                  <div key={stock.symbol} className="flex items-center justify-between">
                     <Button 
                       variant="link"
                       className="h-6 p-0 text-red-600 hover:text-red-700 text-left"
@@ -202,6 +228,11 @@ const MarketOverview: React.FC = () => {
                     >
                       {stock.symbol} <span className="text-xs ml-1">(Wave {stock.wave})</span>
                     </Button>
+                    {stock.startTimestamp && (
+                      <span className="text-xs text-muted-foreground">
+                        {getTimeAgo(stock.startTimestamp)}
+                      </span>
+                    )}
                   </div>
                 ))}
                 

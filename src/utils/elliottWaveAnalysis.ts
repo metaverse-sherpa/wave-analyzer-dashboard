@@ -663,6 +663,15 @@ const completeWaveAnalysis = (
       // Show both confirmed and pending waves in progress updates
       onProgress([...waves, ...pendingWaves.map(w => ({...w, isPending: true}))]);
     }
+
+    if (!checkCurrentPrice(waves, data)) {
+      console.log("Current price invalidates the pattern, resetting analysis");
+      waves.length = 0; // Clear all waves to restart pattern detection
+      pendingWaves.length = 0;
+      phase = 'impulse';
+      waveCount = 1;
+      patternInvalidated = false;
+    }
   }
 
   console.log('\n=== Wave Analysis Complete ===');
@@ -766,7 +775,18 @@ export const analyzeElliottWaves = async (
       const result = completeWaveAnalysis(pivots, processData, undefined, onProgress);
       
       if (result.waves.length >= 3) {
-        console.log('Found valid wave pattern!');
+        console.log('Found wave pattern, validating integrity...');
+        
+        // Get current price
+        const currentPrice = processData[processData.length - 1].close;
+        
+        // Validate that the wave sequence is still valid at current price
+        if (!validateWaveSequence(result.waves, currentPrice)) {
+          console.log('❌ Wave sequence invalidated by current price, discarding...');
+          continue; // Try next threshold instead of returning invalid result
+        }
+        
+        console.log('✅ Valid wave pattern confirmed!');
         return result;
       }
     }
@@ -959,4 +979,57 @@ const calculateWaveConfidence = (wave: Wave, waves: Wave[], data: StockHistorica
     confidence -= 25; // Wave 4 overlap
   
   return Math.max(0, Math.min(100, confidence));
+};
+
+// Add this function to validate wave sequence integrity
+const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
+  // Skip empty wave arrays
+  if (waves.length === 0) return true;
+  
+  // Check for wave 3 violations specifically
+  const wave3 = waves.find(w => w.number === 3);
+  if (wave3 && currentPrice < wave3.startPrice) {
+    console.log(`⚠️ Current price ${currentPrice} invalidates Wave 3 (started at ${wave3.startPrice})`);
+    return false;
+  }
+
+  // Check for consistency in wave sequence
+  for (let i = 1; i < waves.length; i++) {
+    const prevWave = waves[i-1];
+    const currentWave = waves[i];
+    
+    // Ensure wave continuity - end of one wave should be start of next
+    if (prevWave.endPrice !== currentWave.startPrice) {
+      console.log(`⚠️ Wave continuity broken between Wave ${prevWave.number} and Wave ${currentWave.number}`);
+      return false;
+    }
+    
+    // For wave 3, make additional validations
+    if (currentWave.number === 3) {
+      // Wave 3 should never go below the start of Wave 1
+      const wave1 = waves.find(w => w.number === 1);
+      if (wave1 && currentWave.endPrice && currentWave.endPrice <= wave1.startPrice) {
+        console.log(`⚠️ Wave 3 invalidated - price fell below Wave 1 start`);
+        return false;
+      }
+    }
+  }
+  
+  return true;
+};
+
+// Also update the completeWaveAnalysis function to validate wave continuity
+// Add this at an appropriate point inside the function:
+const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[]): boolean => {
+  if (waves.length === 0) return true;
+  const currentPrice = data[data.length - 1].close;
+  
+  // Check specific wave rule violations using current price
+  const wave3 = waves.find(w => w.number === 3);
+  if (wave3 && currentPrice < wave3.startPrice) {
+    console.log(`Current price invalidates Wave 3 pattern - price fell below where Wave 3 started`);
+    return false;
+  }
+  
+  return true;
 };

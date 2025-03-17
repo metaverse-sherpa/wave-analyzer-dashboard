@@ -55,12 +55,14 @@ export async function getElliottWaveAnalysis(
         },
         {
           role: "user",
-          content: `Analyze ${symbol} using Elliott Wave Theory based on this historical OHLC data (timeframe: 1d). Determine the current Elliott Wave number:
+          content: `Analyze ${symbol} using Elliott Wave Theory based on this historical OHLC data (timeframe: 1d). Determine the current Elliott Wave number, price target, stop loss, and trend direction.:
           
 ${JSON.stringify(formattedData)}
 
 Format your response:
 WAVE: [current wave number/letter (1-5 for impulse waves or A-B-C for corrective)]
+TARGET: $[price target]
+STOP: $[stop loss]
 TREND: [bullish/bearish]
 ANALYSIS: [Brief explanation of your analysis]`
         }
