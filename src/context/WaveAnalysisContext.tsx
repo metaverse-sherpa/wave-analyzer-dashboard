@@ -290,18 +290,19 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
       
       // Update analyses state with data from Supabase
       if (data && data.length > 0) {
-        // IMPORTANT: Don't spread the current analyses state here
-        // Create a brand new object instead 
-        const newAnalyses = {}; // <-- CHANGE: Don't use { ...analyses }
+        const newAnalyses = {};
         
         data.forEach(item => {
-          const key = item.key.replace('wave_analysis_', '').replace('_1d', '');
+          // Fix: Keep the original key format that includes 'wave_analysis_'
+          // This preserves the consistency with how keys are used in the app
+          const symbolKey = item.key.replace('wave_analysis_', '').replace('_1d', '');
           if (item.data) {
-            newAnalyses[key] = item.data;
+            // Store with original key to ensure MarketOverview can find it
+            newAnalyses[symbolKey] = item.data;
           }
         });
         
-        setAnalyses(newAnalyses); // Set analyses state directly
+        setAnalyses(newAnalyses);
         console.log(`Updated analyses state with ${Object.keys(newAnalyses).length} items`);
       }
     } catch (err) {

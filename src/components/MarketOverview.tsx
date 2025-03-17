@@ -88,7 +88,7 @@ const MarketOverview: React.FC = () => {
     }
   }, [analyses]);
   
-  // In MarketOverview.tsx, update your categorizedStocks useMemo
+  // Fix the categorization logic to correctly match with your Supabase data structure
   const categorizedStocks = React.useMemo(() => {
     console.log("Categorizing stocks from analyses:", Object.keys(analyses).length);
     
@@ -97,77 +97,37 @@ const MarketOverview: React.FC = () => {
       bearish: [] as {symbol: string, wave: string | number, startTimestamp?: number}[]
     };
     
-    // Process each analysis - with improved defensive checking
+    // This should process the entire analyses object, regardless of key format
     Object.entries(analyses).forEach(([key, analysis]) => {
       try {
+        // Extract the symbol from the key - just use the key directly as it seems to be the symbol
+        // The key is no longer in the format "wave_analysis_SYMBOL_1d", it's just "SYMBOL"
+        const symbol = key;
+        
         // Skip if no analysis or it's in an unexpected format
         if (!analysis) {
           console.warn("Skipping " + key + ": No analysis data");
           return;
         }
         
-        // Try to find the current wave even if the structure isn't exactly as expected
+        // Look for the currentWave object directly
         let currentWave = analysis.currentWave;
         
-        // If currentWave isn't directly available, try to find it elsewhere
         if (!currentWave) {
-          console.warn("No current Wave found for " + key + ", looking in alternate locations");
-          
-          // Check if it's nested under another property
-          const possibleNestedData = Object.values(analysis).find(
-            val => val && typeof val === 'object' && 'currentWave' in val
-          );
-          
-          if (possibleNestedData && possibleNestedData.currentWave) {
-            currentWave = possibleNestedData.currentWave;
-          }
-          
-          // Or maybe it's in a waves array
-          else if (Array.isArray(analysis.waves) && analysis.waves.length > 0) {
-            currentWave = analysis.waves[analysis.waves.length - 1];
-          }
-          
-          if (!currentWave) {
-            console.warn("Couldn't find currentWave for " + key + ", skipping");
-            return;
-          }
-        }
-
-        // Only include daily timeframe analyses
-        if (!key.includes('_1d')) {
+          console.warn("No current Wave found for " + key + ", skipping");
           return;
         }
         
-        const symbol = key.split('_')[0];
-        
         // Extract wave number
-        let currentWaveNumber;
-        if (currentWave.number !== undefined) {
-          currentWaveNumber = currentWave.number;
-        } else if (currentWave && typeof currentWave === 'object') {
-          currentWaveNumber = 
-            (currentWave as any).waveType !== undefined ? (currentWave as any).waveType :
-            (currentWave as any).type !== undefined ? (currentWave as any).type :
-            (currentWave as any).wave_type !== undefined ? (currentWave as any).wave_type :
-            undefined;
-        }
+        const currentWaveNumber = currentWave.number;
         
         if (currentWaveNumber === undefined || currentWaveNumber === null) {
           console.warn("Skipping", symbol, ": Invalid wave number:", currentWaveNumber);
           return;
         }
         
-        // Extract startTimestamp - important for sorting
-        const startTimestamp = getTimestampValue(
-          // Try all possible timestamp properties in priority order
-          (currentWave as any).startTimestamp || 
-          (currentWave as any).start_timestamp || 
-          (currentWave as any).startTime || 
-          (currentWave as any).start_time || 
-          (currentWave as any).timestamp || 
-          (currentWave as any).time || 
-          0  // Default fallback
-        );
+        // Extract startTimestamp
+        const startTimestamp = getTimestampValue(currentWave.startTimestamp || 0);
         
         // Categorize based on wave number
         if (typeof currentWaveNumber === 'number') {
@@ -189,6 +149,14 @@ const MarketOverview: React.FC = () => {
         console.error("Error processing", key, ":", error);
       }
     });
+    
+    // DEBUG: Log some sample data to help diagnose the problem
+    console.log("First few entries in analyses:", Object.entries(analyses).slice(0, 2).map(([k, v]) => ({
+      key: k,
+      hasCurrentWave: !!v.currentWave,
+      waveNumber: v.currentWave?.number,
+      isWaveNumberValid: v.currentWave?.number !== undefined
+    })));
     
     // Sort both arrays by startTimestamp descending (most recent first)
     categorized.bullish.sort((a, b) => (b.startTimestamp || 0) - (a.startTimestamp || 0));

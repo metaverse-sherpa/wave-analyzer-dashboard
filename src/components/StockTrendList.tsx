@@ -13,10 +13,12 @@ const StockTrendList: React.FC<StockTrendListProps> = () => {
   // Get stocks with the strongest trends
   const trendingStocks = Object.entries(analyses)
     .filter(([key, analysis]) => 
-      // Add proper null checks
-      key.includes('_1d') && analysis && analysis.waves && analysis.waves.length > 0)
+      // Fix: Handle both key formats (with or without wave_analysis_ prefix)
+      (key.includes('_1d') || key.includes('wave_analysis_')) && 
+      analysis && analysis.waves && analysis.waves.length > 0)
     .map(([key, analysis]) => {
-      const symbol = key.split('_')[0];
+      // Extract the symbol properly from the key
+      const symbol = key.replace('wave_analysis_', '').split('_')[0];
       return {
         symbol,
         trend: analysis.trend || 'neutral',
