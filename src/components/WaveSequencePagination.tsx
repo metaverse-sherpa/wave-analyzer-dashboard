@@ -84,6 +84,17 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
   const startIndex = currentPage * wavesPerPage;
   const displayedWaves = sortedWaves.slice(startIndex, startIndex + wavesPerPage);
 
+  // First, let's add a function to calculate percentage change
+  // Add this before the return statement
+  const calculatePercentChange = (target: number, current: number): string => {
+    if (!current) return '0%';
+    
+    const percentChange = ((target - current) / current) * 100;
+    const formattedPercent = percentChange.toFixed(1);
+    
+    return percentChange >= 0 ? `+${formattedPercent}%` : `${formattedPercent}%`;
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-1">
@@ -137,7 +148,7 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                   <h4 className="text-xs font-medium text-muted-foreground mb-2">
                     Fibonacci {wave.type === 'impulse' ? 'Extension' : 'Retracement'} Targets:
                   </h4>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
                     {fibTargets
                       // Filter targets based on wave type
                       .filter(target => {
@@ -150,21 +161,30 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                           return target.price < currentPrice;
                         }
                       })
-                      .map((target, i) => (
-                        <div 
-                          key={`${target.label}-${i}`} 
-                          className="flex justify-between items-center"
-                        >
-                          <span className={`${target.isExtension ? 'text-purple-400' : 'text-blue-400'}`}>
-                            {target.label}:
-                          </span>
-                          <span className={`font-medium ${
-                            target.price > (wave.endPrice || 0) ? 'text-bullish' : 'text-bearish'
-                          }`}>
-                            {formatPrice(target.price)}
-                          </span>
-                        </div>
-                      ))}
+                      .map((target, i) => {
+                        const percentChange = calculatePercentChange(target.price, wave.endPrice || 0);
+                        
+                        return (
+                          <div 
+                            key={`${target.label}-${i}`} 
+                            className="flex items-center gap-2"
+                          >
+                            <span className={`${target.isExtension ? 'text-purple-400' : 'text-blue-400'} min-w-[40px]`}>
+                              {target.label}:
+                            </span>
+                            <span className={`font-medium ${
+                              target.price > (wave.endPrice || 0) ? 'text-bullish' : 'text-bearish'
+                            }`}>
+                              {formatPrice(target.price)}
+                            </span>
+                            <span className={`ml-1 text-xs ${
+                              percentChange.startsWith('+') ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              ({percentChange})
+                            </span>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               )}
