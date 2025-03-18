@@ -294,36 +294,35 @@ const loadCacheData = useCallback(async () => {
     }
   }, [getAnalysis, getHistoricalData, loadCacheData, supabase, stockCount]);
 
-  // Add a function to fetch the top stocks
-  const fetchTopStocks = useCallback(async (limit: number) => {
-    try {
-      console.log(`DEBUG: Fetching top stocks with limit: ${limit}`);
-      
-      const url = buildApiUrl(`/stocks/top?limit=${limit}`);
-      console.log(`Requesting URL: ${url}`);
-      
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`API returned status ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      // Defensive check to ensure we have an array
-      if (!Array.isArray(data)) {
-        console.error('API returned non-array data:', data);
-        return []; // Return empty array instead of failing
-      }
-      
-      console.log(`DEBUG: API returned ${data.length} stocks (requested ${limit})`);
-      setTopStocks(data);
-      return data;
-    } catch (error) {
-      console.error('Error fetching top stocks:', error);
-      toast.error('Failed to fetch top stocks');
-      return []; // Always return an array even on error
+  // Update this function in Admin.tsx to handle API responses without mock fallbacks
+const fetchTopStocks = useCallback(async (limit: number) => {
+  try {
+    console.log(`DEBUG: Fetching top stocks with limit: ${limit}`);
+    
+    const url = buildApiUrl(`/stocks/top?limit=${limit}`);
+    console.log(`Requesting URL: ${url}`);
+    
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`API returned status ${response.status}`);
     }
-  }, []);
+    
+    const data = await response.json();
+    
+    // Defensive check to ensure we have an array
+    if (!Array.isArray(data)) {
+      throw new Error('API returned non-array data: ' + JSON.stringify(data).substring(0, 100));
+    }
+    
+    console.log(`DEBUG: API returned ${data.length} stocks (requested ${limit})`);
+    setTopStocks(data);
+    return data;
+  } catch (error) {
+    console.error('Error fetching top stocks:', error);
+    toast.error(`Failed to fetch top stocks: ${error.message}`);
+    throw error; // Re-throw to handle in caller
+  }
+}, []);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
@@ -337,9 +336,7 @@ const loadCacheData = useCallback(async () => {
       
       // Check if we got any stocks
       if (!stocks.length) {
-        toast.error('No stocks returned from API');
-        setIsRefreshing(false);
-        return;
+        throw new Error('No stocks returned from API');
       }
       
       const symbols = stocks.map(stock => stock.symbol);
@@ -354,9 +351,10 @@ const loadCacheData = useCallback(async () => {
       // Track progress for user feedback
       let completed = 0;
       let failed = 0;
+      let errors = [];
       
       // Process stocks in batches to avoid overwhelming the browser
-      const batchSize = 5;
+      const batchSize = 3;
       for (let i = 0; i < symbols.length; i += batchSize) {
         const batch = symbols.slice(i, i + batchSize);
         
@@ -369,25 +367,43 @@ const loadCacheData = useCallback(async () => {
             const proxyUrl = buildApiUrl(`/stocks/historical/${symbol}?timeframe=1d`);
             setCurrentApiCall(proxyUrl);
             
-            const response = await fetch(proxyUrl);
+            // Add retry logic
+            const maxRetries = 2;
+            let attempts = 0;
+            let response;
             
-            if (!response.ok) {
-              throw new Error(`API returned status ${response.status}`);
+            while (attempts < maxRetries) {
+              try {
+                response = await fetch(proxyUrl);
+                if (response.ok) break;
+                attempts++;
+                await new Promise(r => setTimeout(r, 1000)); // Wait 1 second between retries
+              } catch (e) {
+                if (attempts >= maxRetries - 1) throw e;
+                attempts++;
+                await new Promise(r => setTimeout(r, 1000));
+              }
+            }
+            
+            if (!response || !response.ok) {
+              throw new Error(`API returned status ${response?.status || 'unknown'}`);
             }
             
             const apiData = await response.json();
-            console.log(`DEBUG: API returned ${apiData.length} points for ${symbol}`);
             
-            // Validate the data - BUT DON'T THROW ERROR, just log warning and continue
-            if (!apiData || apiData.length < 50) {
-              console.warn(`Not enough data points for ${symbol}: ${apiData?.length || 0}`);
-              // Store what we have anyway rather than failing completely
-              failed++;
-            } else {
-              completed++;
+            // Check if the response contains an error message
+            if (apiData && apiData.error) {
+              throw new Error(`API returned error: ${apiData.error} - ${apiData.message || ''}`);
             }
             
-            // Ensure proper timestamp format even for insufficient data
+            // Validate the data - now throw error for insufficient data
+            if (!apiData || !Array.isArray(apiData) || apiData.length < 50) {
+              throw new Error(`Insufficient data for ${symbol}: ${apiData?.length || 0} points`);
+            }
+            
+            console.log(`DEBUG: API returned ${apiData.length} points for ${symbol}`);
+            
+            // Ensure proper timestamp format
             const formattedData = apiData.map(item => {
               // Convert timestamps properly
               let timestamp;
@@ -407,16 +423,11 @@ const loadCacheData = useCallback(async () => {
                 high: Number(item.high),
                 low: Number(item.low),
                 close: Number(item.close),
-                volume: Number(item.volume || 0),
-                // Include original data for debugging
-                original: {
-                  timestamp: item.timestamp,
-                  date: item.date
-                }
+                volume: Number(item.volume || 0)
               };
             });
             
-            // Store directly to Supabase regardless of point count
+            // Store to Supabase
             const cacheKey = `historical_data_${symbol}_1d`;
             
             await supabase
@@ -438,30 +449,27 @@ const loadCacheData = useCallback(async () => {
               }
             }));
             
-            // Update progress regardless of success or failure
-            setHistoryLoadProgress(prev => ({
-              ...prev,
-              current: completed + failed
-            }));
+            completed++;
             
             console.log(`Stored ${symbol} data in Supabase (${formattedData.length} points)`);
           } catch (error) {
             console.error(`Failed to load data for ${symbol}:`, error);
+            errors.push(`${symbol}: ${error.message}`);
             failed++;
-            
-            // Update progress for failures too
+          } finally {
+            // Update progress tracking
             setHistoryLoadProgress(prev => ({
               ...prev,
               current: completed + failed
             }));
-          } finally {
+            
             // Clear the current API call when done with this symbol
             setCurrentApiCall(null);
           }
         }));
         
         // Small delay between batches to allow UI to remain responsive
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
       
       // Refresh the cache display
@@ -469,13 +477,15 @@ const loadCacheData = useCallback(async () => {
       
       // Show final status
       if (failed > 0) {
-        toast.warning(`Historical data stored in Supabase with some issues: ${completed} succeeded, ${failed} failed`);
+        toast.error(`Failed to load data for ${failed} stocks. Check console for details.`);
+        // Display error details in the console in a readable format
+        console.error('Historical data load failures:', errors);
       } else {
         toast.success(`Historical data stored in Supabase successfully for all ${completed} stocks`);
       }
     } catch (error) {
       console.error('Error preloading historical data:', error);
-      toast.error('Failed to preload historical data');
+      toast.error(`Failed to preload historical data: ${error.message}`);
     } finally {
       // Reset progress and clear current API call
       setHistoryLoadProgress({
@@ -1115,6 +1125,57 @@ const SettingsDialog = () => {
   );
 };
 
+// Add this new component in your Admin.tsx file
+const ApiErrorDisplay = () => {
+  const [errors, setErrors] = useState<string[]>([]);
+  const [showErrors, setShowErrors] = useState(false);
+  
+  // Expose an add error function to other components
+  const addError = useCallback((error: string) => {
+    setErrors(prev => [...prev, error]);
+    setShowErrors(true);
+  }, []);
+  
+  // Global error handler for fetch requests
+  useEffect(() => {
+    // Add this to your Admin component's rendered JSX
+    window._addApiError = addError;
+    
+    return () => {
+      delete window._addApiError;
+    };
+  }, [addError]);
+  
+  if (!showErrors || errors.length === 0) return null;
+  
+  return (
+    <Card className="fixed bottom-4 right-4 w-96 z-50 shadow-lg border-destructive">
+      <CardHeader className="p-3 bg-destructive/10">
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-sm font-medium text-destructive flex items-center gap-1.5">
+            <X className="h-4 w-4" />
+            API Errors ({errors.length})
+          </CardTitle>
+          <Button variant="ghost" size="sm" onClick={() => setShowErrors(false)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0 max-h-48 overflow-auto">
+        <ScrollArea className="h-full">
+          <ul className="divide-y text-xs">
+            {errors.map((error, i) => (
+              <li key={i} className="p-2.5">
+                {error}
+              </li>
+            ))}
+          </ul>
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  );
+};
+
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center">
@@ -1469,8 +1530,143 @@ const SettingsDialog = () => {
 
       {/* Add the settings dialog */}
       <SettingsDialog />
+
+      {/* Add this line to your Admin component return JSX */}
+      <ApiErrorDisplay />
     </div>
   );
 };
 
 export default AdminDashboard;
+
+// 2. Historical data endpoint - FIX: Handle all three URL formats
+if (path.includes('/history') || path.includes('/historical')) {
+  try {
+    // Extract symbol either from "/stocks/AAPL/history" or "/stocks/historical/AAPL" format
+    let symbol;
+    let period = url.searchParams.get('period') || url.searchParams.get('timeframe') || '1y';
+    let interval = url.searchParams.get('interval') || '1d';
+    
+    console.log(`Processing historical data request: ${path}, period: ${period}, interval: ${interval}`);
+    
+    // Handle /stocks/historical/AAPL format
+    if (path.includes('/historical/')) {
+      const parts = path.split('/historical/');
+      if (parts.length >= 2) {
+        symbol = parts[1].split('?')[0].toUpperCase();
+      }
+    } 
+    // Handle /stocks/history/AAPL format - NEW CASE
+    else if (path.includes('/history/')) {
+      const parts = path.split('/history/');
+      if (parts.length >= 2) {
+        symbol = parts[1].split('?')[0].toUpperCase();
+      }
+    }
+    // Handle /stocks/AAPL/history format
+    else if (path.includes('/history')) {
+      const pathParts = path.split('/');
+      // Find stocks and get the next part
+      for (let i = 0; i < pathParts.length; i++) {
+        if (pathParts[i] === 'stocks' && i + 1 < pathParts.length && pathParts[i+1] !== 'history') {
+          symbol = pathParts[i + 1].toUpperCase();
+          break;
+        }
+      }
+    }
+    
+    console.log(`Extracted symbol: ${symbol} from path: ${path}`);
+    
+    // Try to get from cache first
+    const cacheKey = `history_${symbol}_${period}_${interval}`;
+    const cachedData = await getCachedData(cacheKey, env);
+    
+    if (cachedData) {
+      return new Response(JSON.stringify(cachedData), { headers });
+    }
+    
+    // Calculate date range
+    const period1 = getStartDate(period);
+    
+    // Fetch from Yahoo Finance with full historical data
+    console.log(`Fetching historical data for ${symbol} from ${period1}`);
+    
+    try {
+      // IMPORTANT: This is the section that needs fixing
+      // Using proper Yahoo Finance API options to get full historical data
+      const historicalData = await yahooFinance.historical(symbol, {
+        period1: period1,
+        interval: interval,
+        includeAdjustedClose: true,
+        events: true
+      });
+      
+      // Check if we got real data
+      if (!historicalData || historicalData.length === 0) {
+        throw new Error("Yahoo Finance returned no data");
+      }
+      
+      console.log(`Retrieved ${historicalData.length} data points for ${symbol}`);
+      
+      // Transform to expected format - make sure we're returning all data points
+      const formattedData = historicalData.map(item => ({
+        timestamp: Math.floor(new Date(item.date).getTime() / 1000),
+        open: item.open,
+        high: item.high,
+        close: item.close,
+        low: item.low,
+        volume: item.volume
+      }));
+      
+      // Store in cache
+      await setCachedData(cacheKey, formattedData, env, 60 * 60); // 1 hour cache
+      
+      return new Response(JSON.stringify(formattedData), { headers });
+    } catch (error) {
+      console.error(`Error fetching historical data for ${symbol}: ${error.message}`);
+      
+      // Try a fallback with different parameters
+      try {
+        console.log(`Trying fallback approach for ${symbol}...`);
+        
+        // Use a different period setting as fallback
+        const fallbackData = await yahooFinance.historical(symbol, {
+          period1: getStartDate('6mo'), // Use last 6 months
+          interval: '1d'
+        });
+        
+        // Transform to expected format
+        const formattedData = fallbackData.map(item => ({
+          timestamp: Math.floor(new Date(item.date).getTime() / 1000),
+          open: item.open,
+          high: item.high,
+          close: item.close,
+          low: item.low,
+          volume: item.volume
+        }));
+        
+        // Store in cache
+        await setCachedData(cacheKey, formattedData, env, 60 * 60); // 1 hour cache
+        
+        return new Response(JSON.stringify(formattedData), { headers });
+      } catch (fallbackError) {
+        console.error(`Fallback also failed for ${symbol}: ${fallbackError.message}`);
+        
+        // Generate fallback data for truly failed cases
+        const mockData = generateMockHistoricalData(symbol, 365);
+        return new Response(JSON.stringify(mockData), { headers });
+      }
+    }
+  } catch (error) {
+    console.error(`Error in historical data endpoint: ${error.message}`);
+    
+    // Return proper error format
+    return new Response(JSON.stringify({
+      error: 'Failed to fetch historical data',
+      message: error.message
+    }), { 
+      status: 500,
+      headers 
+    });
+  }
+}

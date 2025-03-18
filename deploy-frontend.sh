@@ -8,7 +8,7 @@ npm ci
 echo "Creating production environment configuration..."
 cat > .env.production << EOF
 VITE_USE_REAL_API=true
-VITE_API_BASE_URL=https://api-backend.metaversesherpa.workers.dev/
+VITE_API_BASE_URL=https://api-backend.metaversesherpa.workers.dev
 VITE_DEBUG_API_CALLS=true
 EOF
 

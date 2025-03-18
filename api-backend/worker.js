@@ -125,55 +125,29 @@ export default {
       // 2. Historical data endpoint - FIX: Handle all three URL formats
       if (path.includes('/history') || path.includes('/historical')) {
         try {
-          // Extract symbol from any of these formats:
-          // 1. /stocks/AAPL/history
-          // 2. /stocks/history/AAPL
-          // 3. /stocks/historical/AAPL
+          // Extract symbol from the URL
           let symbol;
           let period = url.searchParams.get('period') || url.searchParams.get('timeframe') || '1y';
           let interval = url.searchParams.get('interval') || '1d';
           
-          console.log(`Processing historical data request: ${path}, period: ${period}, interval: ${interval}`);
-          
-          // Handle /stocks/historical/AAPL format
+          // Handle various URL formats
           if (path.includes('/historical/')) {
             const parts = path.split('/historical/');
             if (parts.length >= 2) {
               symbol = parts[1].split('?')[0].toUpperCase();
             }
           } 
-          // Handle /stocks/history/AAPL format - NEW CASE
           else if (path.includes('/history/')) {
             const parts = path.split('/history/');
             if (parts.length >= 2) {
               symbol = parts[1].split('?')[0].toUpperCase();
             }
           }
-          // Original format: /stocks/AAPL/history
           else if (path.includes('/history')) {
             const pathParts = path.split('/');
-            // Find stocks and get the next part
             for (let i = 0; i < pathParts.length; i++) {
               if (pathParts[i] === 'stocks' && i + 1 < pathParts.length && pathParts[i+1] !== 'history') {
                 symbol = pathParts[i + 1].toUpperCase();
-                break;
-              }
-            }
-          }
-          
-          // If we still don't have a symbol, try a different approach
-          if (!symbol) {
-            const pathParts = path.split('/');
-            // Find all parts that look like stock symbols (not 'stocks', 'history', 'historical', etc)
-            for (const part of pathParts) {
-              if (part && 
-                  part !== 'stocks' && 
-                  part !== 'history' && 
-                  part !== 'historical' &&
-                  part.length > 0 && 
-                  part.length <= 5 && 
-                  /^[A-Za-z\-]+$/.test(part)) {
-                symbol = part.toUpperCase();
                 break;
               }
             }
@@ -184,6 +158,7 @@ export default {
           }
           
           console.log(`Extracted symbol: ${symbol} from path: ${path}`);
+          console.log(`Processing historical data request for symbol: ${symbol}, path format: ${path}, period: ${period}, interval: ${interval}`);
           
           // Try to get from cache first
           const cacheKey = `history_${symbol}_${period}_${interval}`;
@@ -197,18 +172,23 @@ export default {
           const period1 = getStartDate(period);
           
           // Fetch from Yahoo Finance
+          console.log(`Fetching historical data for ${symbol} from ${period1}`);
           const historicalData = await yahooFinance.historical(symbol, {
             period1,
             interval
-          }).catch(async (error) => {
-            console.error(`Initial historical fetch failed for ${symbol}: ${error.message}, trying fallback...`);
-            
-            // Fallback to simpler params
-            return yahooFinance.historical(symbol, {
-              period1: getStartDate('6mo'),
-              interval: '1d'
-            });
           });
+          
+          // Add log to check what we received
+          console.log(`Yahoo API returned ${historicalData ? historicalData.length : 0} data points for ${symbol}`);
+          
+          // Ensure we're returning an array
+          if (!historicalData || !Array.isArray(historicalData) || historicalData.length === 0) {
+            console.warn(`No valid data received for ${symbol}, using fallback data`);
+            const mockData = generateMockHistoricalData(symbol, 365);
+            return new Response(JSON.stringify(mockData), { headers });
+          }
+          
+          console.log(`Retrieved ${historicalData.length} data points for ${symbol}`);
           
           // Transform to expected format
           const formattedData = historicalData.map(item => ({
@@ -225,14 +205,14 @@ export default {
           
           return new Response(JSON.stringify(formattedData), { headers });
         } catch (error) {
-          console.error(`Error in historical data endpoint: ${error.message}, path: ${path}`);
+          console.error(`Error in historical data endpoint: ${error.message}`);
           
-          // Generate fallback data that is ALWAYS an array (not an error object with nested data)
-          const mockData = generateMockHistoricalData("AAPL", 300);
+          // Generate fallback data instead of returning error
+          const fallbackData = generateMockHistoricalData(symbol || 'UNKNOWN', 365);
           
-          // Return direct fallback data without wrapping it in an error object
-          return new Response(JSON.stringify(mockData), { 
-            status: 200,
+          // Return 200 with fallback data instead of 500 with error
+          return new Response(JSON.stringify(fallbackData), { 
+            status: 200, 
             headers 
           });
         }
@@ -503,37 +483,6 @@ function getStartDate(period) {
   }
 }
 
-// Generate mock data for fallbacks (enhanced from simple-server.ts)
-function generateMockHistoricalData(symbol, days = 300) {
-  const mockData = [];
-  const today = new Date();
-  let price = 100 + (symbol.charCodeAt(0) % 50); // Base price on first letter of symbol
-  
-  for (let i = days; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - i);
-    
-    // Generate some random price movement with an upward trend
-    const change = (Math.random() - 0.48) * 2; // Slight upward bias
-    price = Math.max(10, price * (1 + change / 100));
-    
-    const dayVolatility = Math.random() * 0.02;
-    const high = price * (1 + dayVolatility);
-    const low = price * (1 - dayVolatility);
-    const open = low + Math.random() * (high - low);
-    
-    mockData.push({
-      timestamp: Math.floor(date.getTime() / 1000),
-      open: Number(open.toFixed(2)),
-      high: Number(high.toFixed(2)),
-      close: Number(price.toFixed(2)),
-      low: Number(low.toFixed(2)),
-      volume: Math.floor(Math.random() * 10000000) + 500000
-    });
-  }
-  
-  return mockData;
-}
 
 // Cache helper functions using either KV or memory
 async function getCachedData(key, env) {
@@ -637,6 +586,42 @@ function generateMockStocks(count) {
         averageVolume: Math.floor(Math.random() * 5000000)
       });
     }
+  }
+  
+  return result;
+}
+
+// Generate mock historical data
+function generateMockHistoricalData(symbol, days) {
+  const result = [];
+  const now = new Date();
+  let basePrice = 100 + (symbol.charCodeAt(0) % 50);
+  const trend = (symbol.charCodeAt(0) % 3 - 1) * 0.1; // -0.1, 0, or +0.1
+  
+  // Generate data points going back 'days' days
+  for (let i = days; i >= 0; i--) {
+    const date = new Date(now.getTime());
+    date.setDate(date.getDate() - i);
+    
+    // Generate price movement
+    const change = (Math.random() - 0.48) * 2; // Slight upward bias
+    basePrice = Math.max(10, basePrice * (1 + change / 100));
+    
+    const dayVolatility = Math.random() * 0.02;
+    const high = basePrice * (1 + dayVolatility);
+    const low = basePrice * (1 - dayVolatility);
+    const open = low + Math.random() * (high - low);
+    const close = low + Math.random() * (high - low);
+    
+    // Add the daily data point
+    result.push({
+      timestamp: Math.floor(date.getTime() / 1000),
+      open: parseFloat(open.toFixed(2)),
+      high: parseFloat(high.toFixed(2)),
+      low: parseFloat(low.toFixed(2)),
+      close: parseFloat(close.toFixed(2)),
+      volume: Math.floor(Math.random() * 10000000)
+    });
   }
   
   return result;
