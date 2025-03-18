@@ -1,23 +1,6 @@
-name = "wave-analyzer-dashboard-api"
-main = "worker.js"
-compatibility_date = "2024-09-23"
-compatibility_flags = [ "nodejs_compat" ]
+name = "wave-analyzer-dashboard"
+compatibility_date = "2023-10-30"
+pages_build_output_dir = "dist"
 
-
-[vars]
-ENABLE_MOCK_DATA = "false"
-ENABLE_CACHING = "true"
-
-# If you created a KV namespace, include it here
-# [[kv_namespaces]]
-# binding = "CACHE_STORAGE"
-# id = "your-kv-namespace-id"
-
-[site]
-#bucket = "./dist"  # For your frontend assets
-
-[observability]
-enabled = true
-
-[env.production]
-# Your production settings...
+[env.production.vars]
+VITE_API_BASE_URL = "https://api-backend.metaversesherpa.workers.dev"

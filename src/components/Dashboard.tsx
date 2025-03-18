@@ -167,46 +167,114 @@ const Dashboard: React.FC<DashboardProps> = ({
     return analyses[symbol] || stockWaves[symbol];
   };
 
+  const { analyses: waveAnalyses } = useWaveAnalysis();
+  
+  // Calculate market sentiment from wave analyses
+  const marketSentiment = useMemo(() => {
+    const analysisList = Object.values(waveAnalyses);
+    
+    if (!analysisList || analysisList.length === 0) {
+      return {
+        count: 0,
+        bullish: 0,
+        bearish: 0,
+        neutral: 0,
+        bullishPercentage: 0,
+        bearishPercentage: 0,
+        neutralPercentage: 0,
+        overallSentiment: 'Neutral'
+      };
+    }
+    
+    let bullish = 0;
+    let bearish = 0;
+    let neutral = 0;
+    
+    analysisList.forEach(analysis => {
+      if (!analysis || !analysis.waves || analysis.waves.length === 0) return;
+      
+      // Get the latest wave classification
+      const latestWave = analysis.waves[analysis.waves.length - 1];
+      
+      // Check if wave properties exist on the wave object
+      if (!latestWave) return;
+      
+      // Access properties safely using optional chaining
+      const waveDegree = (latestWave as any).degree;
+      const waveNumber = (latestWave as any).waveNumber || latestWave.number; // Try both property names
+      const waveTrend = (latestWave as any).trend;
+      
+      // Use your app's wave structure to determine sentiment
+      if (waveDegree === 'Primary' || waveDegree === 'Intermediate' || waveNumber) {
+        // Determine if this is an impulse or corrective wave
+        // For numerically labeled waves (1-5 are impulse, a-c are corrective)
+        let isImpulseWave = false;
+        
+        if (typeof waveNumber === 'number') {
+          // Numbered waves: 1, 3, 5 are impulse waves
+          isImpulseWave = [1, 3, 5].includes(waveNumber);
+        } else if (typeof waveNumber === 'string') {
+          // If using string numbers or letters, check accordingly
+          isImpulseWave = ['1', '3', '5'].includes(waveNumber);
+        }
+        
+        // Determine trend direction (if available)
+        const isUptrend = waveTrend === 'up' || waveTrend === true;
+        
+        // Impulse waves in uptrend are bullish, corrective waves in uptrend are bearish
+        // In downtrend, it's reversed
+        if ((isUptrend && isImpulseWave) || (!isUptrend && !isImpulseWave)) {
+          bullish++;
+        } else if ((isUptrend && !isImpulseWave) || (!isUptrend && isImpulseWave)) {
+          bearish++;
+        } else {
+          neutral++;
+        }
+      } else {
+        neutral++;
+      }
+    });
+    
+    const total = bullish + bearish + neutral;
+    const bullishPercentage = Math.round((bullish / total) * 100) || 0;
+    const bearishPercentage = Math.round((bearish / total) * 100) || 0;
+    const neutralPercentage = Math.round((neutral / total) * 100) || 0;
+    
+    // Determine overall sentiment
+    let overallSentiment = 'Neutral';
+    if (bullishPercentage > 60) overallSentiment = 'Bullish';
+    else if (bearishPercentage > 60) overallSentiment = 'Bearish';
+    else if (bullishPercentage > bearishPercentage + 10) overallSentiment = 'Slightly Bullish';
+    else if (bearishPercentage > bullishPercentage + 10) overallSentiment = 'Slightly Bearish';
+    
+    return {
+      count: total,
+      bullish,
+      bearish,
+      neutral,
+      bullishPercentage,
+      bearishPercentage,
+      neutralPercentage,
+      overallSentiment
+    };
+  }, [waveAnalyses]);
+
+  // Remove the separate Reversal Alerts card since it's now integrated
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Market Overview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MarketOverview />
-            </CardContent>
-          </Card>
-        </div>
-        
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Reversal Alerts</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ReversalCandidatesList />
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-      
-      {/* Retain other sections of the dashboard */}
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-1">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Stocks</CardTitle>
-            <div className="flex items-center gap-2">
-              {/* Existing controls for stocks section */}
-            </div>
+          <CardHeader>
+            <CardTitle>Market Overview</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Existing stock listing content */}
+            <MarketOverview />
           </CardContent>
         </Card>
       </div>
+      
+      {/* Additional dashboard sections can remain here */}
     </div>
   );
 };

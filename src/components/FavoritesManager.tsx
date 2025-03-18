@@ -1,24 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, X, Loader2 } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { X, Plus } from "lucide-react";
 import { toast } from '@/lib/toast';
 import { supabase } from '@/lib/supabase';
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface FavoritesManagerProps {
   onFavoritesChange?: () => void;
 }
 
-export const FavoritesManager = ({ onFavoritesChange }: FavoritesManagerProps) => {
+export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesChange }) => {
   const [favorites, setFavorites] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [newSymbol, setNewSymbol] = useState('');
+  const [newStock, setNewStock] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load favorites from Supabase
+  // Load favorites from Supabase on component mount
+  useEffect(() => {
+    loadFavorites();
+  }, []);
+
   const loadFavorites = async () => {
+    setIsLoading(true);
     try {
       const { data, error } = await supabase
         .from('cache')
@@ -27,18 +32,25 @@ export const FavoritesManager = ({ onFavoritesChange }: FavoritesManagerProps) =
         .single();
 
       if (error) {
-        console.warn('No favorites found:', error);
+        console.error('Error loading favorites:', error);
+        setFavorites([]);
         return;
       }
 
-      setFavorites(data.data || []);
+      if (data && Array.isArray(data.data)) {
+        setFavorites(data.data);
+      } else {
+        setFavorites([]);
+      }
     } catch (error) {
       console.error('Error loading favorites:', error);
       toast.error('Failed to load favorite stocks');
+      setFavorites([]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Save favorites to Supabase
   const saveFavorites = async (updatedFavorites: string[]) => {
     try {
       const { error } = await supabase
@@ -46,7 +58,9 @@ export const FavoritesManager = ({ onFavoritesChange }: FavoritesManagerProps) =
         .upsert({
           key: 'favorite_stocks',
           data: updatedFavorites,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          duration: 365 * 24 * 60 * 60 * 1000, // Add a 1 year duration
+          is_string: false
         }, { onConflict: 'key' });
 
       if (error) throw error;
@@ -59,116 +73,79 @@ export const FavoritesManager = ({ onFavoritesChange }: FavoritesManagerProps) =
     }
   };
 
-  // Add new favorite
-  const addFavorite = async () => {
-    if (!newSymbol) return;
+  const handleAddStock = () => {
+    const stockSymbol = newStock.trim().toUpperCase();
+    if (!stockSymbol) return;
     
-    const symbol = newSymbol.toUpperCase().trim();
-    
-    if (favorites.includes(symbol)) {
-      toast.error('Stock is already in favorites');
+    // Check if stock already exists
+    if (favorites.includes(stockSymbol)) {
+      toast.info(`${stockSymbol} is already in your favorites`);
+      setNewStock(''); // Clear input even when duplicate
       return;
     }
-
-    setIsLoading(true);
-    try {
-      // Validate symbol exists using Yahoo Finance
-      const response = await fetch(`/api/stocks/historical/${symbol}?timeframe=1d`);
-      if (!response.ok) {
-        throw new Error('Invalid stock symbol');
-      }
-
-      const updatedFavorites = [...favorites, symbol];
-      await saveFavorites(updatedFavorites);
-      setNewSymbol('');
-      toast.success(`Added ${symbol} to favorites`);
-    } catch (error) {
-      toast.error(`Failed to add ${symbol}: ${error.message}`);
-    } finally {
-      setIsLoading(false);
+    
+    // Add new stock to the beginning of the array (most recent first)
+    const updatedFavorites = [stockSymbol, ...favorites];
+    saveFavorites(updatedFavorites);
+    setNewStock(''); // Clear input field after adding
+    toast.success(`Added ${stockSymbol} to favorites`);
+    
+    // Focus back on input for quick consecutive additions
+    if (inputRef.current) {
+      inputRef.current.focus();
     }
   };
 
-  // Remove favorite
-  const removeFavorite = async (symbol: string) => {
-    const updatedFavorites = favorites.filter(s => s !== symbol);
-    await saveFavorites(updatedFavorites);
-    toast.success(`Removed ${symbol} from favorites`);
+  const handleRemoveStock = (stock: string) => {
+    const updatedFavorites = favorites.filter(s => s !== stock);
+    saveFavorites(updatedFavorites);
+    toast.success(`Removed ${stock} from favorites`);
   };
 
-  // Filter favorites based on search
-  const filteredFavorites = favorites.filter(symbol => 
-    symbol.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Load favorites on mount
-  useEffect(() => {
-    loadFavorites();
-  }, []);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleAddStock();
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Input
-            value={newSymbol}
-            onChange={(e) => setNewSymbol(e.target.value)}
-            placeholder="Add stock symbol..."
-            className="pr-8"
-            onKeyPress={(e) => {
-              if (e.key === 'Enter') addFavorite();
-            }}
-          />
-        </div>
-        <Button 
-          onClick={addFavorite}
-          disabled={isLoading || !newSymbol}
-        >
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4" />
-          )}
+      <div className="flex space-x-2">
+        <Input
+          ref={inputRef}
+          placeholder="Enter stock symbol..."
+          value={newStock}
+          onChange={(e) => setNewStock(e.target.value)}
+          onKeyDown={handleKeyDown}
+          className="flex-1"
+        />
+        <Button onClick={handleAddStock} disabled={!newStock.trim()}>
+          <Plus className="h-4 w-4 mr-1" />
           Add
         </Button>
       </div>
-
-      <div className="relative">
-        <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input 
-          placeholder="Search favorites..." 
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-8"
-        />
-      </div>
-
-      <ScrollArea className="h-[200px] border rounded-md p-2">
-        {filteredFavorites.length === 0 ? (
-          <div className="text-center text-muted-foreground p-4">
-            {favorites.length === 0 
-              ? "No favorite stocks added yet" 
-              : "No matches found"}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {filteredFavorites.map(symbol => (
-              <div 
-                key={symbol}
-                className="flex items-center justify-between p-2 hover:bg-accent/5 rounded-md"
-              >
-                <Badge variant="outline">{symbol}</Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeFavorite(symbol)}
+      
+      {/* Scrollable container for favorites */}
+      <ScrollArea className="h-[120px] border rounded-md p-2">
+        <div className="flex flex-wrap gap-2 pb-1">
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground p-2">Loading favorites...</div>
+          ) : favorites.length === 0 ? (
+            <div className="text-sm text-muted-foreground p-2">No favorites added yet</div>
+          ) : (
+            favorites.map(stock => (
+              <Badge key={stock} variant="secondary" className="group">
+                {stock}
+                <button 
+                  onClick={() => handleRemoveStock(stock)}
+                  className="ml-1 rounded-full hover:bg-muted p-0.5 transition-colors"
                 >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))
+          )}
+        </div>
       </ScrollArea>
     </div>
   );

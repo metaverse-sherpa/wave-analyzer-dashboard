@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from './ui/progress';
+import ReversalsList from './ReversalsList';
 
 // Keep this helper function at the top
 const getTimestampValue = (timestamp: any): number => {
@@ -119,18 +121,85 @@ const MarketOverview: React.FC = () => {
   }, [analyses]);
 
   // Generate market sentiment based on categorized stocks
-  const marketSentiment = React.useMemo(() => {
-    const bullishCount = categorizedStocks.bullish.length;
-    const bearishCount = categorizedStocks.bearish.length;
-    const total = bullishCount + bearishCount;
+  const marketSentiment = useMemo(() => {
+    const analysisList = Object.values(analyses);
     
-    if (total === 0) return { bullish: 0, bearish: 0 };
+    if (!analysisList || analysisList.length === 0) {
+      return {
+        count: 0,
+        bullish: 0,
+        bearish: 0,
+        neutral: 0,
+        bullishPercentage: 0,
+        bearishPercentage: 0,
+        neutralPercentage: 0,
+        overallSentiment: 'Neutral'
+      };
+    }
+    
+    let bullish = 0;
+    let bearish = 0;
+    let neutral = 0;
+    
+    analysisList.forEach(analysis => {
+      if (!analysis || !analysis.waves || analysis.waves.length === 0) return;
+      
+      // Get the latest wave classification
+      const latestWave = analysis.waves[analysis.waves.length - 1];
+      
+      // Check if wave properties exist on the wave object
+      if (!latestWave) return;
+      
+      // Access properties safely using optional chaining
+      const waveDegree = (latestWave as any).degree;
+      const waveNumber = (latestWave as any).waveNumber || latestWave.number; // Try both property names
+      const waveTrend = (latestWave as any).trend;
+      
+      // Determine if this is an impulse or corrective wave
+      let isImpulseWave = false;
+      
+      if (typeof waveNumber === 'number') {
+        isImpulseWave = [1, 3, 5].includes(waveNumber);
+      } else if (typeof waveNumber === 'string') {
+        isImpulseWave = ['1', '3', '5'].includes(waveNumber);
+      }
+      
+      // Determine trend direction
+      const isUptrend = waveTrend === 'up' || waveTrend === true;
+      
+      // Classify sentiment
+      if ((isUptrend && isImpulseWave) || (!isUptrend && !isImpulseWave)) {
+        bullish++;
+      } else if ((isUptrend && !isImpulseWave) || (!isUptrend && isImpulseWave)) {
+        bearish++;
+      } else {
+        neutral++;
+      }
+    });
+    
+    const total = bullish + bearish + neutral;
+    const bullishPercentage = Math.round((bullish / total) * 100) || 0;
+    const bearishPercentage = Math.round((bearish / total) * 100) || 0;
+    const neutralPercentage = Math.round((neutral / total) * 100) || 0;
+    
+    // Determine overall sentiment
+    let overallSentiment = 'Neutral';
+    if (bullishPercentage > 60) overallSentiment = 'Bullish';
+    else if (bearishPercentage > 60) overallSentiment = 'Bearish';
+    else if (bullishPercentage > bearishPercentage + 10) overallSentiment = 'Slightly Bullish';
+    else if (bearishPercentage > bullishPercentage + 10) overallSentiment = 'Slightly Bearish';
     
     return {
-      bullish: Math.round((bullishCount / total) * 100),
-      bearish: Math.round((bearishCount / total) * 100)
+      count: total,
+      bullish,
+      bearish,
+      neutral,
+      bullishPercentage,
+      bearishPercentage,
+      neutralPercentage,
+      overallSentiment
     };
-  }, [categorizedStocks]);
+  }, [analyses]);
   
   // Navigate to stock details page
   const goToStockDetails = (symbol: string) => {
@@ -143,14 +212,15 @@ const MarketOverview: React.FC = () => {
   // Simplified display of stock lists
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      {/* Change to three-column grid */}
+      <div className="grid grid-cols-3 gap-4">
         {/* Bullish Section */}
         <div className="bg-secondary rounded-lg p-4">
-          <div className="text-muted-foreground text-sm mb-1">Bullish (Impulsive Waves: 1, 3, 5, B)</div>
+          <div className="text-muted-foreground text-sm mb-1">Bullish (Waves 1, 3, 5, B)</div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
               <ArrowUpRight className="mr-1 text-green-500" />
-              <span className="text-xl font-mono">{marketSentiment.bullish}%</span>
+              <span className="text-xl font-mono">{marketSentiment.bullishPercentage}%</span>
             </div>
             <div className="text-xs text-muted-foreground">
               {categorizedStocks.bullish.length} stocks
@@ -160,7 +230,6 @@ const MarketOverview: React.FC = () => {
           <div className="space-y-1">
             {categorizedStocks.bullish.length > 0 ? (
               <>
-                {/* Display all bullish stocks - simplified approach */}
                 {categorizedStocks.bullish.slice(0, showMoreBullish ? undefined : 5).map(stock => (
                   <div key={stock.symbol} className="flex items-center justify-between">
                     <Button 
@@ -178,7 +247,7 @@ const MarketOverview: React.FC = () => {
                   </div>
                 ))}
                 
-                {/* Show more/less button if we have more than 5 stocks */}
+                {/* Show more/less button */}
                 {categorizedStocks.bullish.length > 5 && (
                   <Button 
                     variant="ghost"
@@ -204,11 +273,11 @@ const MarketOverview: React.FC = () => {
         
         {/* Bearish Section */}
         <div className="bg-secondary rounded-lg p-4">
-          <div className="text-muted-foreground text-sm mb-1">Bearish (Corrective Waves: 2, 4, A, C)</div>
+          <div className="text-muted-foreground text-sm mb-1">Bearish (Waves 2, 4, A, C)</div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
               <ArrowDownRight className="mr-1 text-red-500" />
-              <span className="text-xl font-mono">{marketSentiment.bearish}%</span>
+              <span className="text-xl font-mono">{marketSentiment.bearishPercentage}%</span>
             </div>
             <div className="text-xs text-muted-foreground">
               {categorizedStocks.bearish.length} stocks
@@ -218,7 +287,6 @@ const MarketOverview: React.FC = () => {
           <div className="space-y-1">
             {categorizedStocks.bearish.length > 0 ? (
               <>
-                {/* Display all bearish stocks - simplified approach */}
                 {categorizedStocks.bearish.slice(0, showMoreBearish ? undefined : 5).map(stock => (
                   <div key={stock.symbol} className="flex items-center justify-between">
                     <Button 
@@ -236,7 +304,7 @@ const MarketOverview: React.FC = () => {
                   </div>
                 ))}
                 
-                {/* Show more/less button if we have more than 5 stocks */}
+                {/* Show more/less button */}
                 {categorizedStocks.bearish.length > 5 && (
                   <Button 
                     variant="ghost"
@@ -259,16 +327,90 @@ const MarketOverview: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
-      
-      {/* Overall market sentiment */}
-      <div className="bg-secondary rounded-lg p-4">
-        <div className="text-muted-foreground text-sm mb-1">Market Sentiment</div>
-        <div className={"text-lg font-medium " + (overallSentiment === 'bullish' ? 'text-green-600' : 'text-red-600')}>
-          {overallSentiment.charAt(0).toUpperCase() + overallSentiment.slice(1)}
+        
+        {/* NEW Reversal Alerts Section - Using the same styling */}
+        <div className="bg-secondary rounded-lg p-4">
+          <div className="text-muted-foreground text-sm mb-1">Reversal Alerts</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center">
+              <svg className="mr-1 text-amber-500 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span className="text-xl font-mono">!</span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Recent reversals
+            </div>
+          </div>
+          
+          <div className="space-y-1">
+            {/* Use ReversalCandidates component data here */}
+            {/* Placeholder for reversal candidates */}
+            <ReversalsList />
+          </div>
         </div>
-        <div className="text-xs text-muted-foreground mt-2">
-          Based on Elliott Wave analysis of {Object.keys(analyses).filter(k => k.includes('_1d')).length} stocks
+      </div>
+        
+      {/* Keep the Market Sentiment progress bar section */}
+      <div className="bg-secondary rounded-lg p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="text-muted-foreground text-sm">Market Sentiment</div>
+            <div className={"text-lg font-medium " + (overallSentiment === 'bullish' ? 'text-green-600' : 'text-red-600')}>
+              {marketSentiment.overallSentiment}
+            </div>
+          </div>
+          
+          <div className="text-xs text-muted-foreground">
+            {marketSentiment.count} stocks analyzed
+          </div>
+        </div>
+        
+        {/* Single sentiment progress bar */}
+        <div className="mt-3 mb-1">
+          <div className="flex relative h-8 bg-muted rounded-md overflow-hidden">
+            {/* Bearish portion (left side) */}
+            <div 
+              className="bg-red-500 h-full flex items-center justify-start px-2"
+              style={{ width: `${marketSentiment.bearishPercentage}%` }}
+            >
+              {marketSentiment.bearishPercentage > 15 && (
+                <span className="text-xs font-medium text-white">
+                  {marketSentiment.bearishPercentage}%
+                </span>
+              )}
+            </div>
+            
+            {/* Neutral portion (middle) */}
+            <div 
+              className="bg-gray-400 h-full flex items-center justify-center"
+              style={{ width: `${marketSentiment.neutralPercentage}%` }}
+            >
+              {marketSentiment.neutralPercentage > 15 && (
+                <span className="text-xs font-medium text-white">
+                  {marketSentiment.neutralPercentage}%
+                </span>
+              )}
+            </div>
+            
+            {/* Bullish portion (right side) */}
+            <div 
+              className="bg-green-500 h-full flex items-center justify-end px-2"
+              style={{ width: `${marketSentiment.bullishPercentage}%` }}
+            >
+              {marketSentiment.bullishPercentage > 15 && (
+                <span className="text-xs font-medium text-white">
+                  {marketSentiment.bullishPercentage}%
+                </span>
+              )}
+            </div>
+          </div>
+          
+          {/* Labels under progress bar */}
+          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+            <span>Bearish</span>
+            <span>Bullish</span>
+          </div>
         </div>
       </div>
     </div>

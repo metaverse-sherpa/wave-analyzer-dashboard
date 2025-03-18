@@ -306,7 +306,7 @@ const fetchTopStocks = useCallback(async (limit: number) => {
     
     setIsRefreshing(true);
     try {
-      // First fetch the top stocks from the API based on stockCount
+      // First fetch top stocks from the API based on stockCount
       const stocks = await fetchTopStocks(stockCount);
       
       // Check if we got any stocks
@@ -314,16 +314,43 @@ const fetchTopStocks = useCallback(async (limit: number) => {
         throw new Error('No stocks returned from API');
       }
       
-      const symbols = stocks.map(stock => stock.symbol);
+      // Next, separately fetch favorites from Supabase to ensure we have them
+      const { data: favoritesData, error: favError } = await supabase
+        .from('cache')
+        .select('data')
+        .eq('key', 'favorite_stocks')
+        .single();
+        
+      // Handle error silently - just log and continue with what we have
+      if (favError) {
+        console.warn('Could not retrieve favorites:', favError);
+      }
       
-      // Initialize progress tracking with the actual fetched symbols
+      // Create a set of all stock symbols we want to fetch, with favorites prioritized
+      const uniqueSymbols = new Set<string>();
+
+      // Add favorites first (if available)
+      if (favoritesData?.data && Array.isArray(favoritesData.data)) {
+        favoritesData.data.forEach(symbol => uniqueSymbols.add(String(symbol)));
+      }
+
+      // Then add the rest of the top stocks up to the limit
+      stocks.forEach(stock => {
+        if (uniqueSymbols.size < stockCount) {
+          uniqueSymbols.add(String(stock.symbol));
+        }
+      });
+
+      const symbols = Array.from(uniqueSymbols);
+      
+      // Initialize progress tracking with the actual symbols to fetch
       setHistoryLoadProgress({
         total: symbols.length,
         current: 0,
         inProgress: true
       });
       
-      // Track progress for user feedback
+      // Rest of function remains the same...
       let completed = 0;
       let failed = 0;
       let errors = [];
@@ -859,6 +886,9 @@ const saveSettings = useCallback(async (settings: {
   try {
     setIsRefreshing(true);
     
+    // Store previous settings to determine what changed
+    const previousStockCount = stockCount;
+    
     await supabase
       .from('cache')
       .upsert({
@@ -869,11 +899,15 @@ const saveSettings = useCallback(async (settings: {
       }, { onConflict: 'key' });
       
     toast.success('Settings saved successfully');
-    setSettingsChanged(true);
+    
+    // Only trigger refresh if stock count changed
+    if (settings.stockCount !== previousStockCount) {
+      setSettingsChanged(true);
+    }
   } finally {
     setIsRefreshing(false);
   }
-}, [supabase]);
+}, [supabase, stockCount]);
 
 // Add this function to load settings from Supabase
 const loadSettings = useCallback(async () => {
@@ -914,8 +948,8 @@ useEffect(() => {
       // Reset the flag first
       setSettingsChanged(false);
       
-      // Ask once for confirmation of the complete process
-      if (window.confirm('This will clear existing data and perform a full analysis with the new stock count. This process may take several minutes. Continue?')) {
+      // Ask once for confirmation of the complete process, mentioning stock count specifically
+      if (window.confirm('The number of stocks to analyze has changed. This will clear existing data and perform a full analysis with the new stock count. This process may take several minutes. Continue?')) {
         try {
           // First clear the historical cache, then load new data
           await clearHistoricalCacheWithoutConfirm();
@@ -1137,7 +1171,7 @@ useEffect(() => {
                     
                       return (
                         <DataCard
-                          key={key}
+                          key={key} // Add this line
                           itemKey={key}
                           data={waveData}
                           type="waves"
@@ -1212,6 +1246,7 @@ useEffect(() => {
                     {Object.entries(filteredHistoricalData || {}).map(([key, data]) => (
                       // For historical data
                       <DataCard
+                        key={key} // Add this line
                         itemKey={key}
                         data={data as HistoricalDataEntry}
                         type="historical"
@@ -1413,6 +1448,7 @@ interface DataCardProps {
   getAgeString: (timestamp: number) => string;
 }
 
+// Fix the DataCard component by removing the embedded key prop
 const DataCard = ({ 
   itemKey, 
   data, 
@@ -1421,7 +1457,7 @@ const DataCard = ({
   onClick,
   getAgeString 
 }: DataCardProps) => (
-  <Card key={itemKey} className="cursor-pointer hover:bg-accent/5 transition-colors">
+  <Card className="cursor-pointer hover:bg-accent/5 transition-colors">
     <CardContent className="p-3 flex items-center justify-between">
       <div className="flex-1" onClick={onClick}>
         <div className="flex flex-col">

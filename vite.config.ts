@@ -36,6 +36,7 @@ export default defineConfig(({ mode }) => {
       visualizer({
         open: false,
         gzipSize: true,
+        brotliSize: true,
       }),
     ].filter(Boolean),
     resolve: {
@@ -47,18 +48,39 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       'process.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
+      'process.env.VITE_USE_REAL_API': JSON.stringify(env.VITE_USE_REAL_API || 'false'),
+      'process.env.VITE_DEBUG_API_CALLS': JSON.stringify(env.VITE_DEBUG_API_CALLS || 'false'),
     },
     build: {
       outDir: "dist",
       chunkSizeWarningLimit: 1000,
+      sourcemap: true,
       rollupOptions: {
         output: {
           manualChunks: (id) => {
-            // Critical: Ensure React is in its own chunk
+            // Predefined chunk groups
             if (id.includes('node_modules/react/') || 
-                id.includes('node_modules/react-dom/') ||
+                id.includes('node_modules/react-dom/') || 
+                id.includes('node_modules/react-router-dom/') ||
                 id.includes('node_modules/scheduler/')) {
-              return 'react-core';
+              return 'react';
+            }
+            
+            // UI library components
+            if (id.includes('node_modules/@radix-ui/react-dialog') || 
+                id.includes('node_modules/@radix-ui/react-tabs') ||
+                id.includes('node_modules/@radix-ui/react-popover') ||
+                id.includes('node_modules/class-variance-authority') ||
+                id.includes('node_modules/clsx') ||
+                id.includes('node_modules/tailwind-merge')) {
+              return 'ui';
+            }
+            
+            // Chart libraries
+            if (id.includes('node_modules/recharts') || 
+                id.includes('node_modules/apexcharts') || 
+                id.includes('node_modules/react-apexcharts')) {
+              return 'charts';
             }
             
             // React Router
@@ -66,12 +88,12 @@ export default defineConfig(({ mode }) => {
               return 'react-router';
             }
             
-            // Radix UI components
+            // Radix UI components (that aren't in the UI chunk)
             if (id.includes('node_modules/@radix-ui/react-')) {
               return 'radix-ui';
             }
             
-            // Chart libraries
+            // Chart libraries (that aren't in the charts chunk)
             if (id.includes('node_modules/recharts/') || 
                 id.includes('node_modules/chart.js/') || 
                 id.includes('node_modules/chartjs-plugin-datalabels/')) {
@@ -82,7 +104,10 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules/')) {
               return 'vendor';
             }
-          }
+            
+            // Return undefined for everything else so it follows default chunking behavior
+            return undefined;
+          },
         }
       },
       // Use common for modules that need to share React
