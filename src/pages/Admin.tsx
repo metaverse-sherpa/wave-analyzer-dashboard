@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
+import { FavoritesManager } from '@/components/FavoritesManager';
 
 // Add this at the top of Admin.tsx with other interfaces
 declare global {
@@ -1271,6 +1272,7 @@ useEffect(() => {
         setCacheExpiryDays={setCacheExpiryDays}
         saveSettings={saveSettings}
         isRefreshing={isRefreshing}
+        loadSettings={loadSettings}  // Add this line
       />
     </div>
   );
@@ -1286,6 +1288,7 @@ interface SettingsDialogProps {
   setCacheExpiryDays: (days: number) => void;
   saveSettings: (settings: { stockCount: number; cacheExpiryDays: number }) => void;
   isRefreshing: boolean;
+  loadSettings: () => Promise<void>; // Add this line
 }
 
 // 2. Update the SettingsDialog component
@@ -1297,7 +1300,8 @@ const SettingsDialog = ({
   setStockCount,
   setCacheExpiryDays,
   saveSettings,
-  isRefreshing
+  isRefreshing,
+  loadSettings  // Add this line
 }: SettingsDialogProps) => {
   const [localStockCount, setLocalStockCount] = useState(stockCount);
   const [localCacheExpiryDays, setLocalCacheExpiryDays] = useState(cacheExpiryDays);
@@ -1367,6 +1371,16 @@ const SettingsDialog = ({
               This controls how long cached data is retained before being refreshed.
             </p>
           </div>
+        </div>
+        
+        <div className="border-t my-4"></div>
+  
+        <div className="space-y-2">
+          <h4 className="font-medium">Favorite Stocks</h4>
+          <p className="text-sm text-muted-foreground">
+            Add stocks that should always be included in analysis.
+          </p>
+          <FavoritesManager onFavoritesChange={loadSettings} />
         </div>
         
         <DialogFooter>

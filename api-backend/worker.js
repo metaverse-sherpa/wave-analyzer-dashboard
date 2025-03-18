@@ -64,6 +64,36 @@ export default {
           let allStocks = [];
           let seenSymbols = new Set();
           
+          // First, get favorites from KV/cache
+          const favoritesData = await getCachedData('favorite_stocks', env);
+          const favorites = favoritesData || [];
+          
+          // Add favorites first
+          for (const symbol of favorites) {
+            try {
+              const quote = await yahooFinance.quote(symbol);
+              if (quote && quote.regularMarketPrice) {
+                seenSymbols.add(symbol);
+                allStocks.push({
+                  symbol: quote.symbol,
+                  name: quote.shortName || quote.longName || quote.symbol,
+                  regularMarketPrice: quote.regularMarketPrice,
+                  regularMarketChange: quote.regularMarketChange || 0,
+                  regularMarketChangePercent: quote.regularMarketChangePercent || 0,
+                  price: quote.regularMarketPrice,
+                  change: quote.regularMarketChange || 0,
+                  changePercent: quote.regularMarketChangePercent || 0,
+                  volume: quote.regularMarketVolume || 0,
+                  marketCap: quote.marketCap || 0,
+                  averageVolume: quote.averageDailyVolume3Month || quote.averageVolume || 0
+                });
+              }
+            } catch (error) {
+              console.warn(`Error fetching favorite ${symbol}:`, error);
+            }
+          }
+          
+          // Then proceed with screener calls
           for (const scrId of SCREENER_TYPES) {
             if (seenSymbols.size >= limit) break;
             
