@@ -11,7 +11,8 @@
     "deploy:all": "bash ./deploy-api.sh && bash ./deploy-frontend.sh",
     "build:api": "wrangler build --config api-backend/wrangler.toml",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

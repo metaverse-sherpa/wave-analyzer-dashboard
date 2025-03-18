@@ -40,6 +40,13 @@ import {
 import { Label } from "@/components/ui/label";
 import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
 
+// Add this at the top of Admin.tsx with other interfaces
+declare global {
+  interface Window {
+    _addApiError?: (error: string) => void;
+  }
+}
+
 interface ActiveAnalysis {
   symbol: string;
   startTime: number;
@@ -364,7 +371,7 @@ const fetchTopStocks = useCallback(async (limit: number) => {
             console.log(`Fetching historical data for ${symbol}...`);
             
             // Update the currentApiCall state to show in UI
-            const proxyUrl = buildApiUrl(`/stocks/historical/${symbol}?timeframe=1d`);
+            const proxyUrl = buildApiUrl(`/stocks/historical/${symbol}?timeframe=2y&interval=1d`);
             setCurrentApiCall(proxyUrl);
             
             // Add retry logic
@@ -1538,135 +1545,3 @@ const ApiErrorDisplay = () => {
 };
 
 export default AdminDashboard;
-
-// 2. Historical data endpoint - FIX: Handle all three URL formats
-if (path.includes('/history') || path.includes('/historical')) {
-  try {
-    // Extract symbol either from "/stocks/AAPL/history" or "/stocks/historical/AAPL" format
-    let symbol;
-    let period = url.searchParams.get('period') || url.searchParams.get('timeframe') || '1y';
-    let interval = url.searchParams.get('interval') || '1d';
-    
-    console.log(`Processing historical data request: ${path}, period: ${period}, interval: ${interval}`);
-    
-    // Handle /stocks/historical/AAPL format
-    if (path.includes('/historical/')) {
-      const parts = path.split('/historical/');
-      if (parts.length >= 2) {
-        symbol = parts[1].split('?')[0].toUpperCase();
-      }
-    } 
-    // Handle /stocks/history/AAPL format - NEW CASE
-    else if (path.includes('/history/')) {
-      const parts = path.split('/history/');
-      if (parts.length >= 2) {
-        symbol = parts[1].split('?')[0].toUpperCase();
-      }
-    }
-    // Handle /stocks/AAPL/history format
-    else if (path.includes('/history')) {
-      const pathParts = path.split('/');
-      // Find stocks and get the next part
-      for (let i = 0; i < pathParts.length; i++) {
-        if (pathParts[i] === 'stocks' && i + 1 < pathParts.length && pathParts[i+1] !== 'history') {
-          symbol = pathParts[i + 1].toUpperCase();
-          break;
-        }
-      }
-    }
-    
-    console.log(`Extracted symbol: ${symbol} from path: ${path}`);
-    
-    // Try to get from cache first
-    const cacheKey = `history_${symbol}_${period}_${interval}`;
-    const cachedData = await getCachedData(cacheKey, env);
-    
-    if (cachedData) {
-      return new Response(JSON.stringify(cachedData), { headers });
-    }
-    
-    // Calculate date range
-    const period1 = getStartDate(period);
-    
-    // Fetch from Yahoo Finance with full historical data
-    console.log(`Fetching historical data for ${symbol} from ${period1}`);
-    
-    try {
-      // IMPORTANT: This is the section that needs fixing
-      // Using proper Yahoo Finance API options to get full historical data
-      const historicalData = await yahooFinance.historical(symbol, {
-        period1: period1,
-        interval: interval,
-        includeAdjustedClose: true,
-        events: true
-      });
-      
-      // Check if we got real data
-      if (!historicalData || historicalData.length === 0) {
-        throw new Error("Yahoo Finance returned no data");
-      }
-      
-      console.log(`Retrieved ${historicalData.length} data points for ${symbol}`);
-      
-      // Transform to expected format - make sure we're returning all data points
-      const formattedData = historicalData.map(item => ({
-        timestamp: Math.floor(new Date(item.date).getTime() / 1000),
-        open: item.open,
-        high: item.high,
-        close: item.close,
-        low: item.low,
-        volume: item.volume
-      }));
-      
-      // Store in cache
-      await setCachedData(cacheKey, formattedData, env, 60 * 60); // 1 hour cache
-      
-      return new Response(JSON.stringify(formattedData), { headers });
-    } catch (error) {
-      console.error(`Error fetching historical data for ${symbol}: ${error.message}`);
-      
-      // Try a fallback with different parameters
-      try {
-        console.log(`Trying fallback approach for ${symbol}...`);
-        
-        // Use a different period setting as fallback
-        const fallbackData = await yahooFinance.historical(symbol, {
-          period1: getStartDate('6mo'), // Use last 6 months
-          interval: '1d'
-        });
-        
-        // Transform to expected format
-        const formattedData = fallbackData.map(item => ({
-          timestamp: Math.floor(new Date(item.date).getTime() / 1000),
-          open: item.open,
-          high: item.high,
-          close: item.close,
-          low: item.low,
-          volume: item.volume
-        }));
-        
-        // Store in cache
-        await setCachedData(cacheKey, formattedData, env, 60 * 60); // 1 hour cache
-        
-        return new Response(JSON.stringify(formattedData), { headers });
-      } catch (fallbackError) {
-        console.error(`Fallback also failed for ${symbol}: ${fallbackError.message}`);
-        
-        // Generate fallback data for truly failed cases
-        const mockData = generateMockHistoricalData(symbol, 365);
-        return new Response(JSON.stringify(mockData), { headers });
-      }
-    }
-  } catch (error) {
-    console.error(`Error in historical data endpoint: ${error.message}`);
-    
-    // Return proper error format
-    return new Response(JSON.stringify({
-      error: 'Failed to fetch historical data',
-      message: error.message
-    }), { 
-      status: 500,
-      headers 
-    });
-  }
-}
