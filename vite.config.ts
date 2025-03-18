@@ -10,59 +10,42 @@ export default defineConfig(({ mode }) => {
   // Load env file based on mode
   const env = loadEnv(mode, process.cwd(), '');
   
-  // Get API URL from environment variable or use localhost default
+  // Get API URL from environment variable or use fallback
   const apiBaseUrl = env.VITE_API_BASE_URL || 'http://localhost:3001';
   
   console.log(`[Vite Config] Using API URL: ${apiBaseUrl} (Mode: ${mode})`);
-  
-  // Determine if we need to use proxy or direct calls
-  const useLocalProxy = 
-    !apiBaseUrl.includes('://') || // No protocol in URL
-    apiBaseUrl.includes('localhost') || // Local development
-    apiBaseUrl.includes('127.0.0.1'); // Local development
   
   return {
     server: {
       host: "localhost",
       port: 3000,
       hmr: {
-        overlay: false, // Disable the error overlay which can be CPU intensive
-      },
-      proxy: useLocalProxy ? {
-        '/api': {
-          target: apiBaseUrl,
-          changeOrigin: true,
-          secure: false,
-          // Important: DON'T rewrite paths for this use case
-          configure: (proxy, _options) => {
-            proxy.on('error', (err, _req, _res) => {
-              console.log('Proxy error:', err);
-            });
-            proxy.on('proxyReq', (proxyReq, req, _res) => {
-              // console.log('Sending Request:', req.method, req.url);
-            });
-            proxy.on('proxyRes', (proxyRes, req, _res) => {
-              // console.log('Received Response:', proxyRes.statusCode, req.url);
-            });
-          },
-        } as ProxyOptions,
-      } : {},
+        overlay: false,
+      }
     },
     plugins: [
-      react(),
+      react({
+        // This is critical for React.forwardRef to work correctly
+        jsxRuntime: 'automatic',
+        // Ensure React is properly externalized
+        babel: {
+          plugins: []
+        }
+      }),
       mode === 'development' && componentTagger(),
       visualizer({
-        open: true,
+        open: false,
         gzipSize: true,
       }),
     ].filter(Boolean),
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        "react": path.resolve(__dirname, "./node_modules/react"),
+        "react-dom": path.resolve(__dirname, "./node_modules/react-dom")
       },
     },
     define: {
-      // Make environment variables available at build time
       'process.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
     },
     build: {
@@ -71,9 +54,10 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: (id) => {
-            // React ecosystem
+            // Critical: Ensure React is in its own chunk
             if (id.includes('node_modules/react/') || 
-                id.includes('node_modules/react-dom/')) {
+                id.includes('node_modules/react-dom/') ||
+                id.includes('node_modules/scheduler/')) {
               return 'react-core';
             }
             
@@ -87,8 +71,10 @@ export default defineConfig(({ mode }) => {
               return 'radix-ui';
             }
             
-            // Recharts library (instead of Chart.js)
-            if (id.includes('node_modules/recharts/')) {
+            // Chart libraries
+            if (id.includes('node_modules/recharts/') || 
+                id.includes('node_modules/chart.js/') || 
+                id.includes('node_modules/chartjs-plugin-datalabels/')) {
               return 'chart-lib';
             }
             
@@ -99,15 +85,25 @@ export default defineConfig(({ mode }) => {
           }
         }
       },
-      sourcemap: false, // Disable sourcemaps in production
+      // Use common for modules that need to share React
+      commonjsOptions: {
+        include: [/node_modules/],
+        requireReturnsDefault: 'auto',
+      },
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'recharts'], // Pre-bundle commonly used dependencies
-      exclude: ['next'] // Exclude Next.js as it's causing conflicts
-    },
-    worker: {
-      format: 'es', // Use ES modules format for workers
-      plugins: () => [] // Updated to return an array of plugins
+      include: [
+        'react', 
+        'react-dom', 
+        'recharts', 
+        '@radix-ui/react-slot'
+      ],
+      esbuildOptions: {
+        // Ensure proper React namespace preservation
+        define: {
+          global: 'globalThis'
+        }
+      }
     },
   };
 });

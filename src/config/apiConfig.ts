@@ -1,42 +1,44 @@
-// Central configuration for API settings
+// Central API configuration 
 
-// Get the API base URL from environment variables
+/**
+ * Get the base URL for API requests
+ * @returns The API base URL with no trailing slash
+ */
 export const getApiBaseUrl = (): string => {
-  // First priority: Use the environment variable if available
-  const configuredUrl = import.meta.env.VITE_API_BASE_URL;
-  if (configuredUrl) {
-    console.log('Using configured API URL:', configuredUrl);
-    return configuredUrl;
+  // Use environment variable if available
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
+  
+  if (envApiUrl) {
+    // Remove trailing slash if present
+    const cleanUrl = envApiUrl.endsWith('/') ? envApiUrl.slice(0, -1) : envApiUrl;
+    console.log('[API Config] Using configured API URL:', cleanUrl);
+    return cleanUrl;
   }
   
-  // Fallback for development: use local server
-  const isDevelopment = import.meta.env.DEV || 
-                      window.location.hostname === 'localhost' ||
-                      window.location.hostname === '127.0.0.1';
-  
-  if (isDevelopment) {
-    return `http://${window.location.hostname}:3001`;
-  }
-  
-  // Fallback for production: use same origin
-  return '';
+  // Fallback to localhost for development
+  console.log('[API Config] Using local development URL');
+  return 'http://localhost:3001';
 };
 
-// Build full API URL
-export function buildApiUrl(endpoint: string): string {
+/**
+ * Build a full API URL for a specific endpoint
+ * @param endpoint The API endpoint path
+ * @returns The full API URL
+ */
+export const buildApiUrl = (endpoint: string): string => {
   const baseUrl = getApiBaseUrl();
   
-  // If we have a full URL from environment, don't add /api prefix for Cloudflare Workers
+  // Remove leading slash if present on endpoint
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+  
+  // Don't add /api prefix when using external API
   if (baseUrl.includes('://')) {
-    // Check if the endpoint already starts with a slash
-    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    return `${baseUrl}${formattedEndpoint}`;
+    return `${baseUrl}/${cleanEndpoint}`;
   }
   
-  // For local development or same-origin deployments
-  const apiPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  return `${baseUrl}/api${apiPath}`;
-}
+  // For local development, add /api prefix
+  return `${baseUrl}/api/${cleanEndpoint}`;
+};
 
 // Cache durations
 export const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
@@ -50,46 +52,41 @@ export interface BackendHealthCheck {
 }
 
 // Check if the API is available
-export async function checkBackendHealth(): Promise<BackendHealthCheck> {
-  // Define potential health endpoint paths
-  const healthEndpoints = [
-    buildApiUrl('health'),
-    `${getApiBaseUrl()}/health`, 
-    '/api/health'
-  ];
+export const checkBackendHealth = async () => {
+  const url = buildApiUrl('health');
+  console.log('[API] Checking health at:', url);
   
-  // Try each endpoint
-  for (const endpoint of healthEndpoints) {
-    try {
-      console.log(`Checking health endpoint: ${endpoint}`);
-      
-      // Add timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
-      const response = await fetch(endpoint, { 
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' }
-      });
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        console.log(`Successfully connected to: ${endpoint}`);
-        return {
-          status: 'ok', 
-          message: 'API is online',
-          timestamp: new Date()
-        };
-      }
-    } catch (err) {
-      console.log(`Failed to connect to: ${endpoint}`, err);
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        status: 'ok',
+        message: data.message || 'API is online',
+        version: data.version || '1.0.0',
+        timestamp: new Date()
+      };
     }
+    
+    return {
+      status: 'error',
+      message: `API responded with status ${response.status}`,
+      timestamp: new Date()
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date()
+    };
   }
-  
-  // All endpoints failed
-  return {
-    status: 'error',
-    message: 'API is not available',
-    timestamp: new Date()
-  };
-}
+};

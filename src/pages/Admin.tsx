@@ -38,6 +38,7 @@ import {
   Slider
 } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
 
 interface ActiveAnalysis {
   symbol: string;
@@ -297,18 +298,30 @@ const loadCacheData = useCallback(async () => {
   const fetchTopStocks = useCallback(async (limit: number) => {
     try {
       console.log(`DEBUG: Fetching top stocks with limit: ${limit}`);
-      const response = await fetch(`/api/stocks/top?limit=${limit}`);
+      
+      const url = buildApiUrl(`/stocks/top?limit=${limit}`);
+      console.log(`Requesting URL: ${url}`);
+      
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`API returned status ${response.status}`);
       }
+      
       const data = await response.json();
-      console.log(`DEBUG: API returned only ${data.length} stocks (requested ${limit})`);
+      
+      // Defensive check to ensure we have an array
+      if (!Array.isArray(data)) {
+        console.error('API returned non-array data:', data);
+        return []; // Return empty array instead of failing
+      }
+      
+      console.log(`DEBUG: API returned ${data.length} stocks (requested ${limit})`);
       setTopStocks(data);
       return data;
     } catch (error) {
       console.error('Error fetching top stocks:', error);
       toast.error('Failed to fetch top stocks');
-      return [];
+      return []; // Always return an array even on error
     }
   }, []);
 
@@ -321,6 +334,14 @@ const loadCacheData = useCallback(async () => {
     try {
       // First fetch the top stocks from the API based on stockCount
       const stocks = await fetchTopStocks(stockCount);
+      
+      // Check if we got any stocks
+      if (!stocks.length) {
+        toast.error('No stocks returned from API');
+        setIsRefreshing(false);
+        return;
+      }
+      
       const symbols = stocks.map(stock => stock.symbol);
       
       // Initialize progress tracking with the actual fetched symbols
@@ -345,7 +366,7 @@ const loadCacheData = useCallback(async () => {
             console.log(`Fetching historical data for ${symbol}...`);
             
             // Update the currentApiCall state to show in UI
-            const proxyUrl = `/api/stocks/historical/${symbol}?timeframe=1d`;
+            const proxyUrl = buildApiUrl(`/stocks/historical/${symbol}?timeframe=1d`);
             setCurrentApiCall(proxyUrl);
             
             const response = await fetch(proxyUrl);
