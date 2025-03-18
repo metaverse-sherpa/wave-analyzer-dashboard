@@ -7,16 +7,14 @@ import { Link } from 'react-router-dom';
 import { getAllAnalyses, clearAllAnalyses } from '@/services/databaseService';
 import { getAllHistoricalData } from '@/services/cacheService'; // Get the Supabase version
 import { toast } from '@/lib/toast';
-import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity, LineChart, Loader2 } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity, LineChart, Loader2, 
+         Search, X, Cog } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { useHistoricalData } from '@/context/HistoricalDataContext'; // Fix this import
 import { Wave } from '@/types/shared';
 import ApiStatusCheck from '@/components/ApiStatusCheck';
-import { topStockSymbols } from '@/services/yahooFinanceService';
-import { clearMemoCache } from '@/utils/elliottWaveAnalysis';
-import { useHistoricalData } from '@/context/HistoricalDataContext';
-import { migrateFromLocalStorage } from '@/services/cacheService';
 import { supabase } from '@/lib/supabase';
 import {
   Dialog,
@@ -27,16 +25,8 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import { X } from 'lucide-react';
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
-import { 
-  Cog,
-  Settings as SettingsIcon
-} from 'lucide-react';
-import {
-  Slider
-} from "@/components/ui/slider";
+import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
 
@@ -68,12 +58,6 @@ interface WaveAnalysisEntry {
   timestamp: number;
 }
 
-// Add this utility function at the top of your component or in a separate utils file
-const normalizeTimestamp = (timestamp: number): number => {
-  // If timestamp is in seconds (before year 2001), convert to milliseconds
-  return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
-};
-
 // Define a proper type for selectedData
 type SelectedDataType = 
   | { type: 'waves'; key: string; data: WaveAnalysisEntry }
@@ -81,7 +65,7 @@ type SelectedDataType =
   | null;
 
 const AdminDashboard = () => {
-  // State and context hooks remain at the top
+  // State declarations
   const [cacheData, setCacheData] = useState<{
     waves: Record<string, any>;
     historical: Record<string, any>;
@@ -91,7 +75,6 @@ const AdminDashboard = () => {
   });
   const [selectedData, setSelectedData] = useState<SelectedDataType>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
   const [historicalData, setHistoricalData] = useState<Record<string, HistoricalDataEntry>>({});
   const [waveAnalyses, setWaveAnalyses] = useState<Record<string, WaveAnalysisEntry>>({});
   const [analysisProgress, setAnalysisProgress] = useState({
@@ -99,46 +82,30 @@ const AdminDashboard = () => {
     current: 0,
     inProgress: false
   });
-
-  // Add this state variable with the other state variables
   const [historyLoadProgress, setHistoryLoadProgress] = useState({
     total: 0,
     current: 0,
     inProgress: false
   });
-
-  // Add this state at the top with other state variables
   const [apiStatus, setApiStatus] = useState<'online' | 'offline' | 'checking' | 'degraded'>('checking');
-
-  // Add this state to track the active tab
   const [activeTab, setActiveTab] = useState<string>("historical");
-
-  // Add this state at the top of your component
+  const [topStocks, setTopStocks] = useState<{symbol: string}[]>([]);
+  const [stockCount, setStockCount] = useState(100);
+  const [cacheExpiryDays, setCacheExpiryDays] = useState(7); // Default to 7 days
+  const [aiAnalysisCount, setAiAnalysisCount] = useState(0);
+  
+  // Add back these state variables
   const [modalOpen, setModalOpen] = useState(false);
-
-  // Add these state variables at the top of your AdminDashboard component
   const [waveSearchQuery, setWaveSearchQuery] = useState('');
   const [historicalSearchQuery, setHistoricalSearchQuery] = useState('');
-
-  // Add this state near your other state variables
-  const [currentApiCall, setCurrentApiCall] = useState<string | null>(null);
-
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [stockCount, setStockCount] = useState(100);
   const [settingsChanged, setSettingsChanged] = useState(false);
-
-  // First, add a new state at the top of your component to store the fetched top stocks
-  const [topStocks, setTopStocks] = useState<{symbol: string}[]>([]);
-
-  // Add this state variable at the top of AdminDashboard, near your other settings
-  const [cacheExpiryDays, setCacheExpiryDays] = useState(7); // Default to 7 days
+  const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
+  const [currentApiCall, setCurrentApiCall] = useState<string | null>(null);
 
   // Context hooks
   const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
-  const { getHistoricalData } = useHistoricalData();
-
-  // Add this state variable at the top of your component
-  const [aiAnalysisCount, setAiAnalysisCount] = useState(0);
+  const { getHistoricalData } = useHistoricalData(); // Fixed to match the exported name
 
   // Fix loadCacheData function - it's incomplete in your code
 const loadCacheData = useCallback(async () => {
@@ -525,29 +492,17 @@ const fetchTopStocks = useCallback(async (limit: number) => {
   }), [waveAnalyses, historicalData, aiAnalysisCount]);
 
   // Add these filtered data memos after your cacheStats memo
-  const filteredWaveAnalyses = useMemo(() => {
-    if (!waveSearchQuery) return waveAnalyses;
-    
-    const lowerQuery = waveSearchQuery.toLowerCase();
-    return Object.entries(waveAnalyses)
-      .filter(([key]) => key.toLowerCase().includes(lowerQuery))
-      .reduce<Record<string, WaveAnalysisEntry>>((obj, [key, value]) => {
-        obj[key] = value;
-        return obj;
-      }, {});
-  }, [waveAnalyses, waveSearchQuery]);
+  const filterData = (data, query) => {
+    if (!query) return data;
+    const lowerQuery = query.toLowerCase();
+    return Object.fromEntries(
+      Object.entries(data).filter(([key]) => key.toLowerCase().includes(lowerQuery))
+    );
+  };
 
-  const filteredHistoricalData = useMemo(() => {
-    if (!historicalSearchQuery) return historicalData;
-    
-    const lowerQuery = historicalSearchQuery.toLowerCase();
-    return Object.entries(historicalData)
-      .filter(([key]) => key.toLowerCase().includes(lowerQuery))
-      .reduce<Record<string, HistoricalDataEntry>>((obj, [key, value]) => {
-        obj[key] = value;
-        return obj;
-      }, {});
-  }, [historicalData, historicalSearchQuery]);
+  const filteredWaveAnalyses = useMemo(() => filterData(waveAnalyses, waveSearchQuery), [waveAnalyses, waveSearchQuery]);
+
+  const filteredHistoricalData = useMemo(() => filterData(historicalData, historicalSearchQuery), [historicalData, historicalSearchQuery]);
 
   // Handlers
   // Title effect
@@ -623,26 +578,22 @@ const fetchTopStocks = useCallback(async (limit: number) => {
   };
 
   // Clear historical data cache from Supabase
-  const clearHistoricalCache = async () => {
-    if (window.confirm('Are you sure you want to clear all historical data cache?')) {
-      // Make the historical tab active after confirmation
+  const clearHistoricalCache = async (skipConfirm = false) => {
+    if (skipConfirm || window.confirm('Are you sure you want to clear all historical data cache?')) {
       setActiveTab("historical");
       setIsRefreshing(true);
       try {
-        // Delete all historical data entries from Supabase
         const { error } = await supabase
           .from('cache')
           .delete()
           .like('key', 'historical_data_%');
         
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
         
         await loadCacheData();
-        toast.success('Historical data cache cleared successfully from Supabase');
+        toast.success('Historical data cache cleared successfully');
       } catch (error) {
-        console.error('Error clearing historical cache from Supabase:', error);
+        console.error('Error clearing historical cache:', error);
         toast.error('Failed to clear historical data cache');
       } finally {
         setIsRefreshing(false);
@@ -736,6 +687,46 @@ const clearAIAnalysisCache = async () => {
   }
 };
 
+const clearCacheByType = async (type: 'historical' | 'waves' | 'ai', skipConfirm = false) => {
+  const messages = {
+    historical: 'Are you sure you want to clear all historical data cache?',
+    waves: 'Are you sure you want to clear all wave analysis cache? This will also cancel any ongoing analyses.',
+    ai: 'Are you sure you want to clear all DeepSeek AI analysis cache?'
+  };
+  
+  const keyPatterns = {
+    historical: 'historical_data_%',
+    waves: 'wave_analysis_%',
+    ai: 'ai_elliott_wave_%'
+  };
+  
+  if (skipConfirm || window.confirm(messages[type])) {
+    setIsRefreshing(true);
+    try {
+      if (type === 'waves') {
+        // Special handling for waves
+        cancelAllAnalyses();
+        clearCache();
+      }
+      
+      const { error } = await supabase
+        .from('cache')
+        .delete()
+        .like('key', keyPatterns[type]);
+      
+      if (error) throw error;
+      
+      await loadCacheData();
+      toast.success(`${type === 'historical' ? 'Historical data' : type === 'waves' ? 'Wave analysis' : 'DeepSeek AI analysis'} cache cleared successfully`);
+    } catch (error) {
+      console.error(`Error clearing ${type} cache:`, error);
+      toast.error(`Failed to clear ${type} cache`);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+};
+
   // Delete a single item from cache
   const deleteCacheItem = async (key: string, type: 'waves' | 'historical') => {
     if (window.confirm(`Are you sure you want to delete ${key}?`)) {
@@ -765,40 +756,6 @@ const clearAIAnalysisCache = async () => {
       }
     }
   };
-
-  // Add this in loadCacheData or somewhere appropriate
-  const debugStorageContents = async () => {
-    console.log("===== DEBUG: Supabase cache contents =====");
-    
-    try {
-      // Query wave analysis data from Supabase instead of localStorage
-      const { data: waveAnalysisData, error } = await supabase
-        .from('cache')
-        .select('key, data')
-        .like('key', 'wave_analysis_%');
-      
-      if (error) {
-        console.error("Error fetching cache data:", error);
-        return;
-      }
-      
-      // Log each item from Supabase
-      waveAnalysisData?.forEach(item => {
-        //console.log(`${item.key}: ${item.data?.waves?.length || 0} waves`);
-      });
-      
-    } catch (e) {
-      console.error("Error in debugStorageContents:", e);
-    }
-    
-    console.log("======================================");
-  };
-
-  // Call it after loadCacheData()
-  useEffect(() => {
-    // Call the debug function when component mounts
-    debugStorageContents();
-  }, []); // Empty dependency array means this runs once on mount
 
   // Use useEffect to respond to changes in analysisEvents
   useEffect(() => {
@@ -893,56 +850,6 @@ const clearAIAnalysisCache = async () => {
     }
   }, [analysisEvents, getAnalysis, loadCacheData]);
 
-  const handleMigration = async () => {
-    if (window.confirm('Do you want to migrate data from localStorage to Supabase?')) {
-      setIsRefreshing(true);
-      try {
-        await migrateFromLocalStorage();
-        toast.success('Data migrated to Supabase successfully');
-      } catch (error) {
-        console.error('Migration failed:', error);
-        toast.error('Failed to migrate data to Supabase');
-      } finally {
-        setIsRefreshing(false);
-      }
-    }
-  };
-
-  // Add this function to your Admin component
-  const clearAllSupabase = async () => {
-    if (window.confirm('This will completely clear ALL Supabase cache data. Are you sure?')) {
-      try {
-        setIsRefreshing(true);
-        await clearCache(); // Use your existing clearCache function
-        
-        // Also delete all entries from Supabase to be thorough
-        const { error: waveError } = await supabase
-          .from('cache')
-          .delete()
-          .like('key', 'wave_analysis_%');
-          
-        const { error: histError } = await supabase
-          .from('cache')
-          .delete()
-          .like('key', 'historical_data_%');
-        
-        if (waveError || histError) {
-          console.error("Errors clearing Supabase:", waveError, histError);
-          throw new Error("Failed to clear some Supabase data");
-        }
-        
-        // Refresh the data
-        await loadCacheData();
-        toast.success('All Supabase cache data has been cleared');
-      } catch (error) {
-        console.error('Error clearing Supabase data:', error);
-        toast.error('Failed to clear Supabase data');
-      } finally {
-        setIsRefreshing(false);
-      }
-    }
-  };
-
   // Add this function to save settings to Supabase
 const saveSettings = useCallback(async (settings: { 
   stockCount: number,
@@ -1029,160 +936,6 @@ useEffect(() => {
   }
 }, [settingsChanged, preloadHistoricalData, analyzeWaves]);
 
-  // Move the SettingsDialog component here
-  // Update the SettingsDialog component's handleSave function
-const SettingsDialog = () => {
-  // Replace the existing useState line with this:
-  const [localStockCount, setLocalStockCount] = useState(stockCount);
-  const [localCacheExpiryDays, setLocalCacheExpiryDays] = useState(cacheExpiryDays);
-  
-  // Add this useEffect to reset the local state when dialog opens
-  useEffect(() => {
-    // Reset to the current stockCount whenever the dialog opens
-    if (settingsOpen) {
-      setLocalStockCount(stockCount);
-      setLocalCacheExpiryDays(cacheExpiryDays);
-    }
-  }, [settingsOpen, stockCount, cacheExpiryDays]);
-  
-  const handleSave = () => {
-    // Update the local state immediately before saving to Supabase
-    setStockCount(localStockCount);
-    setCacheExpiryDays(localCacheExpiryDays);
-    
-    // Then save to Supabase
-    saveSettings({ stockCount: localStockCount, cacheExpiryDays: localCacheExpiryDays });
-    setSettingsOpen(false);
-  };
-  
-  // Rest of the component remains the same
-  return (
-    <Dialog open={settingsOpen} onOpenChange={(open) => {
-      // When closing without saving, discard changes
-      setSettingsOpen(open);
-    }}>
-      <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <SettingsIcon className="h-5 w-5" />
-            Cache Settings
-          </DialogTitle>
-          <DialogDescription>
-            Configure admin preferences and system parameters.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="py-4 space-y-6">
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="stocks-to-analyze">Number of Stocks to Analyze</Label>
-              <span className="text-sm font-medium">{localStockCount}</span>
-            </div>
-            <Slider
-              id="stocks-to-analyze"
-              min={10}
-              max={5000}
-              step={10}
-              value={[localStockCount]}
-              onValueChange={(value) => setLocalStockCount(value[0])}
-              className="mt-2"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              This controls how many top stocks are loaded and analyzed. 
-              Higher numbers require more processing time.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="cache-expiry-days">Cache Expiry (Days)</Label>
-              <span className="text-sm font-medium">{localCacheExpiryDays}</span>
-            </div>
-            <Slider
-              id="cache-expiry-days"
-              min={1}
-              max={30}
-              step={1}
-              value={[localCacheExpiryDays]}
-              onValueChange={(value) => setLocalCacheExpiryDays(value[0])}
-              className="mt-2"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              This controls how long cached data is retained before being refreshed.
-            </p>
-          </div>
-        </div>
-        
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setSettingsOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={isRefreshing}>
-            {isRefreshing ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              'Save Settings'
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-// Add this new component in your Admin.tsx file
-const ApiErrorDisplay = () => {
-  const [errors, setErrors] = useState<string[]>([]);
-  const [showErrors, setShowErrors] = useState(false);
-  
-  // Expose an add error function to other components
-  const addError = useCallback((error: string) => {
-    setErrors(prev => [...prev, error]);
-    setShowErrors(true);
-  }, []);
-  
-  // Global error handler for fetch requests
-  useEffect(() => {
-    // Add this to your Admin component's rendered JSX
-    window._addApiError = addError;
-    
-    return () => {
-      delete window._addApiError;
-    };
-  }, [addError]);
-  
-  if (!showErrors || errors.length === 0) return null;
-  
-  return (
-    <Card className="fixed bottom-4 right-4 w-96 z-50 shadow-lg border-destructive">
-      <CardHeader className="p-3 bg-destructive/10">
-        <div className="flex justify-between items-center">
-          <CardTitle className="text-sm font-medium text-destructive flex items-center gap-1.5">
-            <X className="h-4 w-4" />
-            API Errors ({errors.length})
-          </CardTitle>
-          <Button variant="ghost" size="sm" onClick={() => setShowErrors(false)}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0 max-h-48 overflow-auto">
-        <ScrollArea className="h-full">
-          <ul className="divide-y text-xs">
-            {errors.map((error, i) => (
-              <li key={i} className="p-2.5">
-                {error}
-              </li>
-            ))}
-          </ul>
-        </ScrollArea>
-      </CardContent>
-    </Card>
-  );
-};
-
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center">
@@ -1235,7 +988,7 @@ const ApiErrorDisplay = () => {
               </Button>
               
               <Button 
-                onClick={clearHistoricalCache}
+                onClick={() => clearHistoricalCache(false)}
                 variant="destructive"
                 size="sm"
                 className="w-full"
@@ -1365,45 +1118,41 @@ const ApiErrorDisplay = () => {
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {Object.entries(filteredWaveAnalyses || {}).map(([key, data]) => (
-                      <Card key={key} className="cursor-pointer hover:bg-accent/5 transition-colors">
-                        <CardContent className="p-3 flex items-center justify-between">
-                          <div 
-                            className="flex-1"
-                            onClick={() => {
-                              setSelectedData({ type: 'waves', key, data });
-                              setModalOpen(true); // Open the modal
-                            }}
-                          >
-                            <div className="flex justify-between">
-                              <span className="font-medium">{key}</span>
-                              <span className="text-sm text-muted-foreground">
-                                {/* Add null checks here */}
-                                {data?.analysis?.waves?.length || 0} waves
-                              </span>
-                            </div>
-                            <div className="text-sm text-muted-foreground flex justify-between mt-1">
-                              <span>
-                                {formatTime(data?.timestamp || Date.now())}
-                              </span>
-                              <span>
-                                {getAgeString(data?.timestamp || Date.now())}
-                              </span>
-                            </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteCacheItem(key, 'waves');
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    ))}
+                    {Object.entries(filteredWaveAnalyses || {}).map(([key, rawData]) => {
+                      // Type assert and transform the raw data
+                      const data = rawData as unknown as { 
+                        analysis?: { waves?: Wave[] };
+                        timestamp?: number;
+                      };
+                      
+                      // Create a properly typed wave data object
+                      const waveData: WaveAnalysisEntry = {
+                        analysis: {
+                          waves: data.analysis?.waves || [],
+                          ...(data.analysis || {})
+                        },
+                        timestamp: data.timestamp || Date.now()
+                      };
+                    
+                      return (
+                        <DataCard
+                          key={key}
+                          itemKey={key}
+                          data={waveData}
+                          type="waves"
+                          onDelete={deleteCacheItem}
+                          onClick={() => {
+                            setSelectedData({
+                              type: 'waves',
+                              key,
+                              data: waveData
+                            });
+                            setModalOpen(true);
+                          }}
+                          getAgeString={getAgeString}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </ScrollArea>
@@ -1460,43 +1209,22 @@ const ApiErrorDisplay = () => {
                 ) : (
                   <div className="grid gap-2">
                     {Object.entries(filteredHistoricalData || {}).map(([key, data]) => (
-                      <Card key={key} className="cursor-pointer hover:bg-accent/5 transition-colors">
-                        <CardContent className="p-3 flex items-center justify-between">
-                          <div 
-                            className="flex-1"
-                            onClick={() => {
-                              setSelectedData({ type: 'historical', key, data });
-                              setModalOpen(true); // Open the modal
-                            }}
-                          >
-                            <div className="flex justify-between">
-                              <span className="font-medium">{key}</span>
-                              <span className="text-sm text-muted-foreground">
-                                {/* Add null checks here */}
-                                {data?.data?.length || 0} points
-                              </span>
-                            </div>
-                            <div className="text-sm text-muted-foreground flex justify-between mt-1">
-                              <span>
-                                {formatTime(data?.timestamp || Date.now())}
-                              </span>
-                              <span>
-                                {getAgeString(data?.timestamp || Date.now())}
-                              </span>
-                            </div>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteCacheItem(key, 'historical');
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </CardContent>
-                      </Card>
+                      // For historical data
+                      <DataCard
+                        itemKey={key}
+                        data={data as HistoricalDataEntry}
+                        type="historical"
+                        onDelete={deleteCacheItem}
+                        onClick={() => {
+                          setSelectedData({
+                            type: 'historical',
+                            key,
+                            data: data as HistoricalDataEntry
+                          });
+                          setModalOpen(true);
+                        }}
+                        getAgeString={getAgeString}
+                      />
                     ))}
                   </div>
                 )}
@@ -1534,14 +1262,169 @@ const ApiErrorDisplay = () => {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Add the settings dialog */}
-      <SettingsDialog />
-
-      {/* Add this line to your Admin component return JSX */}
-      <ApiErrorDisplay />
+      <SettingsDialog 
+        isOpen={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        stockCount={stockCount}
+        cacheExpiryDays={cacheExpiryDays}
+        setStockCount={setStockCount}
+        setCacheExpiryDays={setCacheExpiryDays}
+        saveSettings={saveSettings}
+        isRefreshing={isRefreshing}
+      />
     </div>
   );
 };
+
+// 1. First, create an interface for SettingsDialog props
+interface SettingsDialogProps {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  stockCount: number;
+  cacheExpiryDays: number;
+  setStockCount: (count: number) => void;
+  setCacheExpiryDays: (days: number) => void;
+  saveSettings: (settings: { stockCount: number; cacheExpiryDays: number }) => void;
+  isRefreshing: boolean;
+}
+
+// 2. Update the SettingsDialog component
+const SettingsDialog = ({ 
+  isOpen,
+  onOpenChange,
+  stockCount,
+  cacheExpiryDays,
+  setStockCount,
+  setCacheExpiryDays,
+  saveSettings,
+  isRefreshing
+}: SettingsDialogProps) => {
+  const [localStockCount, setLocalStockCount] = useState(stockCount);
+  const [localCacheExpiryDays, setLocalCacheExpiryDays] = useState(cacheExpiryDays);
+  
+  useEffect(() => {
+    if (isOpen) {
+      setLocalStockCount(stockCount);
+      setLocalCacheExpiryDays(cacheExpiryDays);
+    }
+  }, [isOpen, stockCount, cacheExpiryDays]);
+  
+  const handleSave = () => {
+    setStockCount(localStockCount);
+    setCacheExpiryDays(localCacheExpiryDays);
+    saveSettings({ stockCount: localStockCount, cacheExpiryDays: localCacheExpiryDays });
+    onOpenChange(false);
+  };
+  
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Cog className="h-5 w-5" />
+            Cache Settings
+          </DialogTitle>
+          <DialogDescription>
+            Configure admin preferences and system parameters.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="py-4 space-y-6">
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label htmlFor="stocks-to-analyze">Number of Stocks to Analyze</Label>
+              <span className="text-sm font-medium">{localStockCount}</span>
+            </div>
+            <Slider
+              id="stocks-to-analyze"
+              min={10}
+              max={5000}
+              step={10}
+              value={[localStockCount]}
+              onValueChange={(value) => setLocalStockCount(value[0])}
+              className="mt-2"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              This controls how many top stocks are loaded and analyzed. 
+              Higher numbers require more processing time.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label htmlFor="cache-expiry-days">Cache Expiry (Days)</Label>
+              <span className="text-sm font-medium">{localCacheExpiryDays}</span>
+            </div>
+            <Slider
+              id="cache-expiry-days"
+              min={1}
+              max={30}
+              step={1}
+              value={[localCacheExpiryDays]}
+              onValueChange={(value) => setLocalCacheExpiryDays(value[0])}
+              className="mt-2"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              This controls how long cached data is retained before being refreshed.
+            </p>
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isRefreshing}>
+            {isRefreshing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Settings'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// Fix the DataCard component (move it outside AdminDashboard)
+interface DataCardProps {
+  itemKey: string;
+  data: WaveAnalysisEntry | HistoricalDataEntry;
+  type: 'waves' | 'historical';
+  onDelete: (key: string, type: 'waves' | 'historical') => void;
+  onClick: () => void;
+  getAgeString: (timestamp: number) => string;
+}
+
+const DataCard = ({ 
+  itemKey, 
+  data, 
+  type, 
+  onDelete, 
+  onClick,
+  getAgeString 
+}: DataCardProps) => (
+  <Card key={itemKey} className="cursor-pointer hover:bg-accent/5 transition-colors">
+    <CardContent className="p-3 flex items-center justify-between">
+      <div className="flex-1" onClick={onClick}>
+        <div className="flex flex-col">
+          <span className="font-medium text-sm">{itemKey}</span>
+          <span className="text-xs text-muted-foreground">
+            Updated {getAgeString(data.timestamp)}
+          </span>
+        </div>
+      </div>
+      <Button variant="ghost" size="sm" onClick={(e) => {
+        e.stopPropagation();
+        onDelete(itemKey, type);
+      }}>
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </CardContent>
+  </Card>
+);
 
 export default AdminDashboard;

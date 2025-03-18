@@ -1,479 +1,63 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Link } from 'react-router-dom';
-import { getAllAnalyses, clearAllAnalyses } from '@/services/databaseService';
-import { getAllHistoricalData } from '@/services/cacheService'; // Get the Supabase version
-import { toast } from '@/lib/toast';
-import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity, LineChart, Loader2 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
-import { Wave } from '@/types/shared';
-import ApiStatusCheck from '@/components/ApiStatusCheck';
-import { topStockSymbols } from '@/services/yahooFinanceService';
-import { clearMemoCache } from '@/utils/elliottWaveAnalysis';
-import { useHistoricalData } from '@/context/HistoricalDataContext';
-import { migrateFromLocalStorage } from '@/services/cacheService';
-import { supabase } from '@/lib/supabase';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { X } from 'lucide-react';
-import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
-import { 
-  Cog,
-  Settings as SettingsIcon
-} from 'lucide-react';
-import {
-  Slider
-} from "@/components/ui/slider";
-import { Label } from "@/components/ui/label";
-import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
+import yahooFinance from 'yahoo-finance2';
 
-interface ActiveAnalysis {
-  symbol: string;
-  startTime: number;
-  waves: Wave[];
-  status: 'running' | 'completed' | 'error';
-}
-
-// Add these interfaces at the top of your file
-interface HistoricalDataEntry {
-  data: any[];
-  timestamp: number;
-}
-
-interface WaveAnalysisEntry {
-  analysis: {
-    waves: any[];
-    [key: string]: any;
-  };
-  timestamp: number;
-}
-
-// Add this utility function at the top of your component or in a separate utils file
-const normalizeTimestamp = (timestamp: number): number => {
-  // If timestamp is in seconds (before year 2001), convert to milliseconds
-  return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+// Configure CORS headers
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json'
 };
 
-// Define a proper type for selectedData
-type SelectedDataType = 
-  | { type: 'waves'; key: string; data: WaveAnalysisEntry }
-  | { type: 'historical'; key: string; data: HistoricalDataEntry }
-  | null;
+// In-memory cache for non-KV environments
+const CACHE = {};
 
-const AdminDashboard = () => {
-  // State and context hooks remain at the top
-  const [cacheData, setCacheData] = useState<{
-    waves: Record<string, any>;
-    historical: Record<string, any>;
-  }>({
-    waves: {},
-    historical: {}
-  });
-  const [selectedData, setSelectedData] = useState<SelectedDataType>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeAnalyses, setActiveAnalyses] = useState<Record<string, ActiveAnalysis>>({});
-  const [historicalData, setHistoricalData] = useState<Record<string, HistoricalDataEntry>>({});
-  const [waveAnalyses, setWaveAnalyses] = useState<Record<string, WaveAnalysisEntry>>({});
-  const [analysisProgress, setAnalysisProgress] = useState({
-    total: 0,
-    current: 0,
-    inProgress: false
-  });
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const headers = { ...corsHeaders };
+    const path = url.pathname.startsWith('/api') 
+      ? url.pathname.substring(4)
+      : url.pathname;
 
-  // Add this state variable with the other state variables
-  const [historyLoadProgress, setHistoryLoadProgress] = useState({
-    total: 0,
-    current: 0,
-    inProgress: false
-  });
-
-  // Add this state at the top with other state variables
-  const [apiStatus, setApiStatus] = useState<'online' | 'offline' | 'checking' | 'degraded'>('checking');
-          
-  // Add this state to track the active tab
-  const [activeTab, setActiveTab] = useState<string>("historical");
-          
-  // Add this state at the top of your component
-  const [modalOpen, setModalOpen] = useState(false);
-
-  // Add these state variables at the top of your AdminDashboard component
-  const [waveSearchQuery, setWaveSearchQuery] = useState('');
-  const [historicalSearchQuery, setHistoricalSearchQuery] = useState('');
-
-  // Add this state near your other state variables
-  const [currentApiCall, setCurrentApiCall] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [stockCount, setStockCount] = useState(100);
-  const [settingsChanged, setSettingsChanged] = useState(false);
-
-  // First, add a new state at the top of your component to store the fetched top stocks
-  const [topStocks, setTopStocks] = useState<{symbol: string}[]>([]);
-
-  // Add this state variable at the top of AdminDashboard, near your other settings
-  const [cacheExpiryDays, setCacheExpiryDays] = useState(7); // Default to 7 days
-
-  // Context hooks
-  const { analysisEvents, getAnalysis, cancelAllAnalyses, clearCache } = useWaveAnalysis();
-  const { getHistoricalData } = useHistoricalData();
-
-  // Add this state variable at the top of your component
-  const [aiAnalysisCount, setAiAnalysisCount] = useState(0);
-
-  // Fix loadCacheData function - it's incomplete in your code
-  const loadCacheData = useCallback(async () => {
-    setIsRefreshing(true); 
-    try { 
-      // Query all wave analysis entries from Supabase
-      const { data: waveData, error: waveError } = await supabase
-        .from('cache')
-        .select('key, data, timestamp')
-        .like('key', 'wave_analysis_%');
-              
-      // Query all historical data entries from Supabase  
-      const { data: histData, error: histError } = await supabase
-        .from('cache')
-        .select('key, data, timestamp')
-        .like('key', 'historical_data_%');
-              
-      // Update your loadCacheData function to also fetch AI analysis entries
-      // Add this to your loadCacheData function where you query other cache entries
-      const { data: aiData, error: aiError } = await supabase
-        .from('cache')
-        .select('key, data, timestamp')
-        .like('key', 'ai_elliott_wave_%');
-              
-      if (waveError) throw waveError;
-      if (histError) throw histError;
-      if (aiError) throw aiError;
-              
-      // Process wave analysis data
-      const waveAnalyses = {};
-      if (waveData) {
-        for (const item of waveData) {
-          const key = item.key.replace('wave_analysis_', '');
-          waveAnalyses[key] = {
-            analysis: item.data,
-            timestamp: item.timestamp
-          };
-        }
-      }
-              
-      // Process historical data
-      const historicalData = {};
-      if (histData) {
-        for (const item of histData) {
-          const key = item.key.replace('historical_data_', '');
-          historicalData[key] = {
-            data: item.data,
-            timestamp: item.timestamp
-          };
-        }
-      }
-      if (aiData) {
-        setAiAnalysisCount(aiData.length);
-      }
-      setWaveAnalyses(waveAnalyses);
-      setHistoricalData(historicalData);
-    } catch (error) {
-      console.error('Error loading cache data from Supabase:', error);
-      toast.error('Failed to load data from Supabase');
-    } finally {
-      setIsRefreshing(false);
-    }       
-  }, [supabase]);
-
-  // 2. NOW define functions that depend on loadCacheData
-  const analyzeWaves = useCallback(async () => {
-    setActiveTab("waves");
-    setIsRefreshing(true); 
-    try { 
-      // Get historical data directly from Supabase 
-      const { data: histData, error: histError } = await supabase
-        .from('cache')
-        .select('key')
-        .like('key', 'historical_data_%');
-      if (histError) throw histError;
-      // Process the keys to get symbols
-      const stocksToAnalyze = (histData || [])
-        .map(item => item.key.replace('historical_data_', ''))
-        .filter(key => key.includes('_1d'))
-        .map(key => key.split('_')[0])
-        .slice(0, stockCount); // Limit by stockCount
-          
-      if (stocksToAnalyze.length === 0) {
-        toast.error('No historical data found in Supabase. Please preload historical data first.');
-        setIsRefreshing(false);
-        return;
-      }
-      // Initialize progress tracking
-      setAnalysisProgress({
-        total: stocksToAnalyze.length,
-        current: 0,
-        inProgress: true
-      });
-          
-      // Process stocks one by one with a small delay between them
-      let completed = 0;
-      for (const symbol of stocksToAnalyze) {
-        console.log(`Analyzing ${symbol}...`);
-        try { 
-          // Use the cached historical data - this will get from Supabase now
-          const historicalData = await getHistoricalData(symbol, '1d');
-          // Require at least 50 data points for analysis
-          if (!historicalData || historicalData.length < 50) {
-            console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
-            continue; // Skip this stock without incrementing completed
-          }
-          // Now analyze with validated data
-          const analysis = await getAnalysis(symbol, historicalData, true, true); // Added silent parameter
-          // Add this section to update the state incrementally
-          if (analysis && analysis.waves) {
-            // Update the waveAnalyses state incrementally
-            setWaveAnalyses(prev => ({
-              ...prev,
-              [`${symbol}_1d`]: {
-                analysis: analysis,
-                timestamp: Date.now()
-              }
-            }));
-          }
-          // Update progress
-          completed++;
-          setAnalysisProgress(prev => ({
-            ...prev,
-            current: completed
-          }));
-          // Small delay between stocks to prevent performance issues
-          await new Promise(r => setTimeout(r, 300));
-        } catch (err) {
-          console.error(`Failed to analyze ${symbol}`, err);
-        }
-      }
-          
-      // Finish up - still load from the database to ensure everything is consistent
-      loadCacheData();
-      toast.success(`Wave analysis completed for ${completed} stocks`);
-    } catch (error) {
-      console.error('Error analyzing waves:', error);
-      toast.error('Failed to analyze waves');
-    } finally {
-      // Reset progress
-      setAnalysisProgress({
-        total: 0,
-        current: 0,
-        inProgress: false
-      });
-      setIsRefreshing(false);
+    // Handle preflight requests
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers });
     }
-  }, [getAnalysis, getHistoricalData, loadCacheData, supabase, stockCount]);
 
-  // Update this function in Admin.tsx to handle API responses without mock fallbacks
-  const fetchTopStocks = useCallback(async (limit: number) => {
     try {
-      console.log(`DEBUG: Fetching top stocks with limit: ${limit}`);
-      const url = buildApiUrl(`/stocks/top?limit=${limit}`);
-      console.log(`Requesting URL: ${url}`);
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`API returned status ${response.status}`);
+      // Health check endpoint
+      if (path === '/health') {
+        return new Response(JSON.stringify({
+          status: 'ok',
+          timestamp: new Date().toISOString()
+        }), { headers });
       }
-      const data = await response.json();
-      // Defensive check to ensure we have an array
-      if (!Array.isArray(data)) {
-        throw new Error('API returned non-array data: ' + JSON.stringify(data).substring(0, 100));
-      }
-      
-      console.log(`DEBUG: API returned ${data.length} stocks (requested ${limit})`);
-      setTopStocks(data);
-      return data;
-    } catch (error) {
-      console.error('Error fetching top stocks:', error);
-      toast.error(`Failed to fetch top stocks: ${error.message}`);
-      throw error; // Re-throw to handle in caller
-    }
-  }, []);
-    
-  // Function to preload historical data for top stocks
-  const preloadHistoricalData = useCallback(async () => {
-    // Make the historical tab active
-    setActiveTab("historical");
-    // Generate fallback stocks immediately (like in simple-server.ts)
-    setIsRefreshing(true);
-    try {
-      // First fetch the top stocks from the API based on stockCount
-      const stocks = await fetchTopStocks(stockCount);
-      // Check if we got any stocks
-      if (!stocks.length) {
-        throw new Error('No stocks returned from API');
-      }
-      const symbols = stocks.map(stock => stock.symbol);
-      // Initialize progress tracking with the actual fetched symbols
-      setHistoryLoadProgress({
-        total: symbols.length,
-        current: 0,
-        inProgress: true
-      });
-      
-      // Track progress for user feedback
-      let completed = 0;
-      let failed = 0;
-      let errors = [];
-      // Process stocks in batches to avoid overwhelming the browser
-      const batchSize = 3;
-      for (let i = 0; i < symbols.length; i += batchSize) {
-        const batch = symbols.slice(i, i + batchSize);
+
+      // Top stocks endpoint
+      if (path === '/stocks/top' || path.startsWith('/stocks/top?')) {
+        const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+        console.log(`Fetching top ${limit} stocks`);
         
-        // Process each stock in the batch concurrently
-        await Promise.all(batch.map(async (symbol) => {
-          try {
-            console.log(`Fetching historical data for ${symbol}...`);
-            // Update the currentApiCall state to show in UI
-            const proxyUrl = buildApiUrl(`/stocks/historical/${symbol}?timeframe=2y&interval=1d`);
-            setCurrentApiCall(proxyUrl);
-            const response = await fetch(proxyUrl);
-            if (!response.ok) {
-              throw new Error(`API returned status ${response.status}`);
-            }
-            const data = await response.json();
-            // Defensive check to ensure we have an array
-            if (!Array.isArray(data)) {
-              throw new Error('API returned non-array data: ' + JSON.stringify(data).substring(0, 100));
-            }
-            // Update the historicalData state incrementally
-            setHistoricalData(prev => ({
-              ...prev,
-              [symbol]: {
-                data: data,
-                timestamp: Date.now()
-              }
-            }));
-            // Update progress
-            completed++;
-            setHistoryLoadProgress(prev => ({
-              ...prev,
-              current: completed
-            }));
-          } catch (err) {
-            console.error(`Failed to fetch historical data for ${symbol}`, err);
-            failed++;
-            errors.push(err.message);
-          }
-        }));
-      }
-      // Finish up
-      toast.success(`Historical data preloaded for ${completed} stocks`);
-      if (failed > 0) {
-        toast.error(`Failed to preload historical data for ${failed} stocks: ${errors.join(', ')}`);
-      }
-    } catch (error) {
-      console.error('Error preloading historical data:', error);
-      toast.error('Failed to preload historical data');
-    } finally {
-      setIsRefreshing(false);
-      setCurrentApiCall(null);
-      setHistoryLoadProgress({
-        total: 0,
-        current: 0,
-        inProgress: false
-      });
-    }
-  }, [fetchTopStocks, stockCount]);
-
-  // Update the historical data section:
-  if (path.includes('/history') || path.includes('/historical')) {
-    try {
-      let symbol;
-      // Get timeframe and interval parameters
-      const timeframe = url.searchParams.get('timeframe');
-      const interval = url.searchParams.get('interval') || '1d';
-      let periodToUse = '2y'; // Default to 2 years
-      
-      // Map timeframes to periods
-      if (timeframe) {
-        switch (timeframe) {
-          // Intraday timeframes
-          case '1h': 
-          case '2h':
-          case '4h':
-            periodToUse = '7d';
-            break;
-            
-          // Daily timeframes
-          case '1d': periodToUse = '2d'; break;
-          case '5d': periodToUse = '7d'; break;
-          case '1w': periodToUse = '10d'; break;
-          case '2w': periodToUse = '15d'; break;
-          
-          // Monthly timeframes
-          case '1mo': periodToUse = '1mo'; break;
-          case '3mo': periodToUse = '3mo'; break;
-          case '6mo': periodToUse = '6mo'; break;
-          
-          // Yearly timeframes
-          case '1y': periodToUse = '1y'; break;
-          case '2y': periodToUse = '2y'; break;
-          case '5y': periodToUse = '5y'; break;
-          
-          // Default to 2 years for any other value
-          default: periodToUse = '2y';
-        }
-      }
-      
-      console.log(`Processing historical request - timeframe: ${timeframe}, mapped to period: ${periodToUse}, interval: ${interval}`);
-      
-      // Extract symbol from URL (your existing symbol extraction code)
-      const path = url.pathname.startsWith('/api') 
-        ? url.pathname.substring(4)  // Remove /api prefix
-        : url.pathname;
-      console.log(`Request path: ${url.pathname}, normalized path: ${path}`);
-      try {
-        // Health check endpoint
-        if (path === '/health') {
-          return new Response(JSON.stringify({
-            status: 'ok',
-            message: 'API server is online',
-            version: '1.0.0',
-            timestamp: new Date()
-          }), { headers: corsHeaders });
+        // Try to get from cache first
+        const cacheKey = `top_stocks_${limit}`;
+        const cachedData = await getCachedData(cacheKey, env);
+        
+        if (cachedData) {
+          return new Response(JSON.stringify(cachedData), { headers });
         }
         
-        // Add route definitions first:
-        // 1. Top stocks endpoint - MOVED UP to take precedence
-        if (path === '/stocks/top' || path.startsWith('/stocks/top?')) {
-          // Get limit parameter (default to 20)
-          const limit = parseInt(url.searchParams.get('limit') || '20', 10);
-          const cachedData = await getCachedData(cacheKey, env);
-          if (cachedData) {
-            return new Response(JSON.stringify(cachedData), { headers });
-          }
-          // Use real top stock symbols (no random generation)
-          const topSymbols = [
-            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'LLY', 
-            'JPM', 'V', 'AVGO', 'XOM', 'PG', 'MA', 'COST', 'HD', 'CVX', 'MRK',
-            'ABBV', 'KO', 'PEP', 'ADBE', 'WMT', 'BAC', 'CRM', 'TMO', 'CSCO', 'ACN', 
-            'MCD', 'ABT', 'NFLX', 'LIN', 'DHR', 'AMD', 'CMCSA', 'VZ', 'INTC', 'DIS',
-            'PM', 'TXN', 'WFC', 'BMY', 'UPS', 'COP', 'NEE', 'RTX', 'ORCL', 'HON',
-            'LOW', 'UNP', 'QCOM', 'IBM', 'AMAT', 'DE', 'CAT', 'AXP', 'LMT', 'SPGI',
-            'GE', 'SBUX', 'GILD', 'MMM', 'AMT', 'MDLZ', 'ADI', 'TJX', 'REGN', 'ETN',
-            'BKNG', 'GS', 'ISRG', 'BLK', 'VRTX', 'TMUS', 'PLD', 'C', 'MS', 'ZTS',
-            'MRNA', 'PANW', 'PYPL', 'ABNB', 'COIN', 'SNOW', 'SHOP', 'SQ', 'PLTR'
-          ].slice(0, Math.min(limit, 50)); // Limit to 50 real companies
-          // Fetch data for each symbol
+        // Real top stock symbols
+        const topSymbols = [
+          'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'LLY', 
+          'JPM', 'V', 'AVGO', 'XOM', 'PG', 'MA', 'COST', 'HD', 'CVX', 'MRK',
+          'ABBV', 'KO', 'PEP', 'ADBE', 'WMT', 'BAC', 'CRM', 'TMO', 'CSCO', 'ACN', 
+          'MCD', 'ABT', 'NFLX', 'LIN', 'DHR', 'AMD', 'CMCSA', 'VZ', 'INTC', 'DIS'
+        ].slice(0, Math.min(limit, 50));
+        
+        try {
           const quotePromises = topSymbols.map(symbol => yahooFinance.quote(symbol).catch(() => null));
           const quoteResults = await Promise.all(quotePromises);
+          
           const topStocksData = quoteResults.filter(Boolean).map(quoteData => ({
             symbol: quoteData.symbol,
             name: quoteData.shortName || quoteData.longName || quoteData.symbol,
@@ -487,452 +71,146 @@ const AdminDashboard = () => {
             marketCap: quoteData.marketCap,
             averageVolume: quoteData.averageDailyVolume3Month || quoteData.averageVolume
           }));
+          
           await setCachedData(cacheKey, topStocksData, env, 60 * 30); // 30 minutes cache
           return new Response(JSON.stringify(topStocksData), { headers });
+        } catch (error) {
+          console.error(`Error fetching top stocks: ${error.message}`);
+          return new Response(JSON.stringify({
+            error: 'Failed to fetch top stocks',
+            message: error.message
+          }), { 
+            status: 500, 
+            headers 
+          });
         }
-        
-        // 2. Historical data endpoint - FIX: Handle all three URL formats
-        if (path.includes('/history') || path.includes('/historical')) {
-          try {
-            let symbol;
-            // Get timeframe and interval parameters
-            const timeframe = url.searchParams.get('timeframe');
-            const interval = url.searchParams.get('interval') || '1d';
-            let periodToUse = '2y'; // Default to 2 years
-            
-            // Map timeframes to periods
-            if (timeframe) {
-              switch (timeframe) {
-                // Intraday timeframes
-                case '1h': 
-                case '2h':
-                case '4h':
-                  periodToUse = '7d';
-                  break;
-                  
-                // Daily timeframes
-                case '1d': periodToUse = '2d'; break;
-                case '5d': periodToUse = '7d'; break;
-                case '1w': periodToUse = '10d'; break;
-                case '2w': periodToUse = '15d'; break;
-                
-                // Monthly timeframes
-                case '1mo': periodToUse = '1mo'; break;
-                case '3mo': periodToUse = '3mo'; break;
-                case '6mo': periodToUse = '6mo'; break;
-                
-                // Yearly timeframes
-                case '1y': periodToUse = '1y'; break;
-                case '2y': periodToUse = '2y'; break;
-                case '5y': periodToUse = '5y'; break;
-                
-                // Default to 2 years for any other value
-                default: periodToUse = '2y';
-              }
-            }
-            
-            console.log(`Processing historical request - timeframe: ${timeframe}, mapped to period: ${periodToUse}, interval: ${interval}`);
-            
-            // Extract symbol from URL (your existing symbol extraction code)
-            if (path.includes('/historical/')) {
-              const parts = path.split('/historical/');
-              if (parts.length === 2) {
-                symbol = parts[1].split('?')[0].toUpperCase();
-              }
-            } else if (path.includes('/history/')) {
-              const parts = path.split('/history/');
-              if (parts.length === 2) {
-                symbol = parts[1].split('?')[0].toUpperCase();
-              }
-            } else {
-              const pathParts = path.split('/');
-              for (let i = 0; i < pathParts.length; i++) {
-                if (pathParts[i] === 'stocks' && i + 1 < pathParts.length && pathParts[i+1] !== 'history') {
-                  symbol = pathParts[i + 1].toUpperCase();
-                  break;
-                }
-              }
-            }
-            if (!symbol) {
-              throw new Error(`Could not extract symbol from path: ${path}`);
-            }
-            console.log(`Extracted symbol: ${symbol} from path: ${path}`);
-            
-            // Try to get from cache first
-            const cacheKey = `history_${symbol}_${periodToUse}_${interval}`;
-            const cachedData = await getCachedData(cacheKey, env);
-            if (cachedData) {
-              return new Response(JSON.stringify(cachedData), { headers });
-            }
-            
-            // Calculate date range
-            const period1 = getStartDate(periodToUse);
-            
-            console.log(`Fetching historical data for ${symbol} from ${period1}, interval: ${interval}`);
-            
-            // Fetch from Yahoo Finance with explicit parameters
-            const historicalData = await yahooFinance.historical(symbol, {
-              period1,
-              interval: interval,
-              includeAdjustedClose: true // Include adjusted prices
-            });
-            
-            if (!historicalData || !Array.isArray(historicalData) || historicalData.length === 0) {
-              throw new Error(`No data returned from Yahoo Finance for ${symbol}`);
-            }
-            
-            console.log(`Retrieved ${historicalData.length} data points for ${symbol}`);
-            
-            // Transform to expected format
-            const formattedData = historicalData.map(item => ({
-              timestamp: Math.floor(new Date(item.date).getTime() / 1000),
-              open: Number(item.open),
-              high: Number(item.high),
-              close: Number(item.close),
-              low: Number(item.low),
-              volume: Number(item.volume || 0)
-            }));
-            
-            // Store in cache
-            await setCachedData(cacheKey, formattedData, env, 60 * 60); // 1 hour cache
-            
-            return new Response(JSON.stringify(formattedData), { headers });
-          } catch (error) {
-            console.error(`Error fetching historical data: ${error.message}`);
-            return new Response(JSON.stringify({
-              error: 'Failed to fetch historical data',
-              message: error.message
-            }), { 
-              status: 500,
-              headers 
-            });
-          }
-        }
-      } catch (error) {
-        console.error(`Error processing request: ${error.message}`);
-        return new Response(JSON.stringify({
-          error: 'Internal server error',
-          message: error.message
-        }), { 
-          status: 500,
-          headers 
-        });
       }
+
+      // Historical data endpoint
+      if (path.includes('/history') || path.includes('/historical')) {
+        try {
+          let symbol;
+          const timeframe = url.searchParams.get('timeframe');
+          const interval = url.searchParams.get('interval') || '1d';
+          
+          // Extract symbol from URL path
+          if (path.includes('/historical/')) {
+            symbol = path.split('/historical/')[1].split('?')[0].toUpperCase();
+          } else if (path.includes('/history/')) {
+            symbol = path.split('/history/')[1].split('?')[0].toUpperCase();
+          } else {
+            const parts = path.split('/');
+            for (let i = 0; i < parts.length; i++) {
+              if (parts[i] === 'stocks' && i + 1 < parts.length) {
+                symbol = parts[i + 1].toUpperCase();
+                break;
+              }
+            }
+          }
+
+          if (!symbol) {
+            throw new Error(`Could not extract symbol from path: ${path}`);
+          }
+
+          console.log(`Fetching historical data for ${symbol}, timeframe: ${timeframe || '2y'}`);
+
+          // Calculate date range - default to 2 years
+          const startDate = new Date();
+          startDate.setFullYear(startDate.getFullYear() - 2); // 2 years ago
+
+          // Fetch from Yahoo Finance
+          const historicalData = await yahooFinance.historical(symbol, {
+            period1: startDate,
+            interval: interval
+          });
+
+          if (!historicalData || historicalData.length === 0) {
+            throw new Error(`No data returned for ${symbol}`);
+          }
+
+          console.log(`Retrieved ${historicalData.length} data points for ${symbol}`);
+
+          // Transform the data
+          const formattedData = historicalData.map(item => ({
+            timestamp: Math.floor(new Date(item.date).getTime() / 1000),
+            open: Number(item.open),
+            high: Number(item.high),
+            close: Number(item.close),
+            low: Number(item.low),
+            volume: Number(item.volume || 0)
+          }));
+
+          return new Response(JSON.stringify(formattedData), { headers });
+        } catch (error) {
+          console.error(`Historical data error: ${error.message}`);
+          return new Response(JSON.stringify({
+            error: 'Failed to fetch historical data',
+            message: error.message
+          }), { 
+            status: 500, 
+            headers 
+          });
+        }
+      }
+
+      // Handle unknown endpoints
+      return new Response(JSON.stringify({
+        error: 'Not found',
+        path: path
+      }), {
+        status: 404,
+        headers
+      });
+
     } catch (error) {
-      console.error(`Error processing request: ${error.message}`);
+      console.error(`Server error: ${error.message}`);
       return new Response(JSON.stringify({
         error: 'Internal server error',
         message: error.message
-      }), { 
+      }), {
         status: 500,
-        headers 
+        headers
       });
     }
   }
-  
-  // Simplified stock data fetch with improved error handling (from simple-server.ts)
-  async function fetchStockDataWithFallback(symbol) {
+};
+
+// Cache helper functions using either KV or memory
+async function getCachedData(key, env) {
+  // Try KV if available
+  if (env && env.CACHE_STORAGE) {
     try {
-      const quoteData = await yahooFinance.quote(symbol);
-      return {
-        symbol: quoteData.symbol,
-        shortName: quoteData.shortName || quoteData.longName || quoteData.symbol,
-        regularMarketPrice: quoteData.regularMarketPrice,
-        regularMarketChange: quoteData.regularMarketChange,
-        regularMarketChangePercent: quoteData.regularMarketChangePercent,
-        regularMarketVolume: quoteData.regularMarketVolume,
-        price: quoteData.regularMarketPrice,
-        change: quoteData.regularMarketChange,
-        changePercent: quoteData.regularMarketChangePercent,
-        volume: quoteData.regularMarketVolume,
-        marketCap: quoteData.marketCap,
-        averageVolume: quoteData.averageDailyVolume3Month || quoteData.averageVolume
-      };
-    } catch (error) {
-      console.log(`Error fetching data for ${symbol}: ${error.message}`);
-      
-      // Check if this is a validation error from Yahoo with partial data
-      if (error.name === 'FailedYahooValidationError' && error.result && Array.isArray(error.result)) {
-        // Try to extract useful data from the error response
-        const partialData = error.result[0];
-        
-        if (partialData) {
-          // Create a minimal valid response with available data
-          return {
-            symbol: partialData.symbol || symbol,
-            shortName: partialData.shortName || `${symbol} Stock`,
-            regularMarketPrice: partialData.regularMarketPrice || partialData.twoHundredDayAverage || 100,
-            regularMarketChange: partialData.regularMarketChange || 0,
-            regularMarketChangePercent: partialData.regularMarketChangePercent || 0,
-            regularMarketVolume: partialData.regularMarketVolume || 0,
-            price: partialData.regularMarketPrice || partialData.twoHundredDayAverage || 100,
-            change: partialData.regularMarketChange || 0,
-            changePercent: partialData.regularMarketChangePercent || 0,
-            volume: partialData.regularMarketVolume || 0
-          };
-        }
-      }
-      
-      // Use simplified fallback from original worker.js
-      return {
-        symbol: symbol,
-        shortName: `${symbol} Inc.`,
-        regularMarketPrice: 100 + Math.random() * 100,
-        regularMarketChange: (Math.random() * 10) - 5,
-        regularMarketChangePercent: (Math.random() * 10) - 5,
-        regularMarketVolume: Math.floor(Math.random() * 10000000),
-        price: 100 + Math.random() * 100,
-        change: (Math.random() * 10) - 5,
-        changePercent: (Math.random() * 10) - 5,
-        volume: Math.floor(Math.random() * 10000000)
-      };
-    }
-  }
-  
-  // Simplified stock data fetch for use in Promise.all
-  async function fetchStockData(symbol) {
-    try {
-      return await fetchStockDataWithFallback(symbol);
-    } catch (error) {
-      // Return mock data in case of any errors
-      return {
-        symbol: symbol,
-        shortName: `${symbol} Inc.`,
-        regularMarketPrice: 100 + Math.random() * 100,
-        regularMarketChange: (Math.random() * 10) - 5,
-        regularMarketChangePercent: (Math.random() * 10) - 5,
-        regularMarketVolume: Math.floor(Math.random() * 10000000),
-        price: 100 + Math.random() * 100,
-        change: (Math.random() * 10) - 5,
-        changePercent: (Math.random() * 10) - 5,
-        volume: Math.floor(Math.random() * 10000000)
-      };
-    }
-  }
-  
-  // Historical data fetch function with better error handling (from simple-server.ts)
-  async function fetchHistoricalDataWithFallback(symbol, period, interval) {
-    try {
-      // Calculate proper date range based on period
-      const period1 = getStartDate(period);
-      
-      // Try to fetch historical data
-      try {
-        const historicalData = await yahooFinance.historical(symbol, {
-          period1,
-          interval
-        });
-        
-        // Transform into the expected format
-        return historicalData.map(item => ({
-          timestamp: Math.floor(new Date(item.date).getTime() / 1000),
-          open: item.open,
-          high: item.high,
-          close: item.close,
-          low: item.low,
-          volume: item.volume
-        }));
-        
-      } catch (histError) {
-        console.log(`Error in historical fetch for ${symbol}: ${histError.message}`);
-        
-        // If we have a validation error, try with more limited params
-        if (histError.name === 'FailedYahooValidationError') {
-          console.log(`Trying fallback historical data fetch for ${symbol}`);
-          
-          // Simpler fetch attempt
-          const fallbackData = await yahooFinance.historical(symbol, {
-            period1: getStartDate('6mo'), // Use shorter time period
-            interval: '1d'               // Always use daily interval
-          });
-          
-          return fallbackData.map(item => ({
-            timestamp: Math.floor(new Date(item.date).getTime() / 1000),
-            open: item.open,
-            high: item.high,
-            close: item.close,
-            low: item.low,
-            volume: item.volume
-          }));
-        }
-        
-        // For other errors, generate mock data
-        throw histError;
+      const data = await env.CACHE_STORAGE.get(key);
+      if (data) {
+        return JSON.parse(data);
       }
     } catch (error) {
-      console.error(`Failed to get historical data: ${error.message}`);
-      
-      // Generate mock data as fallback
-      return generateMockHistoricalData(symbol, period === '1d' ? 30 : 500);
+      console.error(`KV cache error for ${key}: ${error.message}`);
     }
-  }
-  
-  // Helper function to get start date based on period (from simple-server.ts)
-  function getStartDate(period) {
-    const now = new Date();
-    
-    switch (period) {
-      case '2d':
-        return new Date(now.setDate(now.getDate() - 2));
-      case '7d':
-        return new Date(now.setDate(now.getDate() - 7));
-      case '1mo':
-        return new Date(now.setMonth(now.getMonth() - 1));
-      case '3mo':
-        return new Date(now.setMonth(now.getMonth() - 3));
-      case '6mo':
-        return new Date(now.setMonth(now.getMonth() - 6));
-      case '1y':
-        return new Date(now.setFullYear(now.getFullYear() - 1));
-      case '2y':
-        return new Date(now.setFullYear(now.getFullYear() - 2));
-      case '5y':
-        return new Date(now.setFullYear(now.getFullYear() - 5));
-      default:
-        return new Date(now.setFullYear(now.getFullYear() - 1)); // Default to 1 year
-    }
-  }
-  
-  // Cache helper functions using either KV or memory
-  async function getCachedData(key, env) {
-    // Try KV if available
-    if (env && env.CACHE_STORAGE) {
-      try {
-        const data = await env.CACHE_STORAGE.get(key);
-        if (data) {
-          return JSON.parse(data);
-        }
-      } catch (error) {
-        console.error(`KV cache error for ${key}: ${error.message}`);
-      }
-      return null;
-    }
-    
-    // Memory cache fallback
-    if (CACHE[key] && CACHE[key].expires > Date.now()) {
-      return CACHE[key].data;
-    }
-    
     return null;
   }
   
-  async function setCachedData(key, data, env, ttlSeconds = 900) {
-    // Use KV if available
-    if (env && env.CACHE_STORAGE) {
-      try {
-        await env.CACHE_STORAGE.put(key, JSON.stringify(data), {expirationTtl: ttlSeconds});
-      } catch (error) {
-        console.error(`KV cache write error for ${key}: ${error.message}`);
-      }
-    } else {
-      // Memory cache fallback
-      CACHE[key] = {
-        data: data,
-        expires: Date.now() + (ttlSeconds * 1000)
-      };
-    }
+  // Memory cache fallback
+  if (CACHE[key] && CACHE[key].expires > Date.now()) {
+    return CACHE[key].data;
   }
   
-  // Generate mock stocks (from simple-server.ts)
-  function generateMockStocks(count) {
-    const result = [];
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    
-    // Extended stock symbol list from simple-server.ts
-    const extendedSymbols = [
-      'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'LLY', 
-      'JPM', 'V', 'AVGO', 'XOM', 'PG', 'MA', 'COST', 'HD', 'CVX', 'MRK',
-      'ABBV', 'KO', 'PEP', 'ADBE', 'WMT', 'BAC', 'CRM', 'TMO', 'CSCO', 'ACN', 
-      'MCD', 'ABT', 'NFLX', 'LIN', 'DHR', 'AMD', 'CMCSA', 'VZ', 'INTC', 'DIS',
-      'PM', 'TXN', 'WFC', 'BMY', 'UPS', 'COP', 'NEE', 'RTX', 'ORCL', 'HON',
-      'LOW', 'UNP', 'QCOM', 'IBM', 'AMAT', 'DE', 'CAT', 'AXP', 'LMT', 'SPGI',
-      'GE', 'SBUX', 'GILD', 'MMM', 'AMT', 'MDLZ', 'ADI', 'TJX', 'REGN', 'ETN',
-      'BKNG', 'GS', 'ISRG', 'BLK', 'VRTX', 'TMUS', 'PLD', 'C', 'MS', 'ZTS',
-      'MRNA', 'PANW', 'PYPL', 'ABNB', 'COIN', 'SNOW', 'SHOP', 'SQ', 'PLTR'
-    ];
-    
-    // First use all known symbols
-    for (let i = 0; i < Math.min(count, extendedSymbols.length); i++) {
-      const symbol = extendedSymbols[i];
-      result.push({
-        symbol,
-        shortName: `${symbol} Inc.`,
-        regularMarketPrice: 100 + Math.random() * 100,
-        regularMarketChange: (Math.random() * 10) - 5,
-        regularMarketChangePercent: (Math.random() * 10) - 5,
-        regularMarketVolume: Math.floor(Math.random() * 10000000),
-        price: 100 + Math.random() * 100,
-        change: (Math.random() * 10) - 5,
-        changePercent: (Math.random() * 10) - 5,
-        volume: Math.floor(Math.random() * 10000000),
-        marketCap: Math.floor(Math.random() * 1000000000000),
-        averageVolume: Math.floor(Math.random() * 5000000)
-      });
+  return null;
+}
+
+async function setCachedData(key, data, env, ttlSeconds = 900) {
+  // Use KV if available
+  if (env && env.CACHE_STORAGE) {
+    try {
+      await env.CACHE_STORAGE.put(key, JSON.stringify(data), {expirationTtl: ttlSeconds});
+    } catch (error) {
+      console.error(`KV cache write error for ${key}: ${error.message}`);
     }
-    
-    // If we need more, generate synthetic ones
-    if (count > extendedSymbols.length) {
-      for (let i = extendedSymbols.length; i < count; i++) {
-        // Generate 2-4 letter symbol
-        const length = Math.floor(Math.random() * 3) + 2;
-        let symbol = '';
-        for (let j = 0; j < length; j++) {
-          symbol += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-        }
-        
-        result.push({
-          symbol,
-          shortName: `${symbol} Inc.`,
-          regularMarketPrice: 100 + Math.random() * 100,
-          regularMarketChange: (Math.random() * 10) - 5,
-          regularMarketChangePercent: (Math.random() * 10) - 5,
-          regularMarketVolume: Math.floor(Math.random() * 10000000),
-          price: 100 + Math.random() * 100,
-          change: (Math.random() * 10) - 5,
-          changePercent: (Math.random() * 10) - 5,
-          volume: Math.floor(Math.random() * 10000000),
-          marketCap: Math.floor(Math.random() * 1000000000000),
-          averageVolume: Math.floor(Math.random() * 5000000)
-        });
-      }
-    }
-    
-    return result;
-  }
-  
-  // Generate mock historical data
-  function generateMockHistoricalData(symbol, days) {
-    const result = [];
-    const now = new Date();
-    let basePrice = 100 + (symbol.charCodeAt(0) % 50);
-    const trend = (symbol.charCodeAt(0) % 3 - 1) * 0.1; // -0.1, 0, or +0.1
-    
-    // Generate data points going back 'days' days
-    for (let i = days; i >= 0; i--) {
-      const date = new Date(now.getTime());
-      date.setDate(date.getDate() - i);
-      
-      // Generate price movement
-      const change = (Math.random() - 0.48) * 2; // Slight upward bias
-      basePrice = Math.max(10, basePrice * (1 + change / 100));
-      
-      const dayVolatility = Math.random() * 0.02;
-      const high = basePrice * (1 + dayVolatility);
-      const low = basePrice * (1 - dayVolatility);
-      const open = low + Math.random() * (high - low);
-      const close = low + Math.random() * (high - low);
-      
-      // Add the daily data point
-      result.push({
-        timestamp: Math.floor(date.getTime() / 1000),
-        open: parseFloat(open.toFixed(2)),
-        high: parseFloat(high.toFixed(2)),
-        low: parseFloat(low.toFixed(2)),
-        close: parseFloat(close.toFixed(2)),
-        volume: Math.floor(Math.random() * 10000000)
-      });
-    }
-    
-    return result;
+  } else {
+    // Memory cache fallback
+    CACHE[key] = {
+      data: data,
+      expires: Date.now() + (ttlSeconds * 1000)
+    };
   }
 }
