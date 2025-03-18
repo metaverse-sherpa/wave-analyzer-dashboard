@@ -11,6 +11,20 @@ const corsHeaders = {
 // In-memory cache for non-KV environments
 const CACHE = {};
 
+// Add this near the top with other constants
+const SCREENER_TYPES = [
+  'day_gainers',
+  'most_actives',
+  'undervalued_large_caps',
+  'growth_technology_stocks',
+  'aggressive_small_caps',
+  'undervalued_growth_stocks',
+  'most_shorted_stocks',
+  'small_cap_gainers',
+  'solid_large_growth_funds',
+  'portfolio_anchors'
+];
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -33,7 +47,7 @@ export default {
         }), { headers });
       }
 
-      // Top stocks endpoint
+      // Replace the existing top stocks endpoint handler
       if (path === '/stocks/top' || path.startsWith('/stocks/top?')) {
         const limit = parseInt(url.searchParams.get('limit') || '20', 10);
         console.log(`Fetching top ${limit} stocks`);
@@ -46,34 +60,76 @@ export default {
           return new Response(JSON.stringify(cachedData), { headers });
         }
         
-        // Real top stock symbols
-        const topSymbols = [
-          'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'LLY', 
-          'JPM', 'V', 'AVGO', 'XOM', 'PG', 'MA', 'COST', 'HD', 'CVX', 'MRK',
-          'ABBV', 'KO', 'PEP', 'ADBE', 'WMT', 'BAC', 'CRM', 'TMO', 'CSCO', 'ACN', 
-          'MCD', 'ABT', 'NFLX', 'LIN', 'DHR', 'AMD', 'CMCSA', 'VZ', 'INTC', 'DIS'
-        ].slice(0, Math.min(limit, 50));
-        
         try {
-          const quotePromises = topSymbols.map(symbol => yahooFinance.quote(symbol).catch(() => null));
-          const quoteResults = await Promise.all(quotePromises);
+          let allStocks = [];
+          let seenSymbols = new Set();
           
-          const topStocksData = quoteResults.filter(Boolean).map(quoteData => ({
-            symbol: quoteData.symbol,
-            name: quoteData.shortName || quoteData.longName || quoteData.symbol,
-            regularMarketPrice: quoteData.regularMarketPrice,
-            regularMarketChange: quoteData.regularMarketChange,
-            regularMarketChangePercent: quoteData.regularMarketChangePercent,
-            price: quoteData.regularMarketPrice,
-            change: quoteData.regularMarketChange,
-            changePercent: quoteData.regularMarketChangePercent,
-            volume: quoteData.regularMarketVolume,
-            marketCap: quoteData.marketCap,
-            averageVolume: quoteData.averageDailyVolume3Month || quoteData.averageVolume
-          }));
+          for (const scrId of SCREENER_TYPES) {
+            if (seenSymbols.size >= limit) break;
+            
+            console.log(`Fetching from screener: ${scrId}`);
+            try {
+              // Proper screener call with queryOptions
+              const result = await yahooFinance.screener({
+                scrIds: scrId,
+                count: Math.min(100, limit * 2),
+                region: 'US',
+                lang: 'en-US'
+              });
+              
+              if (result?.quotes) {
+                // Process each quote
+                for (const quote of result.quotes) {
+                  if (seenSymbols.size >= limit) break;
+                  
+                  // Skip if we've already seen this symbol or missing critical data
+                  if (seenSymbols.has(quote.symbol) || !quote.symbol || !quote.regularMarketPrice) {
+                    continue;
+                  }
+                  
+                  seenSymbols.add(quote.symbol);
+                  allStocks.push({
+                    symbol: quote.symbol,
+                    name: quote.shortName || quote.longName || quote.symbol,
+                    regularMarketPrice: quote.regularMarketPrice,
+                    regularMarketChange: quote.regularMarketChange || 0,
+                    regularMarketChangePercent: quote.regularMarketChangePercent || 0,
+                    price: quote.regularMarketPrice,
+                    change: quote.regularMarketChange || 0,
+                    changePercent: quote.regularMarketChangePercent || 0,
+                    volume: quote.regularMarketVolume || 0,
+                    marketCap: quote.marketCap || 0,
+                    averageVolume: quote.averageDailyVolume3Month || quote.averageVolume || 0
+                  });
+                }
+              }
+              
+              console.log(`Got ${result?.quotes?.length || 0} stocks from ${scrId}, total unique: ${seenSymbols.size}`);
+              
+              // Add delay between screener calls
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+            } catch (screenerError) {
+              console.warn(`Error with screener ${scrId}:`, screenerError);
+              continue;
+            }
+          }
           
-          await setCachedData(cacheKey, topStocksData, env, 60 * 30); // 30 minutes cache
+          // Sort by market cap and slice to limit
+          const topStocksData = allStocks
+            .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
+            .slice(0, limit);
+          
+          if (topStocksData.length === 0) {
+            throw new Error('No valid stocks returned from screeners');
+          }
+          
+          console.log(`Returning ${topStocksData.length} stocks out of ${allStocks.length} total collected`);
+          
+          // Cache the results
+          await setCachedData(cacheKey, topStocksData, env, 60 * 15); // 15 minutes cache
           return new Response(JSON.stringify(topStocksData), { headers });
+          
         } catch (error) {
           console.error(`Error fetching top stocks: ${error.message}`);
           return new Response(JSON.stringify({
