@@ -7,7 +7,8 @@ const ALLOWED_KEYS = [
   'debug-mode',
   'theme',           // Common UI preference 
   'user-settings',   // Add any other keys you want to allow
-  'test'             // Used by React DevTools extension
+  'test',             // Used by React DevTools extension
+  'reversal-candidates-cache',
 ];
 
 // Function to check if a key should be allowed

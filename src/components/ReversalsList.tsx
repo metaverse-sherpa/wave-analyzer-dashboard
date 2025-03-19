@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
@@ -7,6 +7,17 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { apiUrl } from '@/utils/apiConfig';
 import type { WaveAnalysisResult } from '@/types/shared'; // Import the shared type
+import ReversalsLastUpdated, { ReversalsContext } from './ReversalsLastUpdated';
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from "@/components/ui/tooltip";
+
+interface ReversalsListProps {
+  hideHeader?: boolean;
+}
 
 // Define only the types we need within the component
 interface PriceMap {
@@ -25,17 +36,61 @@ interface ReversalCandidate {
   nextWave: string;
 }
 
-const ReversalsList: React.FC = () => {
+const CACHE_KEY = 'reversal-candidates-cache';
+const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => {
   const navigate = useNavigate();
   const [showMore, setShowMore] = useState(false);
   const { analyses } = useWaveAnalysis();
   const [reversalCandidates, setReversalCandidates] = useState<ReversalCandidate[]>([]);
   const [loading, setLoading] = useState(false);
+  const [lastCacheUpdate, setLastCacheUpdate] = useState<number>(0);
   
   // Extract symbols once to avoid recalculating
   const symbols = useMemo(() => {
     return [...new Set(Object.keys(analyses).map(key => key.split('_')[0]))];
   }, [analyses]);
+  
+  // Function to save data to cache
+  const saveToCache = useCallback((data: ReversalCandidate[]) => {
+    const now = Date.now();
+    const cacheData = {
+      timestamp: now,
+      data: data
+    };
+    
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+      setLastCacheUpdate(now);
+      console.log('Reversal data saved to cache');
+    } catch (e) {
+      console.warn('Failed to cache reversal data:', e);
+    }
+  }, []);
+  
+  // Function to load data from cache
+  const loadFromCache = useCallback((): { data: ReversalCandidate[], isFresh: boolean } => {
+    try {
+      const cacheJson = localStorage.getItem(CACHE_KEY);
+      if (!cacheJson) return { data: [], isFresh: false };
+      
+      const cache = JSON.parse(cacheJson);
+      const now = Date.now();
+      const isFresh = now - cache.timestamp < CACHE_EXPIRY;
+      
+      if (isFresh) {
+        setLastCacheUpdate(cache.timestamp);
+        return { data: cache.data, isFresh: true };
+      } else {
+        console.log('Cache expired, will fetch fresh data');
+        return { data: [], isFresh: false };
+      }
+    } catch (e) {
+      console.warn('Failed to load cached data:', e);
+      return { data: [], isFresh: false };
+    }
+  }, []);
   
   // Load data when analyses change
   useEffect(() => {
@@ -43,8 +98,18 @@ const ReversalsList: React.FC = () => {
     if (Object.keys(analyses).length === 0) return;
 
     const loadReversalData = async () => {
+      // First check the cache
+      const { data: cachedData, isFresh } = loadFromCache();
+      
+      // If we have fresh cached data, use it
+      if (cachedData.length > 0 && isFresh) {
+        console.log('Using cached reversal data');
+        setReversalCandidates(cachedData);
+        return;
+      }
+      
+      // Otherwise, load fresh data
       try {
-        // Load fresh data
         setLoading(true);
         
         // Fetch prices and calculate reversals
@@ -58,12 +123,19 @@ const ReversalsList: React.FC = () => {
         }
       } catch (error) {
         console.error("Error loading reversal data:", error);
+        
+        // If we have any cached data, use it as a fallback even if it's stale
+        if (cachedData.length > 0) {
+          console.log('Using stale cached data as fallback');
+          setReversalCandidates(cachedData);
+        }
+        
         setLoading(false);
       }
     };
     
     loadReversalData();
-  }, [analyses, symbols]);
+  }, [analyses, symbols, loadFromCache]);
   
   // Get fallback prices from the wave analysis data
   const getFallbackPrices = (): PriceMap => {
@@ -251,84 +323,82 @@ const ReversalsList: React.FC = () => {
       
       const waveNumber = latestWave.number;
       const waveTrend = analysis.trend;
-      const waveStartTimestamp = latestWave.startTimestamp || 0; // Get the start timestamp
+      const waveStartTimestamp = latestWave.startTimestamp || 0;
+      const waveType = latestWave.type; // Get the wave type
       
       // Use the fib targets directly
       const fibTargets = analysis.fibTargets || [];
       
       if (!fibTargets.length) return;
       
-      // Determine if this is a bearish wave
-      const isBearishWave = isBearish(waveNumber, waveTrend);
-      
-      // Pre-filter targets for better performance
-      const relevantTargets = isBearishWave 
-        ? fibTargets.filter(target => target.isExtension)
-        : fibTargets.filter(target => !target.isExtension);
-      
-      if (!relevantTargets.length) return;
-      
-      if (isBearishWave) {
-        let lowestTarget = Infinity;
-        let targetLevel = '';
-        
-        relevantTargets.forEach(target => {
-          const price = target.price;
-          
-          if (price <= 0) return;
-          
-          if (price < lowestTarget) {
-            lowestTarget = price;
-            targetLevel = target.label || String(target.level);
-          }
-        });
-        
-        // If current price is below the target, it's a potential reversal
-        if (lowestTarget < Infinity && currentPrice < lowestTarget) {
-          candidates.push({
-            symbol,
-            waveNumber,
-            trend: waveTrend,
-            isBearish: true,
-            currentPrice,
-            targetPrice: lowestTarget,
-            targetLevel,
-            exceededBy: ((lowestTarget / currentPrice - 1) * 100).toFixed(1),
-            nextWave: getNextWave(waveNumber),
-            startDate: waveStartTimestamp ? new Date(waveStartTimestamp).toISOString() : '', // Convert timestamp to ISO date string
-          });
+      // KEY CHANGE: Check if any targets are left (like ReversalCandidatesList does)
+      const hasTargetsLeft = fibTargets.some(target => {
+        if (waveType === 'impulse') {
+          // For impulse waves, we're looking ahead for higher targets
+          return target.price > currentPrice;
+        } else {
+          // For corrective waves, we're looking ahead for lower targets
+          return target.price < currentPrice;
         }
-      } else {
+      });
+      
+      // If we still have targets ahead, this is not a reversal candidate
+      if (hasTargetsLeft) return;
+      
+      // If we reach here, it means the price has already passed all fib targets
+      
+      // Get closest fib target to see how much it was exceeded by
+      let closestFibTarget = 0;
+      let targetLevel = '';
+      let isBullish = waveType === 'impulse';
+      
+      // Find the extreme fib target based on wave type
+      if (isBullish) {
+        // For bullish waves, find highest target
         let highestTarget = 0;
-        let targetLevel = '';
         
-        relevantTargets.forEach(target => {
-          const price = target.price;
-          
-          if (price <= 0) return;
-          
-          if (price > highestTarget) {
-            highestTarget = price;
+        fibTargets.forEach(target => {
+          if (target.price > highestTarget) {
+            highestTarget = target.price;
             targetLevel = target.label || String(target.level);
           }
         });
         
-        // If current price is above the highest target, it's a potential reversal
-        if (highestTarget > 0 && currentPrice > highestTarget) {
-          candidates.push({
-            symbol,
-            waveNumber,
-            trend: waveTrend,
-            isBearish: false,
-            currentPrice,
-            targetPrice: highestTarget,
-            targetLevel,
-            exceededBy: ((currentPrice / highestTarget - 1) * 100).toFixed(1),
-            nextWave: getNextWave(waveNumber),
-            startDate: waveStartTimestamp ? new Date(waveStartTimestamp).toISOString() : '', // Convert timestamp to ISO date string
-          });
-        }
+        closestFibTarget = highestTarget;
+      } else {
+        // For bearish waves, find lowest target
+        let lowestTarget = Infinity;
+        
+        fibTargets.forEach(target => {
+          if (target.price < lowestTarget && target.price > 0) {
+            lowestTarget = target.price;
+            targetLevel = target.label || String(target.level);
+          }
+        });
+        
+        closestFibTarget = lowestTarget;
       }
+      
+      // Calculate how much the target was exceeded by
+      let exceededByPercentage: string;
+      if (isBullish) {
+        exceededByPercentage = ((currentPrice / closestFibTarget - 1) * 100).toFixed(1);
+      } else {
+        exceededByPercentage = ((closestFibTarget / currentPrice - 1) * 100).toFixed(1);
+      }
+      
+      candidates.push({
+        symbol,
+        waveNumber,
+        trend: waveTrend,
+        isBearish: !isBullish,
+        currentPrice,
+        targetPrice: closestFibTarget,
+        targetLevel,
+        exceededBy: exceededByPercentage,
+        nextWave: getNextWave(waveNumber),
+        startDate: waveStartTimestamp ? new Date(waveStartTimestamp).toISOString() : '',
+      });
     });
     
     console.timeEnd('calculateReversals');
@@ -346,6 +416,7 @@ const ReversalsList: React.FC = () => {
       })
       .map(({ startDate, ...rest }) => rest); // Remove the startDate from the final output
     
+    saveToCache(sortedCandidates);
     setReversalCandidates(sortedCandidates);
     setLoading(false);
   };
@@ -382,90 +453,127 @@ const ReversalsList: React.FC = () => {
   };
   
   // Handle manual refresh
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
+    console.log("handleRefresh called");
     setLoading(true);
     
+    // Clear any cached data flag
+    localStorage.removeItem(CACHE_KEY);
+    setLastCacheUpdate(0);
+    
+    // Define and immediately invoke the loadData function
     const loadData = async () => {
-      const priceMap = await fetchPrices(symbols);
-      calculateReversals(priceMap);
+      console.log("loadData function executing");
+      try {
+        console.log("Fetching prices...");
+        const priceMap = await fetchPrices(symbols);
+        console.log(`Got price map with ${Object.keys(priceMap).length} items`);
+        
+        if (Object.keys(priceMap).length === 0) {
+          console.log("No prices fetched, using fallback prices");
+          // If we couldn't get prices, use wave end prices
+          const fallbackPrices = getFallbackPrices();
+          calculateReversals(fallbackPrices);
+        } else {
+          console.log("Using fetched prices");
+          calculateReversals(priceMap);
+        }
+      } catch (error) {
+        console.error("Error refreshing data:", error);
+        setLoading(false);
+      }
     };
     
+    // Actually execute the function
     loadData();
-  };
+    console.log("loadData function called");
+    
+    return true; // Add a return value just to be safe
+  }, [symbols, saveToCache]); // Simplify dependencies to avoid circular references
   
-  // Return element with loading state
+  // Return wrapped in context provider
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-sm font-medium">Fib Target Reversals</h3>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="h-6 w-6" 
-          onClick={handleRefresh}
-          disabled={loading}
-        >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          <span className="sr-only">Refresh</span>
-        </Button>
-      </div>
-      
-      {loading ? (
-        <div className="py-2 text-center text-muted-foreground text-sm">
-          Looking for reversals...
-        </div>
-      ) : reversalCandidates.length > 0 ? (
-        <>
-          {reversalCandidates.slice(0, showMore ? undefined : 5).map((candidate) => (
-            <div key={candidate.symbol} className="flex items-center justify-between">
-              <Button 
-                variant="link"
-                className="h-6 p-0 text-amber-600 hover:text-amber-700 text-left"
-                onClick={() => goToStockDetails(candidate.symbol)}
-              >
-                {candidate.symbol}
-                <Badge variant="outline" className="ml-2 text-xs font-normal py-0">
-                  {candidate.waveNumber} → {candidate.nextWave}
-                </Badge>
-              </Button>
-              <span className="text-xs text-muted-foreground flex items-center">
-                {candidate.isBearish ? (
-                  <>
-                    <ArrowDown className="h-3 w-3 text-red-500 mr-1" />
-                    <span className="font-medium text-red-500">-{candidate.exceededBy}%</span>
-                  </>
-                ) : (
-                  <>
-                    <ArrowUp className="h-3 w-3 text-green-500 mr-1" />
-                    <span className="font-medium text-green-500">+{candidate.exceededBy}%</span>
-                  </>
-                )}
-                <span className="ml-1">fib {candidate.targetLevel}</span>
-              </span>
+    <ReversalsContext.Provider value={{ 
+      lastCacheUpdate, 
+      refreshReversals: handleRefresh, // Ensure this is the correct function
+      loading 
+    }}>
+      <div className="space-y-1">
+        {/* Only show header if not hidden */}
+        {!hideHeader && (
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-sm font-medium">Fib Target Reversals</h3>
+            <div className="flex items-center">
+              <ReversalsLastUpdated />
             </div>
-          ))}
-          
-          {reversalCandidates.length > 5 && (
-            <Button 
-              variant="ghost"
-              size="sm"
-              className="mt-1 h-6 text-xs w-full"
-              onClick={() => setShowMore(!showMore)}
-            >
-              {showMore ? (
-                <>Show Less <ChevronUp className="ml-1 h-3 w-3" /></>
-              ) : (
-                <>Show {reversalCandidates.length - 5} More <ChevronDown className="ml-1 h-3 w-3" /></>
-              )}
-            </Button>
-          )}
-        </>
-      ) : (
-        <div className="py-2 text-center text-muted-foreground text-sm">
-          No Fibonacci target reversals found
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+        
+        {loading ? (
+          <div className="py-2 text-center text-muted-foreground text-sm">
+            Looking for reversals...
+          </div>
+        ) : reversalCandidates.length > 0 ? (
+          <>
+            {reversalCandidates.slice(0, showMore ? undefined : 5).map((candidate) => (
+              <div key={candidate.symbol} className="flex items-center justify-between">
+                <Button 
+                  variant="link"
+                  className="h-6 p-0 text-amber-600 hover:text-amber-700 text-left"
+                  onClick={() => goToStockDetails(candidate.symbol)}
+                >
+                  {candidate.symbol} <span className="text-xs ml-1">(Wave {candidate.waveNumber})</span>
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-xs text-muted-foreground flex items-center">
+                      {candidate.isBearish ? (
+                        // Bearish badge
+                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                          <ArrowUp className="h-3 w-3 mr-1" />
+                          Bullish +{candidate.exceededBy}% past {candidate.targetLevel}
+                        </Badge>
+                      ) : (
+                        // Bullish badge
+                        <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200">
+                          <ArrowDown className="h-3 w-3 mr-1" />
+                          Bearish -{candidate.exceededBy}% past {candidate.targetLevel}
+                        </Badge>
+                      )}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {candidate.isBearish
+                      ? "Price has fallen below all bearish targets, suggesting a potential bullish reversal"
+                      : "Price has risen above all bullish targets, suggesting a potential bearish reversal"
+                    }
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            ))}
+            
+            {reversalCandidates.length > 5 && (
+              <Button 
+                variant="ghost"
+                size="sm"
+                className="mt-1 h-6 text-xs w-full"
+                onClick={() => setShowMore(!showMore)}
+              >
+                {showMore ? (
+                  <>Show Less <ChevronUp className="ml-1 h-3 w-3" /></>
+                ) : (
+                  <>Show {reversalCandidates.length - 5} More <ChevronDown className="ml-1 h-3 w-3" /></>
+                )}
+              </Button>
+            )}
+          </>
+        ) : (
+          <div className="py-2 text-center text-muted-foreground text-sm">
+            No Fibonacci target reversals found
+          </div>
+        )}
+      </div>
+    </ReversalsContext.Provider>
   );
 };
 

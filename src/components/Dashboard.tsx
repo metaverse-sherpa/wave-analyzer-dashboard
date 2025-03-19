@@ -15,7 +15,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import WavePatternChart from './WavePatternChart';
 import MarketOverview from './MarketOverview';
 import Settings from './Settings'; // Import the new Settings component
-import ReversalCandidatesList from '@/components/ReversalCandidatesList'; // Add this import
 import type { WaveAnalysisResult } from '@/types/shared';
 
 interface DashboardProps {

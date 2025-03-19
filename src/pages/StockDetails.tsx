@@ -106,7 +106,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const { getHistoricalData } = useHistoricalData();
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
   const [chartData, setChartData] = useState<any[]>([]);
-  
+  const [livePrice, setLivePrice] = useState<number | null>(null); // Add this state
+
   // Move this outside of useEffect - this is the key fix
   const dataLoadedRef = useRef(false);
 
@@ -256,6 +257,32 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
       dataLoadedRef.current = false;
     };
   }, [symbol]); // Only depend on symbol to prevent infinite loops
+
+  // Add this useEffect to fetch the live price
+  useEffect(() => {
+    const fetchLivePrice = async () => {
+      if (!symbol) return;
+
+      try {
+        const response = await fetch(apiUrl(`/stocks/${symbol}`));
+        if (response.ok) {
+          const data = await response.json();
+          if (data && typeof data.regularMarketPrice === 'number') {
+            setLivePrice(data.regularMarketPrice);
+            console.log(`Got live price for ${symbol}: $${data.regularMarketPrice}`);
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching live price for ${symbol}:`, error);
+      }
+    };
+
+    fetchLivePrice();
+    
+    // Set up a 30-second refresh interval for the price
+    const refreshInterval = setInterval(fetchLivePrice, 30000);
+    return () => clearInterval(refreshInterval);
+  }, [symbol]);
   
   const handleBackClick = () => {
     navigate('/');
@@ -343,6 +370,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 fibTargets={analysis.fibTargets}
                 selectedWave={selectedWave}
                 onClearSelection={() => setSelectedWave(null)}
+                livePrice={livePrice} // Pass the live price
               />
             ) : null}
           </div>

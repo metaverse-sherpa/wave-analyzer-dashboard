@@ -22,6 +22,60 @@ import { Line } from 'react-chartjs-2';
 // Import datalabels
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 
+// Add this code right after the component imports, before the chart registration
+
+// Update the currentPriceLabelPlugin to not reference livePrice directly
+
+// Change this plugin definition
+const currentPriceLabelPlugin = {
+  id: 'currentPriceLabel',
+  afterDatasetsDraw(chart: any) {
+    const { ctx, scales } = chart;
+    const currentPriceDataset = chart.data.datasets.find((d: any) => d.label === 'Current Price');
+    if (!currentPriceDataset) return;
+    
+    const currentPrice = currentPriceDataset.data[0];
+    if (!currentPrice) return;
+    
+    // Check if this is a live price by looking for a flag in the dataset
+    const isLivePrice = currentPriceDataset.isLivePrice;
+    
+    const x = scales.x.right;
+    const y = scales.y.getPixelForValue(currentPrice);
+    
+    // Draw the price label
+    ctx.save();
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
+    
+    // Draw a small rectangle as background
+    const price = `$${currentPrice.toFixed(2)}`;
+    // Make it wider to accommodate the "LIVE" indicator
+    const textWidth = ctx.measureText(price).width + (isLivePrice ? 40 : 16);
+    
+    ctx.fillRect(x, y - 10, textWidth, 20);
+    
+    // Draw the price text
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(price, x + textWidth - 8, y);
+    
+    // Add a "LIVE" indicator if we're using live price
+    if (isLivePrice) {
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.fillStyle = '#4CAF50'; // Green color for "LIVE"
+      ctx.fillText('LIVE', x + 8, y);
+    }
+    
+    ctx.restore();
+  }
+};
+
+// Register the custom plugin
+ChartJS.register(currentPriceLabelPlugin);
+
 // Register basic Chart.js components
 ChartJS.register(
   CategoryScale,
@@ -82,6 +136,7 @@ interface StockDetailChartProps {
   fibTargets: FibTarget[];
   selectedWave: Wave | null;
   onClearSelection: () => void;
+  livePrice?: number; // Add this new prop
 }
 
 // Define OHLCDataPoint interface
@@ -100,7 +155,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   currentWave,
   fibTargets,
   selectedWave,
-  onClearSelection
+  onClearSelection,
+  livePrice // Use the prop passed from the parent component
 }) => {
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [chartLoaded, setChartLoaded] = useState(false);
@@ -112,29 +168,51 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     return sortedWaves.find(wave => wave.number === 1);
   }, [waves]);
   
-  // Add the missing ohlcData calculation
-  const ohlcData = useMemo(() => {
-    if (!data || data.length === 0) return [] as OHLCDataPoint[];
+  // Update the ohlcData calculation in the useMemo hook
+
+const ohlcData = useMemo(() => {
+  if (!data || data.length === 0) return [] as OHLCDataPoint[];
+  
+  // Filter data starting from most recent Wave 1 (if available)
+  let filteredData = [...data];
+  if (mostRecentWave1) {
+    const startTime = getTimestampValue(mostRecentWave1.startTimestamp);
+    // Find the exact index of Wave 1 start
+    const wave1Index = data.findIndex(d => getTimestampValue(d.timestamp) >= startTime);
     
-    // Filter data starting from most recent Wave 1 (if available)
-    let filteredData = [...data];
-    if (mostRecentWave1) {
-      const startTime = getTimestampValue(mostRecentWave1.startTimestamp);
-      // Include some bars before Wave 1 for context
-      const wave1Index = data.findIndex(d => getTimestampValue(d.timestamp) >= startTime);
-      if (wave1Index > 10) {
-        filteredData = data.slice(wave1Index - 10);
-      }
+    if (wave1Index > -1) {
+      // Include exactly 5 bars before Wave 1 for minimal context
+      const contextIndex = Math.max(0, wave1Index - 5);
+      filteredData = data.slice(contextIndex);
+      console.log(`Displaying chart from index ${contextIndex} (Wave 1 starts at ${wave1Index})`);
+    } else {
+      console.warn("Wave 1 start timestamp not found in data");
     }
-    
-    return filteredData.map(d => ({
-      timestamp: getTimestampValue(d.timestamp),
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close
-    }));
-  }, [data, mostRecentWave1]);
+  }
+  
+  return filteredData.map(d => ({
+    timestamp: getTimestampValue(d.timestamp),
+    open: d.open,
+    high: d.high,
+    low: d.low,
+    close: d.close
+  }));
+}, [data, mostRecentWave1]);
+
+// First, get the current price - add this right after the ohlcData useMemo block
+const effectiveCurrentPrice = useMemo(() => {
+  // If we have a live price, use that first
+  if (livePrice && livePrice > 0) {
+    return livePrice;
+  }
+  
+  // Fall back to the last candle price if no live price is available
+  if (ohlcData.length > 0) {
+    return ohlcData[ohlcData.length - 1].close;
+  }
+  
+  return null;
+}, [livePrice, ohlcData]);
   
   // Add a function to check if a wave belongs to the current sequence
   const isWaveInCurrentSequence = (wave: Wave): boolean => {
@@ -167,84 +245,122 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           display: false
         }
       },
+      // Add current price horizontal line
+      ...(effectiveCurrentPrice ? [{
+        type: 'line' as const,
+        label: 'Current Price',
+        data: Array(ohlcData.length).fill(effectiveCurrentPrice),
+        borderColor: 'rgba(255, 255, 255, 0.6)',
+        borderWidth: 1,
+        borderDash: [3, 3],
+        pointRadius: 0,
+        tension: 0,
+        fill: false,
+        z: 20,
+        isLivePrice: livePrice && livePrice > 0, // Add this flag to indicate if it's a live price
+        datalabels: {
+          display: false
+        }
+      }] : []),
       // Wave lines - one dataset per wave
-      ...waves.map(wave => {
-        const isCurrentWave = currentWave && wave.number === currentWave.number;
-        
-        // Instead of calculating points for every timestamp, just add the start and end points
-        const dataArray = Array(ohlcData.length).fill(null);
-        
-        // Find the indexes corresponding to start and end timestamps
-        const startIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.startTimestamp));
-        let endIndex = -1;
-        
-        if (wave.endTimestamp) {
-          endIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.endTimestamp));
-        } else {
-          // For the current wave without an end timestamp, use the last data point
-          endIndex = ohlcData.length - 1;
-        }
-        
-        // Force valid indexes to ensure lines appear
-        if (startIndex === -1 && endIndex !== -1) {
-          dataArray[0] = wave.startPrice || 0; // Fallback to beginning of chart
-        } else if (startIndex !== -1) {
-          dataArray[startIndex] = wave.startPrice;
-        }
-        
-        // Always ensure the end point has data
-        if (endIndex !== -1) {
-          dataArray[endIndex] = wave.endPrice || (wave.startPrice * 1.1); // Fallback if no end price
-          console.log(`Set data point for Wave ${wave.number} at index ${endIndex} to ${dataArray[endIndex]}`);
-        } else if (startIndex !== -1) {
-          // Fallback to an arbitrary end point if we have a start but no end
-          dataArray[Math.min(startIndex + 5, ohlcData.length - 1)] = wave.endPrice || (wave.startPrice * 1.1);
-        }
-        
-        return {
-          type: 'line' as const,
-          label: `Wave ${wave.number}`,
-          data: dataArray,
-          borderColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
-          pointBackgroundColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
-          pointRadius: (ctx: any) => {
-            const dataIndex = ctx.dataIndex;
-            const dataValue = ctx.dataset.data[dataIndex];
-            return dataValue !== null ? (isCurrentWave ? 6 : 4) : 0;
-          },
-          pointHoverRadius: 6,
-          borderWidth: isCurrentWave ? 3 : 2,
-          fill: false,
-          tension: 0,
-          spanGaps: true,
-          stepped: false,
-          z: isCurrentWave ? 15 : 5,
-          datalabels: {
-            // Only display labels at the end of waves in the current sequence
-            display: (ctx: any) => {
-              const dataIndex = ctx.dataIndex;
-              // Check if this wave is part of the current sequence AND this is the end point
-              return isWaveInCurrentSequence(wave) && dataIndex === endIndex;
-            },
-            backgroundColor: getWaveColor(wave.number, isCurrentWave),
-            borderRadius: 4,
-            color: 'white',
-            font: {
-              weight: 'bold' as const,
-              size: isCurrentWave ? 14 : 11
-            },
-            padding: { left: 5, right: 5, top: 3, bottom: 3 },
-            formatter: () => String(wave.number),
-            // Position at the end of the wave line
-            anchor: 'end',
-            align: 'top',
-            // Make sure current wave labels appear on top
-            z: isCurrentWave ? 200 : 100,
-            // Prevent labels from overlapping
-            offset: isCurrentWave ? 8 : 0
+      ...waves
+        .filter(wave => {
+          // Only show waves that are part of the current sequence (after most recent Wave 1)
+          return isWaveInCurrentSequence(wave);
+        })
+        .map(wave => {
+          const isCurrentWave = currentWave && wave.number === currentWave.number;
+          
+          // Instead of calculating points for every timestamp, just add the start and end points
+          const dataArray = Array(ohlcData.length).fill(null);
+          
+          // Find the indexes corresponding to start and end timestamps
+          const startIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.startTimestamp));
+          let endIndex = -1;
+          
+          if (wave.endTimestamp) {
+            endIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.endTimestamp));
+          } else {
+            // For the current wave without an end timestamp, use the last data point
+            endIndex = ohlcData.length - 1;
           }
-        };
-      }),
+          
+          // Ensure valid indexes to draw wave lines properly
+          if (startIndex !== -1) {
+            dataArray[startIndex] = wave.startPrice;
+            
+            // If we have a valid end index, set that point too
+            if (endIndex !== -1) {
+              dataArray[endIndex] = wave.endPrice;
+            }
+            // For waves without end points or out-of-range endpoints
+            else if (wave.endPrice) {
+              dataArray[ohlcData.length - 1] = wave.endPrice;
+            }
+            
+            // Connect start and end points with a line by filling in intermediate points
+            if (startIndex < endIndex && wave.startPrice && wave.endPrice) {
+              const priceDiff = wave.endPrice - wave.startPrice;
+              const steps = endIndex - startIndex;
+              for (let i = 1; i < steps; i++) {
+                const interpolatedIndex = startIndex + i;
+                const ratio = i / steps;
+                dataArray[interpolatedIndex] = wave.startPrice + (priceDiff * ratio);
+              }
+            }
+          }
+      
+          return {
+            type: 'line' as const,
+            label: `Wave ${wave.number}`,
+            data: dataArray,
+            borderColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
+            // Remove pointBackgroundColor as we won't show points except at specific locations
+            
+            // Only show points at the start and end of waves, not along the line
+            pointRadius: (ctx: any) => {
+              const dataIndex = ctx.dataIndex;
+              // Show points only at start and end positions
+              if (dataIndex === startIndex || dataIndex === endIndex) {
+                return isCurrentWave ? 6 : 4;
+              }
+              return 0; // No dots for intermediate points
+            },
+            
+            // Reduce hover effect for cleaner look
+            pointHoverRadius: 4,
+            
+            // Solid line styling
+            borderWidth: isCurrentWave ? 3 : 2,
+            fill: false,
+            tension: 0.1, // Slight curve for better visual
+            spanGaps: true,
+            stepped: false,
+            z: isCurrentWave ? 15 : 5,
+            
+            // Only show labels at the end points
+            datalabels: {
+              display: (ctx: any) => {
+                const dataIndex = ctx.dataIndex;
+                // Only show label at the end point
+                return dataIndex === endIndex;
+              },
+              backgroundColor: getWaveColor(wave.number, isCurrentWave),
+              borderRadius: 4,
+              color: 'white',
+              font: {
+                weight: 'bold' as const,
+                size: isCurrentWave ? 14 : 11
+              },
+              padding: { left: 5, right: 5, top: 3, bottom: 3 },
+              formatter: () => String(wave.number),
+              anchor: 'end',
+              align: 'top',
+              z: isCurrentWave ? 200 : 100,
+              offset: isCurrentWave ? 8 : 0
+            }
+          };
+        }),
       // Fibonacci targets
       ...fibTargets
         .filter(target => {
@@ -339,6 +455,17 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         },
         ticks: {
           color: '#d1d5db',
+          maxRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: 10, // Limit the number of x-axis labels
+          callback: function(value: any, index: number) {
+            // Show fewer date labels for better readability
+            const date = new Date(ohlcData[index]?.timestamp);
+            return date.toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric'
+            });
+          }
         }
       },
       y: {
@@ -347,64 +474,80 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         },
         ticks: {
           color: '#d1d5db',
+        },
+        // Add a bit of padding to the y-axis so the labels don't get cut off
+        afterFit: (scaleInstance: any) => {
+          scaleInstance.width = scaleInstance.width + 20;
         }
       }
     },
     plugins: {
+      // Disable the legend entirely
       legend: {
         display: false
       },
       tooltip: {
-        mode: 'index' as const,
+        enabled: true,
+        mode: 'index',
         intersect: false,
-      },
-      // Configure datalabels plugin globally
-      datalabels: {
-        // Set to "false" by default, but let individual datasets override this
-        display: false,
-        color: 'white',
-        font: {
-          weight: 'bold' as const
+        backgroundColor: 'rgba(30, 41, 59, 0.95)',
+        titleColor: '#e2e8f0',
+        bodyColor: '#e2e8f0',
+        titleFont: {
+          size: 14,
+          weight: 'bold' 
         },
-        // Force always display the label regardless of chart area boundaries
-        clamp: true,
-        // Add some overlap prevention
-        overlap: false,
-        // Ensure visibility
-        clip: false
+        bodyFont: {
+          size: 13
+        },
+        padding: 12,
+        borderColor: '#475569',
+        borderWidth: 1,
+        cornerRadius: 6,
+        caretSize: 6
       },
-      // Remove or comment out this entire annotations section
-      /*
-      annotation: {
-        annotations: waves.map((wave, index) => {
-          const isCurrentWave = currentWave && wave.number === currentWave.number;
-          const endIndex = wave.endTimestamp 
-            ? ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.endTimestamp))
-            : ohlcData.length - 1;
+      datalabels: {
+        // Global datalabels options
+      },
+      
+      // Add custom plugin for current price label
+      currentPriceLabel: {
+        afterDatasetsDraw(chart: any) {
+          const { ctx, scales } = chart;
+          if (!effectiveCurrentPrice) return;
           
-          return {
-            type: 'label',
-            id: `wave-${wave.number}`,
-            content: String(wave.number),
-            xValue: endIndex,
-            yValue: wave.endPrice || 0,
-            backgroundColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
-            borderRadius: 10,
-            color: 'white',
-            font: {
-              weight: 'bold',
-              size: isCurrentWave ? 12 : 10
-            },
-            padding: { left: 4, right: 4, top: 2, bottom: 2 }
-          };
-        })
+          const x = scales.x.right;
+          const y = scales.y.getPixelForValue(effectiveCurrentPrice);
+          
+          // Draw the price label
+          ctx.save();
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          
+          // Draw a small rectangle as background
+          const price = `$${effectiveCurrentPrice.toFixed(2)}`;
+          const textWidth = ctx.measureText(price).width + 10;
+          
+          ctx.fillRect(x - 5, y - 10, textWidth, 20);
+          
+          // Draw text
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'middle';
+          ctx.font = '11px sans-serif';
+          ctx.fillStyle = 'black';
+          ctx.fillText(price, x - 10, y);
+          
+          ctx.restore();
+        }
       }
-      */
     },
-    // Add this to make space for labels on the right side
+    
+    // ...existing layout config
     layout: {
       padding: {
-        right: 80
+        right: 80,
+        left: 10,
+        top: 20,
+        bottom: 10
       }
     }
   } as ChartOptions<'line'>;
@@ -431,10 +574,15 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           <h3 className="text-lg font-semibold">{symbol} - Elliott Wave Chart</h3>
           <p className="text-xs text-muted-foreground">
             {mostRecentWave1 
-              ? `Showing Elliott Wave sequence starting from Wave 1 (${formatTimestamp(mostRecentWave1.startTimestamp)})` 
+              ? `Showing Elliott Wave sequence from ${new Date(mostRecentWave1.startTimestamp).toLocaleDateString()} to present` 
               : `No wave patterns detected`
             }
           </p>
+          {mostRecentWave1 && (
+            <p className="text-xs text-primary mt-1">
+              <span className="font-medium">Wave 1 Start:</span> ${mostRecentWave1.startPrice?.toFixed(2)} on {formatTimestamp(mostRecentWave1.startTimestamp)}
+            </p>
+          )}
         </div>
       </div>
       
@@ -451,27 +599,6 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             <Skeleton className="h-full w-full" />
           </div>
         )}
-      </div>
-      
-      {/* Wave legend */}
-      <div className="mt-2 flex flex-wrap gap-2">
-        {/* Fix the type issue in the map function */}
-        {Array.from(new Set(waves.map(w => w.number))).map((number: string | number) => {
-          const isCurrentWaveNumber = currentWave && number === currentWave.number;
-          const color = getWaveColor(number, isCurrentWaveNumber, currentWave?.type);
-          
-          return (
-            <div key={String(number)} className="flex items-center">
-              <div 
-                className="w-3 h-3 rounded-full mr-1" 
-                style={{ backgroundColor: color }} 
-              />
-              <span className={`text-xs ${isCurrentWaveNumber ? 'font-bold' : ''}`}>
-                Wave {number} {isCurrentWaveNumber ? '(current)' : ''}
-              </span>
-            </div>
-          );
-        })}
       </div>
     </div>
   );

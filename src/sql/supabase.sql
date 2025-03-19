@@ -102,3 +102,22 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+
+CREATE TABLE profiles (
+    id bigint primary key generated always as identity,
+    user_id uuid references auth.users(id) on delete cascade,
+    role text,
+    created_at timestamp with time zone default now()
+);
+
+CREATE POLICY "Users can view their own profile"
+ON profiles
+FOR SELECT
+USING (user_id = auth.uid());
+
+
+CREATE POLICY "Admins can access all profiles"
+ON profiles
+FOR SELECT
+USING (role = 'admin');

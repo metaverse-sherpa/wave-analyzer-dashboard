@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from './ui/progress';
 import ReversalsList from './ReversalsList';
+import ReversalsLastUpdated from './ReversalsLastUpdated';
 
 // Keep this helper function at the top
 const getTimestampValue = (timestamp: any): number => {
@@ -212,7 +213,70 @@ const MarketOverview: React.FC = () => {
   // Simplified display of stock lists
   return (
     <div className="space-y-4">
-      {/* Change to three-column grid */}
+      {/* Market Sentiment section moved to the top */}
+      <div className="bg-secondary rounded-lg p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="text-muted-foreground text-sm">Market Sentiment</div>
+            <div className={"text-lg font-medium " + (overallSentiment === 'bullish' ? 'text-green-600' : 'text-red-600')}>
+              {marketSentiment.overallSentiment}
+            </div>
+          </div>
+          
+          <div className="text-xs text-muted-foreground">
+            {marketSentiment.count} stocks analyzed
+          </div>
+        </div>
+        
+        {/* Single sentiment progress bar */}
+        <div className="mt-3 mb-1">
+          <div className="flex relative h-8 bg-muted rounded-md overflow-hidden">
+            {/* Bearish portion (left side) */}
+            <div 
+              className="bg-red-500 h-full flex items-center justify-start px-2"
+              style={{ width: `${marketSentiment.bearishPercentage}%` }}
+            >
+              {marketSentiment.bearishPercentage > 15 && (
+                <span className="text-xs font-medium text-white">
+                  {marketSentiment.bearishPercentage}%
+                </span>
+              )}
+            </div>
+            
+            {/* Neutral portion (middle) */}
+            <div 
+              className="bg-gray-400 h-full flex items-center justify-center"
+              style={{ width: `${marketSentiment.neutralPercentage}%` }}
+            >
+              {marketSentiment.neutralPercentage > 15 && (
+                <span className="text-xs font-medium text-white">
+                  {marketSentiment.neutralPercentage}%
+                </span>
+              )}
+            </div>
+            
+            {/* Bullish portion (right side) */}
+            <div 
+              className="bg-green-500 h-full flex items-center justify-end px-2"
+              style={{ width: `${marketSentiment.bullishPercentage}%` }}
+            >
+              {marketSentiment.bullishPercentage > 15 && (
+                <span className="text-xs font-medium text-white">
+                  {marketSentiment.bullishPercentage}%
+                </span>
+              )}
+            </div>
+          </div>
+          
+          {/* Labels under progress bar */}
+          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+            <span>Bearish</span>
+            <span>Bullish</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Three-column grid for Bullish, Bearish, and Reversals */}
       <div className="grid grid-cols-3 gap-4">
         {/* Bullish Section */}
         <div className="bg-secondary rounded-lg p-4">
@@ -338,78 +402,13 @@ const MarketOverview: React.FC = () => {
               </svg>
               <span className="text-xl font-mono">!</span>
             </div>
-            <div className="text-xs text-muted-foreground">
-              Recent reversals
+            <div className="flex items-center text-xs text-muted-foreground">
+              <ReversalsLastUpdated />
             </div>
           </div>
           
           <div className="space-y-1">
-            {/* Use ReversalCandidates component data here */}
-            {/* Placeholder for reversal candidates */}
-            <ReversalsList />
-          </div>
-        </div>
-      </div>
-        
-      {/* Keep the Market Sentiment progress bar section */}
-      <div className="bg-secondary rounded-lg p-4">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <div className="text-muted-foreground text-sm">Market Sentiment</div>
-            <div className={"text-lg font-medium " + (overallSentiment === 'bullish' ? 'text-green-600' : 'text-red-600')}>
-              {marketSentiment.overallSentiment}
-            </div>
-          </div>
-          
-          <div className="text-xs text-muted-foreground">
-            {marketSentiment.count} stocks analyzed
-          </div>
-        </div>
-        
-        {/* Single sentiment progress bar */}
-        <div className="mt-3 mb-1">
-          <div className="flex relative h-8 bg-muted rounded-md overflow-hidden">
-            {/* Bearish portion (left side) */}
-            <div 
-              className="bg-red-500 h-full flex items-center justify-start px-2"
-              style={{ width: `${marketSentiment.bearishPercentage}%` }}
-            >
-              {marketSentiment.bearishPercentage > 15 && (
-                <span className="text-xs font-medium text-white">
-                  {marketSentiment.bearishPercentage}%
-                </span>
-              )}
-            </div>
-            
-            {/* Neutral portion (middle) */}
-            <div 
-              className="bg-gray-400 h-full flex items-center justify-center"
-              style={{ width: `${marketSentiment.neutralPercentage}%` }}
-            >
-              {marketSentiment.neutralPercentage > 15 && (
-                <span className="text-xs font-medium text-white">
-                  {marketSentiment.neutralPercentage}%
-                </span>
-              )}
-            </div>
-            
-            {/* Bullish portion (right side) */}
-            <div 
-              className="bg-green-500 h-full flex items-center justify-end px-2"
-              style={{ width: `${marketSentiment.bullishPercentage}%` }}
-            >
-              {marketSentiment.bullishPercentage > 15 && (
-                <span className="text-xs font-medium text-white">
-                  {marketSentiment.bullishPercentage}%
-                </span>
-              )}
-            </div>
-          </div>
-          
-          {/* Labels under progress bar */}
-          <div className="flex justify-between text-xs text-muted-foreground mt-1">
-            <span>Bearish</span>
-            <span>Bullish</span>
+            <ReversalsList hideHeader={true} />
           </div>
         </div>
       </div>

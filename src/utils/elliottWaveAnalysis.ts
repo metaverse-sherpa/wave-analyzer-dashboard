@@ -53,6 +53,7 @@ export interface FibTarget {
   price: number;      // Price target
   label: string;      // Display label (e.g., "61.8%")
   isExtension: boolean; // True for extensions, false for retracements
+  isCritical?: boolean; // Optional flag for critical levels that shouldn't be broken
 }
 
 /**
@@ -132,27 +133,196 @@ const calculateFibTargetsForWaves = (waves: Wave[], data: StockHistoricalData[])
 
   const fibTargets: FibTarget[] = [];
   const lastWave = waves[waves.length - 1];
-  const previousWave = waves[waves.length - 2];
+  const lastWaveNumber = lastWave.number;
+  
+  // Find Wave 1 and Wave 2 if they exist
+  const wave1 = waves.find(w => w.number === 1);
+  const wave2 = waves.find(w => w.number === 2);
+  
+  // Handle specific wave scenarios
+  if (lastWaveNumber === 3 && wave1 && wave1.startPrice && wave1.endPrice && lastWave.startPrice) {
+    // For Wave 3: calculate projections based on Wave 1's length
+    const wave1Length = Math.abs(wave1.endPrice! - wave1.startPrice);
+    const isUptrend = wave1.endPrice! > wave1.startPrice;
+    const direction = isUptrend ? 1 : -1;
+    
+    // Wave 3 projections from the end of Wave 2 (start of Wave 3)
+    const projectionLevels = [
+      { level: 1.618, label: "161.8%" },
+      { level: 2.618, label: "261.8%" },
+      { level: 3.618, label: "361.8%" }
+    ];
+    
+    // Calculate each projection target
+    const wave3Targets = projectionLevels.map(({ level, label }) => ({
+      level,
+      price: lastWave.startPrice! + (wave1Length * level * direction),
+      label,
+      isExtension: true
+    }));
+    
+    fibTargets.push(...wave3Targets);
+    
+    // For ongoing Wave 3, also add the "minimum" requirement (exceeding Wave 1 end)
+    if (!lastWave.isComplete && wave1.endPrice) {
+      fibTargets.push({
+        level: 1.0,
+        price: wave1.endPrice,
+        label: "100% (min)",
+        isExtension: true
+      });
+    }
+  } 
+  // Update the Wave 4 Fibonacci targets section
 
-  // Calculate retracements based on the previous wave's move
-  if (previousWave.startPrice && previousWave.endPrice) {
+else if (lastWaveNumber === 4 && wave1) {
+  // For Wave 4: calculate key retracement levels of Wave 3
+  // Wave 4 typically retraces 38.2% or 50% of Wave 3
+  const wave3 = waves.find(w => w.number === 3);
+  const wave2 = waves.find(w => w.number === 2);
+  
+  if (wave3 && wave3.startPrice && wave3.endPrice && wave2 && wave2.endPrice) {
+    // Create standard retracement levels
     const retracementLevels = calculateFibRetracement(
-      previousWave.startPrice,
-      previousWave.endPrice
+      wave3.startPrice,
+      wave3.endPrice
     );
-    fibTargets.push(...retracementLevels);
+    
+    // Filter out any retracement levels that would go below Wave 2's end
+    const validRetracements = retracementLevels.filter(level => level.price > wave2.endPrice);
+    
+    // Add Wave 2 end as an absolute barrier that shouldn't be crossed
+    fibTargets.push({
+      level: 0,
+      price: wave2.endPrice,
+      label: "Wave 2 End (Limit)",
+      isExtension: false,
+      isCritical: true // Mark as a critical level that shouldn't be broken
+    });
+    
+    // Only add the valid retracements to our targets
+    fibTargets.push(...validRetracements);
+    
+    // Also add the popular 38.2% and 50% retracement levels if they're valid
+    const wave3Range = wave3.endPrice - wave3.startPrice;
+    const target382 = wave3.endPrice - (wave3Range * 0.382);
+    const target50 = wave3.endPrice - (wave3Range * 0.5);
+    
+    // Ensure these key levels are included if they're valid (above Wave 2 end)
+    if (target382 > wave2.endPrice && !validRetracements.some(t => Math.abs(t.price - target382) < 0.01)) {
+      fibTargets.push({
+        level: 0.382,
+        price: target382,
+        label: "38.2%",
+        isExtension: false
+      });
+    }
+    
+    if (target50 > wave2.endPrice && !validRetracements.some(t => Math.abs(t.price - target50) < 0.01)) {
+      fibTargets.push({
+        level: 0.5,
+        price: target50,
+        label: "50.0%",
+        isExtension: false
+      });
+    }
+    
+    // If we add the Wave 1 end check as well, it should be this:
+    if (wave1.endPrice) {
+      // Add Wave 1 end as another important level
+      fibTargets.push({
+        level: 0,
+        price: wave1.endPrice,
+        label: "Wave 1 End",
+        isExtension: false,
+        isCritical: true // Secondary critical level
+      });
+    }
+  }
+}
+  else if (lastWaveNumber === 5) {
+    // For Wave 5: calculate extensions from Wave 4 end
+    // Wave 5 is often 0.618, 1.0, or 1.618 × Wave 1
+    const wave1 = waves.find(w => w.number === 1);
+    
+    if (wave1 && wave1.startPrice && wave1.endPrice && lastWave.startPrice) {
+      const wave1Length = Math.abs(wave1.endPrice - wave1.startPrice);
+      const isUptrend = wave1.endPrice > wave1.startPrice;
+      const direction = isUptrend ? 1 : -1;
+      
+      const projectionLevels = [
+        { level: 0.618, label: "61.8%" },
+        { level: 1.0, label: "100%" },
+        { level: 1.618, label: "161.8%" }
+      ];
+      
+      const wave5Targets = projectionLevels.map(({ level, label }) => ({
+        level,
+        price: lastWave.startPrice! + (wave1Length * level * direction),
+        label,
+        isExtension: true
+      }));
+      
+      fibTargets.push(...wave5Targets);
+    }
+  }
+  else {
+    // Default behavior for other waves
+    // Calculate retracements based on the previous wave's move
+    const previousWave = waves[waves.length - 2];
+    
+    if (previousWave && previousWave.startPrice && previousWave.endPrice) {
+      const retracementLevels = calculateFibRetracement(
+        previousWave.startPrice,
+        previousWave.endPrice
+      );
+      fibTargets.push(...retracementLevels);
+    }
+    
+    // Add extensions for impulse waves
+    if (lastWave.isImpulse && lastWave.startPrice) {
+      const extensionLevels = calculateFibExtension(
+        lastWave.startPrice,
+        lastWave.endPrice || data[data.length - 1].close // Use current price if wave is incomplete
+      );
+      fibTargets.push(...extensionLevels);
+    }
   }
 
-  // Add extensions for impulse waves
-  if (lastWave.isImpulse && lastWave.startPrice) {
-    const extensionLevels = calculateFibExtension(
-      lastWave.startPrice,
-      lastWave.endPrice || data[data.length - 1].close // Use current price if wave is incomplete
-    );
-    fibTargets.push(...extensionLevels);
-  }
+  // Add a validation function for Fibonacci targets
 
-  return fibTargets;
+const validateFibTargets = (fibTargets: FibTarget[], waves: Wave[]): FibTarget[] => {
+  // If we don't have enough waves for validation, return as-is
+  if (waves.length < 2) return fibTargets;
+  
+  const wave1 = waves.find(w => w.number === 1);
+  const wave2 = waves.find(w => w.number === 2);
+  const wave3 = waves.find(w => w.number === 3);
+  const wave4 = waves.find(w => w.number === 4);
+  
+  // Filter targets based on Elliott Wave rules
+  return fibTargets.filter(target => {
+    // For Wave 4, ensure targets don't go below Wave 2 end
+    if (wave4 && wave2 && target.label.includes('4')) {
+      return target.price >= wave2.endPrice!;
+    }
+    
+    // For Wave 2, targets shouldn't go below Wave 1 start
+    if (wave2 && wave1 && target.label.includes('2')) {
+      return target.price >= wave1.startPrice;
+    }
+    
+    // For Wave 3, ensure targets are beyond Wave 1 end
+    if (wave3 && wave1 && target.label.includes('3') && target.isExtension) {
+      return target.price >= wave1.endPrice!;
+    }
+    
+    return true;
+  });
+}
+
+// Call this validator before returning targets in calculateFibTargetsForWaves
+return validateFibTargets(fibTargets, waves);
 };
 
 /**
