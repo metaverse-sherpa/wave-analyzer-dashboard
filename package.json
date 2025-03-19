@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:remote": "./dev-local-with-remote-api.sh",
+    "deploy:local": "./dev-local-with-remote-api.sh",
     "dev:worker": "wrangler dev --config api-backend/wrangler.toml",
     "deploy:api": "wrangler deploy --config api-backend/wrangler.toml",
     "deploy:frontend": "bash ./deploy-frontend.sh",

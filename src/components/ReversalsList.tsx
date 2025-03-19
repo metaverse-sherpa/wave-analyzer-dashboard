@@ -89,7 +89,7 @@ const ReversalsList: React.FC = () => {
     return priceMap;
   };
   
-  // Optimized function to fetch prices with batch processing
+  // Optimized function to fetch prices with better error handling
   const fetchPrices = async (symbols: string[]): Promise<PriceMap> => {
     // Quick return if no symbols
     if (symbols.length === 0) return {};
@@ -98,25 +98,56 @@ const ReversalsList: React.FC = () => {
     const priceMap: PriceMap = {};
     
     try {
+      // Log the API URL we're about to use to help diagnose the issue
+      const sampleUrl = apiUrl(`/quotes?symbols=AAPL`);
+      console.log(`API URL format being used: ${sampleUrl}`);
+      
       // Use batch processing with 50 symbols at a time
       const batchSize = 50;
+      let successfulBatch = false;
       
       for (let i = 0; i < symbols.length; i += batchSize) {
         const batch = symbols.slice(i, i + batchSize);
         const symbolsParam = batch.join(',');
         
         try {
-          console.log(`Fetching batch ${i/batchSize + 1} with ${batch.length} symbols`);
-          const response = await fetch(apiUrl(`/quotes?symbols=${symbolsParam}`));
+          console.log(`Fetching batch ${Math.floor(i/batchSize) + 1} with ${batch.length} symbols`);
+          
+          // Create the full URL to log for debugging
+          const batchUrl = apiUrl(`/quotes?symbols=${symbolsParam}`);
+          console.log(`Fetching from: ${batchUrl}`);
+          
+          // Add a timeout to the fetch to avoid hanging
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          
+          const response = await fetch(batchUrl, { 
+            signal: controller.signal,
+            // Add headers that might be needed
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          });
+          
+          // Clear the timeout since fetch completed
+          clearTimeout(timeoutId);
           
           if (!response.ok) {
-            console.warn(`Error fetching batch: ${response.status}`);
+            console.warn(`Error fetching batch: ${response.status} ${response.statusText}`);
+            // Try to get response text for more info
+            try {
+              const errorText = await response.text();
+              console.warn(`Response error text: ${errorText}`);
+            } catch (e) {
+              // Ignore error reading response text
+            }
             continue;
           }
           
           const data = await response.json();
           if (!Array.isArray(data)) {
-            console.warn('Expected array response from quotes API');
+            console.warn('Expected array response from quotes API, got:', typeof data);
             continue;
           }
           
@@ -132,8 +163,50 @@ const ReversalsList: React.FC = () => {
           });
           
           console.log(`Processed batch with ${data.length} quotes`);
+          successfulBatch = true;
         } catch (error) {
-          console.warn(`Failed to fetch batch ${i/batchSize + 1}:`, error);
+          console.warn(`Failed to fetch batch ${Math.floor(i/batchSize) + 1}:`, error);
+        }
+      }
+      
+      // If all batches failed, try to provide more diagnostic info
+      if (!successfulBatch) {
+        console.error("All batch requests failed. This could indicate:");
+        console.error("1. Network connectivity issues");
+        console.error("2. CORS restrictions (if running locally)");
+        console.error("3. API endpoint URL is incorrect");
+        console.error("4. API service is down");
+        console.error("Attempting to fetch prices from individual stock endpoints as fallback...");
+        
+        // Try fetching a single stock as a test
+        try {
+          const testSymbol = symbols[0];
+          const testUrl = apiUrl(`/stocks/${testSymbol}`);
+          console.log(`Testing single stock URL: ${testUrl}`);
+          
+          const testResponse = await fetch(testUrl);
+          console.log(`Test response status: ${testResponse.status} ${testResponse.statusText}`);
+          
+          if (testResponse.ok) {
+            // Single stock endpoint works, use it for a few symbols
+            const fallbackSymbols = symbols.slice(0, 10); // Just try first 10 symbols
+            
+            for (const symbol of fallbackSymbols) {
+              try {
+                const response = await fetch(apiUrl(`/stocks/${symbol}`));
+                if (response.ok) {
+                  const data = await response.json();
+                  if (data && typeof data.regularMarketPrice === 'number') {
+                    priceMap[symbol] = data.regularMarketPrice;
+                  }
+                }
+              } catch (e) {
+                // Skip individual errors
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Fallback test failed too:", e);
         }
       }
       
@@ -143,15 +216,16 @@ const ReversalsList: React.FC = () => {
       console.error("Error in batch processing:", error);
     }
     
+    // If we couldn't get prices, return empty map and let caller use fallback
     return priceMap;
   };
   
   // Calculate reversals and update state
   const calculateReversals = (priceMap: PriceMap) => {
     console.time('calculateReversals');
-    const candidates: ReversalCandidate[] = [];
+    const candidates: (ReversalCandidate & { startDate: string })[] = [];
     
-    // Process each analysis entry using proper types like MarketOverview does
+    // Process each analysis entry using proper types
     Object.entries(analyses).forEach(([key, analysisData]) => {
       // Extract just the symbol from the key (e.g., "AAPL_1d" -> "AAPL")
       const symbol = key.split('_')[0];
@@ -177,6 +251,7 @@ const ReversalsList: React.FC = () => {
       
       const waveNumber = latestWave.number;
       const waveTrend = analysis.trend;
+      const waveStartTimestamp = latestWave.startTimestamp || 0; // Get the start timestamp
       
       // Use the fib targets directly
       const fibTargets = analysis.fibTargets || [];
@@ -219,7 +294,8 @@ const ReversalsList: React.FC = () => {
             targetPrice: lowestTarget,
             targetLevel,
             exceededBy: ((lowestTarget / currentPrice - 1) * 100).toFixed(1),
-            nextWave: getNextWave(waveNumber)
+            nextWave: getNextWave(waveNumber),
+            startDate: waveStartTimestamp ? new Date(waveStartTimestamp).toISOString() : '', // Convert timestamp to ISO date string
           });
         }
       } else {
@@ -248,7 +324,8 @@ const ReversalsList: React.FC = () => {
             targetPrice: highestTarget,
             targetLevel,
             exceededBy: ((currentPrice / highestTarget - 1) * 100).toFixed(1),
-            nextWave: getNextWave(waveNumber)
+            nextWave: getNextWave(waveNumber),
+            startDate: waveStartTimestamp ? new Date(waveStartTimestamp).toISOString() : '', // Convert timestamp to ISO date string
           });
         }
       }
@@ -257,8 +334,18 @@ const ReversalsList: React.FC = () => {
     console.timeEnd('calculateReversals');
     console.log("Found reversal candidates:", candidates.length);
     
-    // Sort and update state
-    const sortedCandidates = candidates.sort((a, b) => parseFloat(b.exceededBy) - parseFloat(a.exceededBy));
+    // First sort by date (most recent first), then by exceededBy percentage
+    const sortedCandidates = candidates
+      .sort((a, b) => {
+        // Primary sort: by date (newest first)
+        if (a.startDate && b.startDate) {
+          return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+        } 
+        // If dates are missing or equal, sort by exceededBy percentage
+        return parseFloat(b.exceededBy) - parseFloat(a.exceededBy);
+      })
+      .map(({ startDate, ...rest }) => rest); // Remove the startDate from the final output
+    
     setReversalCandidates(sortedCandidates);
     setLoading(false);
   };

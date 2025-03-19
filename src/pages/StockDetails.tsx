@@ -30,6 +30,7 @@ import { isCacheExpired } from '@/utils/cacheUtils';
 import { supabase } from '@/lib/supabase';
 import { formatChartData } from '@/utils/chartUtils';
 import { getElliottWaveAnalysis } from '@/api/deepseekApi';
+import { apiUrl } from '@/utils/apiConfig'; // Add this import at the top
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -151,7 +152,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         try {
           // First fetch fresh price data directly from the API
           console.log(`Fetching latest price data for ${symbol}`);
-          const proxyUrl = `/api/stocks/${symbol}`;
+          const proxyUrl = apiUrl(`/stocks/${symbol}`);
           let stockInfo = null;
           
           try {

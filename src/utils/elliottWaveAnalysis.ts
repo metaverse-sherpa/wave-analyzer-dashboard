@@ -540,6 +540,13 @@ const completeWaveAnalysis = (
     const startPrice = previousWave ? previousWave.endPrice : (isUpMove ? startPoint.low : startPoint.high);
     const startTimestamp = previousWave ? previousWave.endTimestamp : startPoint.timestamp;
     
+    // Determine if this is the last wave in our analysis by checking if it ends at the last data point
+    const isLastWave = (i === pivotPairs.length - 1);
+    const isLastDataPoint = endPoint.timestamp === data[data.length - 1].timestamp;
+    
+    // Set isComplete based on whether this is the last wave ending at the last data point
+    const isComplete = !(isLastWave && isLastDataPoint);
+    
     let wave: Wave = {
       number: waveNumber,
       startTimestamp: startTimestamp,
@@ -547,7 +554,7 @@ const completeWaveAnalysis = (
       startPrice: startPrice,
       endPrice: isUpMove ? endPoint.high : endPoint.low,
       type: determineWaveType(waveNumber),
-      isComplete: true,
+      isComplete: isComplete,  // Set based on our determination
       isImpulse: isImpulseWave(waveNumber)
     };
 
@@ -691,13 +698,19 @@ const completeWaveAnalysis = (
   // Return complete analysis result with only confirmed waves
   return {
     waves,
-    currentWave: waves[waves.length - 1] || {
-      number: 0,
-      startTimestamp: 0,
-      startPrice: 0,
-      type: 'corrective',
-      isComplete: false
-    },
+    currentWave: waves.length > 0 ? 
+      // If the last wave ends at the latest price point, it might be ongoing
+      (waves[waves.length - 1].endTimestamp === data[data.length - 1].timestamp ?
+        { ...waves[waves.length - 1], isComplete: false } :  // Mark as ongoing
+        waves[waves.length - 1]  // Keep as is (likely complete)
+      ) : 
+      {  // Fallback if no waves
+        number: 0,
+        startTimestamp: 0,
+        startPrice: 0,
+        type: 'corrective',
+        isComplete: false
+      },
     fibTargets: calculateFibTargetsForWaves(waves, data),
     trend: data[data.length - 1].close > data[0].close ? 'bullish' : 'bearish',
     impulsePattern: waves.some(w => w.number === 5),
@@ -737,7 +750,7 @@ export const analyzeElliottWaves = async (
     try {
       const priceRange = {
         low: Math.min(...priceData.map(d => d.low)),
-        high: Math.max(...priceData.map(d => d.high))  // Fixed with arrow function
+        high: Math.max(...priceData.map(d => d.high))  // Fixed arrow function syntax
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -789,14 +802,44 @@ export const analyzeElliottWaves = async (
         
         // Get current price
         const currentPrice = processData[processData.length - 1].close;
+        const latestTimestamp = processData[processData.length - 1].timestamp;
         
-        // Validate that the wave sequence is still valid at current price
-        if (!validateWaveSequence(result.waves, currentPrice)) {
-          console.log('❌ Wave sequence invalidated by current price, discarding...');
-          continue; // Try next threshold instead of returning invalid result
+        // Modify the returned result to correctly set isComplete on the current wave
+        if (result.waves.length > 0) {
+          const latestWave = result.waves[result.waves.length - 1];
+          
+          // Check if this is potentially an ongoing wave by comparing timestamps
+          const timeDiff = Math.abs(latestTimestamp - latestWave.endTimestamp!);
+          const isRecentEnd = timeDiff < 86400000; // Within 24 hours
+          
+          // Also check if price is still moving in the direction of the wave 
+          const isContinuingTrend = (latestWave.isImpulse && currentPrice > latestWave.endPrice!) || 
+                                 (!latestWave.isImpulse && currentPrice < latestWave.endPrice!);
+          
+          // Check if the pattern validation still holds
+          const isStillValid = validateWaveSequence(result.waves, currentPrice);
+          
+          // If the wave ended very recently AND is continuing its trend AND doesn't violate patterns
+          // Consider it incomplete (still in progress)
+          if (isRecentEnd && isContinuingTrend && isStillValid) {
+            console.log('Wave appears to be ongoing - marking as incomplete');
+            
+            // Create a modified copy of the current wave with isComplete = false
+            const modifiedCurrentWave = {
+              ...latestWave,
+              isComplete: false  // Mark as incomplete/in progress
+            };
+            
+            // Return the modified result with the incomplete current wave
+            return {
+              ...result,
+              currentWave: modifiedCurrentWave
+            };
+          } else if (!isStillValid) {
+            console.log('Current price pattern violates wave rules - wave may be complete or invalidated');
+          }
         }
         
-        console.log('✅ Valid wave pattern confirmed!');
         return result;
       }
     }
