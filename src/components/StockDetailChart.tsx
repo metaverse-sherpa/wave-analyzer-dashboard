@@ -17,7 +17,10 @@ import {
   Filler,
   ChartType,
   ChartData,    // Add this import
-  ChartOptions  // Add this import
+  ChartOptions,  // Add this import,
+  ScatterController,  // Add this import
+  LineController,
+  BarController   // Add any other controllers you might use
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
@@ -97,7 +100,11 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  Filler
+  Filler,
+  ChartDataLabels,
+  ScatterController,  // Add this registration
+  LineController,
+  BarController   // Add any other controllers you might use
 );
 
 // Register DataLabels plugin separately
