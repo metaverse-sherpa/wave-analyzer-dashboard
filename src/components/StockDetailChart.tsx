@@ -148,6 +148,13 @@ interface OHLCDataPoint {
   close: number;
 }
 
+// First update the custom type to include the z property
+// Add near the top of file with other type definitions:
+interface CustomChartDataset extends ChartDataset<'line', any> {
+  z?: number;
+  isLivePrice?: boolean;
+}
+
 const StockDetailChart: React.FC<StockDetailChartProps> = ({
   symbol,
   data,
@@ -166,6 +173,20 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     const sortedWaves = [...waves]
       .sort((a, b) => getTimestampValue(b.startTimestamp) - getTimestampValue(a.startTimestamp));
     return sortedWaves.find(wave => wave.number === 1);
+  }, [waves]);
+  
+  // Add this variable definition after the mostRecentWave1 useMemo
+  const latestWave = useMemo(() => {
+    // Find the most recent completed wave
+    const completedWaves = waves.filter(w => w.isComplete);
+    if (completedWaves.length === 0) return null;
+    
+    // Sort by end timestamp (most recent first)
+    return [...completedWaves].sort((a, b) => {
+      const aTime = getTimestampValue(a.endTimestamp || 0);
+      const bTime = getTimestampValue(b.endTimestamp || 0);
+      return bTime - aTime;
+    })[0];
   }, [waves]);
   
   // Fix the ohlcData calculation in the useMemo hook
@@ -675,6 +696,94 @@ useEffect(() => {
     ] as ChartDataset<'line', any>[], // Type assertion to fix dataset type issues
   };
   
+  // Handle Wave A projection zone
+  if (latestWave && latestWave.number === 5 && latestWave.isComplete) {
+    const wave4 = waves.find(w => w.number === 4);
+    const wave5 = waves.find(w => w.number === 5);
+    
+    if (wave4 && wave5 && wave4.endPrice && wave5.endPrice) {
+      // Calculate the retracement zone for Wave A (38.2% to 61.8%)
+      const impulseRange = Math.abs(wave5.endPrice - wave4.endPrice);
+      const isUptrend = wave5.endPrice > wave4.endPrice;
+      const direction = isUptrend ? -1 : 1;
+      
+      const wave5EndIdx = ohlcData.findIndex(d => d.timestamp >= wave5.endTimestamp);
+      if (wave5EndIdx >= 0) {
+        // Create a zone for potential Wave A
+        const targetA382 = wave5.endPrice + (impulseRange * 0.382 * direction);
+        const targetA618 = wave5.endPrice + (impulseRange * 0.618 * direction);
+        
+        // Add a shaded zone showing potential Wave A territory
+        chartData.datasets.push({
+          type: 'line' as const,
+          label: 'Potential Wave A Zone (38.2%)',
+          data: ohlcData.map((_, i) => {
+            if (i >= wave5EndIdx) {
+              // Upper bound of retracement zone
+              return isUptrend ? targetA382 : targetA618;
+            }
+            return null;
+          }),
+          borderColor: 'rgba(255, 90, 90, 0.5)',
+          backgroundColor: 'rgba(255, 90, 90, 0.1)',
+          fill: '+1', // Fill to the next dataset
+          borderWidth: 1,
+          borderDash: [5, 5],
+          pointRadius: 0,
+          tension: 0,
+          // Remove z property or use type assertion
+          datalabels: {
+            display: false
+          }
+        } as CustomChartDataset);
+        
+        chartData.datasets.push({
+          type: 'line' as const,
+          label: 'Potential Wave A Zone (61.8%)',
+          data: ohlcData.map((_, i) => {
+            if (i >= wave5EndIdx) {
+              // Lower bound of retracement zone
+              return isUptrend ? targetA618 : targetA382;
+            }
+            return null;
+          }),
+          borderColor: 'rgba(255, 90, 90, 0.5)',
+          backgroundColor: 'rgba(255, 90, 90, 0.1)',
+          fill: '-1', // Fill to the previous dataset
+          borderWidth: 1,
+          borderDash: [5, 5],
+          pointRadius: 0,
+          tension: 0,
+          // Remove z property or use type assertion
+          datalabels: {
+            display: false
+          }
+        } as CustomChartDataset);
+        
+        // Add price labels for the retracement levels
+        chartData.datasets.push({
+          type: 'line' as const,
+          label: `Wave A 38.2% Target: $${targetA382.toFixed(2)}`,
+          data: Array(ohlcData.length).fill(null),
+          // Just add a single point at the end for the label
+          pointRadius: (ctx: any) => ctx.dataIndex === ohlcData.length - 1 ? 4 : 0,
+          pointBackgroundColor: 'rgba(255, 90, 90, 0.8)',
+          borderColor: 'rgba(255, 90, 90, 0.5)',
+          borderWidth: 0,
+          pointBorderColor: 'white',
+          pointBorderWidth: 1,
+          // Remove z property or use type assertion
+          datalabels: {
+            display: false
+          }
+        } as CustomChartDataset);
+        
+        console.log(`Added Wave A projection zone for ${symbol} after Wave 5 completion`);
+        console.log(`Wave A targets: 38.2% at $${targetA382.toFixed(2)}, 61.8% at $${targetA618.toFixed(2)}`);
+      }
+    }
+  }
+
   const options = {
     responsive: true,
     maintainAspectRatio: false,

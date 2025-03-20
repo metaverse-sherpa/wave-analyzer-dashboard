@@ -57,7 +57,43 @@ export interface FibTarget {
   label: string;      // Display label (e.g., "61.8%")
   isExtension: boolean; // True for extensions, false for retracements
   isCritical?: boolean; // Optional flag for critical levels that shouldn't be broken
+  isExtended?: boolean; // Optional flag for extended wave targets
+  isFlat?: boolean;      // Optional flag for flat correction targets
+  isZigzag?: boolean;    // Optional flag for zigzag correction targets
 }
+
+/**
+ * Determine whether a wave is impulse or corrective based on its number/letter
+ */
+const determineWaveType = (waveNumber: string | number): 'impulse' | 'corrective' => {
+  if (typeof waveNumber === 'number') {
+    // Waves 1, 3, 5 are impulse; 2, 4 are corrective
+    return waveNumber % 2 === 1 ? 'impulse' : 'corrective';
+  } else {
+    // Waves A, C are corrective; B is impulse
+    return waveNumber === 'B' ? 'impulse' : 'corrective';
+  }
+};
+
+/**
+ * Check if a wave is an impulse wave based on its number/letter
+ */
+const isImpulseWave = (waveNumber: string | number): boolean => {
+  if (typeof waveNumber === 'number') {
+    // Waves 1, 3, 5 are impulse
+    return waveNumber % 2 === 1;
+  } else {
+    // Wave B is impulse, A and C are not
+    return waveNumber === 'B';
+  }
+};
+
+/**
+ * Format a timestamp as a readable date string
+ */
+const formatDate = (timestamp: number): string => {
+  return new Date(timestamp).toLocaleDateString();
+};
 
 /**
  * Zigzag point interface - represents a significant pivot point in price data
@@ -144,36 +180,89 @@ const calculateFibTargetsForWaves = (waves: Wave[], data: StockHistoricalData[])
   
   // Handle specific wave scenarios
   if (lastWaveNumber === 3 && wave1 && wave1.startPrice && wave1.endPrice && lastWave.startPrice) {
-    // For Wave 3: calculate projections based on Wave 1's length
-    const wave1Length = Math.abs(wave1.endPrice! - wave1.startPrice);
-    const isUptrend = wave1.endPrice! > wave1.startPrice;
+    // For Wave 3: calculate projections based on Wave 1's length with expanded targets
+    console.log("Calculating enhanced Wave 3 targets based on Elliott Wave principles:");
+    console.log(`- Wave 1 range: ${wave1.startPrice.toFixed(2)} to ${wave1.endPrice.toFixed(2)}`);
+    
+    const wave1Length = Math.abs(wave1.endPrice - wave1.startPrice);
+    const isUptrend = wave1.endPrice > wave1.startPrice;
     const direction = isUptrend ? 1 : -1;
     
-    // Wave 3 projections from the end of Wave 2 (start of Wave 3)
+    // Expanded set of Wave 3 projection levels based on Elliott Wave theory
     const projectionLevels = [
-      { level: 1.618, label: "161.8%" },
-      { level: 2.618, label: "261.8%" },
-      { level: 3.618, label: "361.8%" }
+      { level: 1.618, label: "161.8% of Wave 1", isPrimary: true },
+      { level: 2.0, label: "200% of Wave 1", isPrimary: true },
+      { level: 2.618, label: "261.8% of Wave 1", isPrimary: true },
+      { level: 3.618, label: "361.8% of Wave 1", isPrimary: false },
+      { level: 4.236, label: "423.6% of Wave 1", isPrimary: false }
     ];
     
-    // Calculate each projection target
-    const wave3Targets = projectionLevels.map(({ level, label }) => ({
-      level,
-      price: lastWave.startPrice! + (wave1Length * level * direction),
-      label,
-      isExtension: true
-    }));
+    // Calculate targets from Wave 2 end (Wave 3 start)
+    const wave3Targets = projectionLevels.map(({ level, label, isPrimary }) => {
+      const targetPrice = lastWave.startPrice + (wave1Length * level * direction);
+      
+      return {
+        level,
+        price: targetPrice,
+        label,
+        isExtension: true,
+        isPrimary: isPrimary // Flag for primary targets
+      };
+    });
     
+    // Add targets to the result
     fibTargets.push(...wave3Targets);
     
-    // For ongoing Wave 3, also add the "minimum" requirement (exceeding Wave 1 end)
+    // For ongoing Wave 3, add the "minimum" requirement (exceeding Wave 1 end)
     if (!lastWave.isComplete && wave1.endPrice) {
       fibTargets.push({
         level: 1.0,
         price: wave1.endPrice,
-        label: "100% (min)",
-        isExtension: true
+        label: "Wave 1 End (min)",
+        isExtension: true,
+        isCritical: true // This is a critical level that must be exceeded
       });
+    }
+    
+    // Add psychological level - Wave 3 should not end below 1.236 of Wave 1
+    fibTargets.push({
+      level: 1.236,
+      price: lastWave.startPrice + (wave1Length * 1.236 * direction),
+      label: "Minimum typical Wave 3",
+      isExtension: true,
+      isCritical: true
+    });
+    
+    // Log all targets for debugging
+    console.log(`Generated ${wave3Targets.length} targets for Wave 3:`, 
+                wave3Targets.map(t => `${t.label}: $${t.price.toFixed(2)}`).join(', '));
+    
+    // Additional check - if we detect an extended Wave 3 already in progress
+    if (lastWave.endPrice) {
+      const currentExtension = Math.abs(lastWave.endPrice - lastWave.startPrice) / wave1Length;
+      
+      // If Wave 3 has already extended beyond 2.618, it may indicate a 1-2/1-2 structure
+      if (currentExtension > 2.618) {
+        console.log(`Detected potential extended Wave 3 (${currentExtension.toFixed(2)}x Wave 1)`);
+        
+        // Add higher extension targets for extended Wave 3
+        const extendedTargets = [
+          { level: 4.236, label: "423.6% Extended Wave 3" },
+          { level: 6.854, label: "685.4% Extended Wave 3" }
+        ];
+        
+        extendedTargets.forEach(({ level, label }) => {
+          const targetPrice = lastWave.startPrice + (wave1Length * level * direction);
+          
+          fibTargets.push({
+            level,
+            price: targetPrice,
+            label,
+            isExtension: true,
+            isExtended: true // Flag as extended target
+          });
+        });
+      }
     }
   } 
   // Update the Wave 4 Fibonacci targets section in calculateFibTargetsForWaves function
@@ -343,6 +432,213 @@ else if (lastWaveNumber === 5) {
       isExtension: false,
       isCritical: true // Important psychological level
     });
+  }
+}
+// Add to calculateFibTargetsForWaves function:
+
+// Handle Wave A targets after a completed impulse pattern
+else if (lastWaveNumber === 'A') {
+  // Calculate Wave A targets based on the preceding impulse pattern
+  const wave4 = waves.find(w => w.number === 4);
+  const wave5 = waves.find(w => w.number === 5);
+  
+  if (wave4 && wave4.endPrice && wave5 && wave5.endPrice && lastWave.startPrice) {
+    console.log("Calculating Wave A targets based on Elliott Wave principles:");
+    console.log(`- Wave 5 completed at: ${wave5.endPrice}`);
+    
+    // Calculate the entire impulse range (using Wave 4 high and Wave 5 end)
+    const impulseRange = Math.abs(wave5.endPrice - wave4.endPrice);
+    // Determine if we're in an uptrend or downtrend from the impulse
+    const isUptrend = wave5.endPrice > wave4.endPrice;
+    // For Wave A, we move opposite to the impulse
+    const direction = isUptrend ? -1 : 1;
+    
+    // Fibonacci retracement levels for Wave A
+    const fibLevels = [
+      { level: 0.382, label: "38.2% Retracement of Wave 5" },
+      { level: 0.5, label: "50% Retracement of Wave 5" },
+      { level: 0.618, label: "61.8% Retracement of Wave 5" },
+      { level: 0.786, label: "78.6% Retracement of Wave 5" }
+    ];
+    
+    // Calculate retracement targets for Wave A
+    fibLevels.forEach(({ level, label }) => {
+      const targetPrice = wave5.endPrice + (impulseRange * level * direction);
+      
+      fibTargets.push({
+        level,
+        price: targetPrice,
+        label,
+        isExtension: false
+      });
+    });
+    
+    // Also include key structural levels as potential targets
+    
+    // Wave 4 low is often a target for Wave A
+    fibTargets.push({
+      level: 0,
+      price: wave4.startPrice,
+      label: "Wave 4 Low",
+      isExtension: false,
+      isCritical: true
+    });
+    
+    // Wave 3 end can also be a target in deeper corrections
+    const wave3 = waves.find(w => w.number === 3);
+    if (wave3 && wave3.endPrice) {
+      fibTargets.push({
+        level: 0,
+        price: wave3.endPrice,
+        label: "Wave 3 High",
+        isExtension: false
+      });
+    }
+    
+    console.log(`Generated ${fibTargets.length} targets for Wave A:`, 
+                fibTargets.map(t => `${t.label}: $${t.price.toFixed(2)}`).join(', '));
+  }
+}
+// Add to the calculateFibTargetsForWaves function in elliottWaveAnalysis.ts
+
+// Handle Wave B targets after Wave A
+else if (lastWaveNumber === 'B') {
+  // Calculate Wave B targets based on Wave A's retracement
+  const waveA = waves.find(w => w.number === 'A');
+  
+  if (waveA && waveA.startPrice && waveA.endPrice && lastWave.startPrice) {
+    console.log("Calculating Wave B targets based on Elliott Wave principles:");
+    console.log(`- Wave A range: ${waveA.startPrice.toFixed(2)} to ${waveA.endPrice.toFixed(2)}`);
+    
+    // Calculate the Wave A's height
+    const waveAHeight = Math.abs(waveA.endPrice - waveA.startPrice);
+    // Determine if Wave A was up or down
+    const isWaveADown = waveA.endPrice < waveA.startPrice;
+    // For Wave B, we move opposite to Wave A
+    const direction = isWaveADown ? 1 : -1;
+    
+    // Fibonacci retracement levels for Wave B
+    const fibLevels = [
+      { level: 0.382, label: "38.2% Retracement of Wave A", isZigzag: true, isFlat: false },
+      { level: 0.5, label: "50% Retracement of Wave A", isZigzag: true, isFlat: false },
+      { level: 0.618, label: "61.8% Retracement of Wave A", isZigzag: true, isFlat: false },
+      { level: 0.786, label: "78.6% Retracement of Wave A", isZigzag: false, isFlat: true },
+      { level: 0.9, label: "90% Retracement of Wave A", isZigzag: false, isFlat: true },
+      { level: 1.0, label: "100% Retracement of Wave A (Flat)", isZigzag: false, isFlat: true },
+      { level: 1.236, label: "123.6% of Wave A (Expanded Flat)", isZigzag: false, isFlat: true, isExpanded: true },
+      { level: 1.382, label: "138.2% of Wave A (Expanded Flat)", isZigzag: false, isFlat: true, isExpanded: true }
+    ];
+    
+    // Calculate retracement targets for Wave B
+    fibLevels.forEach(({ level, label, isZigzag, isFlat, isExpanded }) => {
+      const targetPrice = waveA.endPrice + (waveAHeight * level * direction);
+      
+      // Determine pattern type for better labeling
+      let patternType = "";
+      if (isZigzag && isFlat) {
+        patternType = ""; // Could be either pattern
+      } else if (isZigzag) {
+        patternType = " (Zigzag)";
+      } else if (isFlat) {
+        patternType = isExpanded ? " (Expanded Flat)" : " (Flat)";
+      }
+      
+      fibTargets.push({
+        level,
+        price: targetPrice,
+        label: label + patternType,
+        isExtension: level > 1.0,
+        isCritical: level === 0.618 || level === 1.0, // These are particularly important levels
+        isFlat: isFlat,
+        isZigzag: isZigzag
+      });
+    });
+    
+    // Add Wave A start as an important reference level
+    fibTargets.push({
+      level: 0,
+      price: waveA.startPrice,
+      label: "Wave A Start (Important Level)",
+      isExtension: false,
+      isCritical: true
+    });
+    
+    console.log(`Generated ${fibTargets.length} targets for Wave B`);
+    console.log(fibTargets.map(t => `${t.label}: $${t.price.toFixed(2)}`).join(', '));
+    
+    // Add forward-looking information for potential Wave C patterns
+    console.log("Wave C projections will be available after Wave B completes");
+    console.log("Wave C is typically equal to Wave A, or extends to 1.618 of Wave A");
+  }
+}
+
+// Handle Wave C targets after Wave B completes
+else if (lastWaveNumber === 'C') {
+  // Calculate Wave C targets based on Wave A
+  const waveA = waves.find(w => w.number === 'A');
+  const waveB = waves.find(w => w.number === 'B');
+  
+  if (waveA && waveA.startPrice && waveA.endPrice && 
+      waveB && waveB.endPrice && lastWave.startPrice) {
+    console.log("Calculating Wave C targets based on Elliott Wave principles:");
+    
+    // Calculate the Wave A's height
+    const waveAHeight = Math.abs(waveA.endPrice - waveA.startPrice);
+    // Determine the pattern type based on Wave B's retracement
+    const waveBretracement = Math.abs(waveB.endPrice - waveA.endPrice) / waveAHeight;
+    
+    // Determine the correction pattern type
+    let patternType = "Unknown";
+    if (waveBretracement <= 0.618) {
+      patternType = "Zigzag";
+    } else if (waveBretracement >= 0.9 && waveBretracement <= 1.0) {
+      patternType = "Flat";
+    } else if (waveBretracement > 1.0) {
+      patternType = "Expanded Flat";
+    }
+    
+    console.log(`- Detected ${patternType} pattern (Wave B retraced ${(waveBretracement * 100).toFixed(1)}% of Wave A)`);
+    
+    // Direction is the same as Wave A for Wave C
+    const isWaveADown = waveA.endPrice < waveA.startPrice;
+    const direction = isWaveADown ? -1 : 1;
+    
+    // Common targets for Wave C
+    const fibLevels = [
+      { level: 1.0, label: "100% of Wave A" },
+      { level: 1.618, label: "161.8% of Wave A" },
+      { level: 2.0, label: "200% of Wave A" },
+      { level: 2.618, label: "261.8% of Wave A" }
+    ];
+    
+    // Calculate projection targets for Wave C from the end of Wave B
+    fibLevels.forEach(({ level, label }) => {
+      const projectionLength = waveAHeight * level;
+      const targetPrice = waveB.endPrice + (projectionLength * direction);
+      
+      fibTargets.push({
+        level,
+        price: targetPrice,
+        label: `${label} (${patternType})`,
+        isExtension: level > 1.0,
+        isCritical: level === 1.0 || level === 1.618 // These are particularly important levels
+      });
+    });
+    
+    // In a zigzag, Wave C often terminates beyond the end of Wave A
+    if (patternType === "Zigzag") {
+      const waveAEndTarget = {
+        level: 0,
+        price: waveA.endPrice,
+        label: "Wave A End (Minimum Target)",
+        isExtension: false,
+        isCritical: true
+      };
+      fibTargets.push(waveAEndTarget);
+    }
+    
+    console.log(`Generated ${fibTargets.length} targets for Wave C`);
+    console.log(fibTargets.map(t => `${t.label}: $${t.price.toFixed(2)}`).join(', '));
   }
 }
 else {
@@ -934,10 +1230,20 @@ const completeWaveAnalysis = (
             }
             
             // After Wave 5 is completed, look for corrective waves
-            if (waveValid) {
+            if (waveValid && wave.number === 5) {
               console.log("Completed impulse pattern 1-5, transitioning to corrective A-B-C pattern");
               phase = 'corrective';
               waveCount = 0; // Will increment to 1 for Wave A
+              
+              // Look ahead for potential Wave A starting
+              if (i + 1 < pivotPairs.length) {
+                const nextPair = pivotPairs[i + 1];
+                // Wave A should move in the opposite direction of Wave 5
+                if ((wave.endPrice > wave.startPrice && nextPair.endPoint.price < nextPair.startPoint.price) ||
+                    (wave.endPrice < wave.startPrice && nextPair.endPoint.price > nextPair.startPoint.price)) {
+                  console.log("Potential Wave A detected after Wave 5");
+                }
+              }
             }
             break;
         }
@@ -945,6 +1251,85 @@ const completeWaveAnalysis = (
 
       case 'corrective':
         switch (waveCount) {
+          case 1: // Wave A
+            // Code for Wave A completion
+            if (wave.isComplete) {
+              console.log("Wave A completed, looking for Wave B reversal");
+              
+              // Look ahead for potential Wave B starting
+              if (i + 1 < pivotPairs.length) {
+                const nextPair = pivotPairs[i + 1];
+                
+                // Wave B should move in the opposite direction of Wave A
+                const isWaveADown = wave.endPrice! < wave.startPrice;
+                const isNextUp = nextPair.endPoint.price > nextPair.startPoint.price;
+                
+                if (isWaveADown === !isNextUp) {
+                  console.log("Potential Wave B detected moving in correct direction");
+                  
+                  // Calculate how much Wave B has retraced so far
+                  const waveAHeight = Math.abs(wave.endPrice! - wave.startPrice);
+                  const currentRetracement = Math.abs(nextPair.endPoint.price - wave.endPrice!) / waveAHeight;
+                  
+                  console.log(`Current Wave B retracement: ${(currentRetracement * 100).toFixed(1)}%`);
+                  
+                  // Classify the potential pattern
+                  if (currentRetracement <= 0.618) {
+                    console.log("Pattern forming appears to be a Zigzag");
+                  } else if (currentRetracement > 0.618 && currentRetracement <= 0.9) {
+                    console.log("Pattern forming could be a Running Flat");
+                  } else if (currentRetracement > 0.9 && currentRetracement <= 1.1) {
+                    console.log("Pattern forming appears to be a Regular Flat");
+                  } else if (currentRetracement > 1.1) {
+                    console.log("Pattern forming appears to be an Expanded Flat");
+                  }
+                } else {
+                  console.log("Next pivot doesn't match Wave B direction requirements");
+                }
+              }
+            }
+            break;
+          
+          case 2: // Wave B
+            // Code for Wave B completion
+            if (wave.isComplete) {
+              console.log("Wave B completed, looking for Wave C");
+              
+              // Find Wave A to determine the overall correction pattern
+              const waveA = waves.find(w => w.number === 'A') || pendingWaves.find(w => w.number === 'A');
+              
+              if (waveA && waveA.startPrice && waveA.endPrice) {
+                // Calculate Wave B's retracement of Wave A
+                const waveAHeight = Math.abs(waveA.endPrice - waveA.startPrice);
+                const waveBRetracement = Math.abs(wave.endPrice! - waveA.endPrice) / waveAHeight;
+                
+                console.log(`Wave B retraced ${(waveBRetracement * 100).toFixed(1)}% of Wave A`);
+                
+                // Determine pattern type and expected Wave C behavior
+                if (waveBRetracement <= 0.5) {
+                  console.log("Wave C expected to extend beyond Wave A end (Zigzag pattern)");
+                } else if (waveBRetracement >= 0.9 && waveBRetracement <= 1.1) {
+                  console.log("Wave C expected to be approximately equal to Wave A (Regular Flat)");
+                } else if (waveBRetracement > 1.1) {
+                  console.log("Wave C expected to be shorter than Wave A (Expanded Flat)");
+                }
+                
+                // Look ahead for potential Wave C
+                if (i + 1 < pivotPairs.length) {
+                  const nextPair = pivotPairs[i + 1];
+                  
+                  // Wave C should move in the same direction as Wave A
+                  const isWaveADown = waveA.endPrice < waveA.startPrice;
+                  const isNextDown = nextPair.endPoint.price < nextPair.startPoint.price;
+                  
+                  if (isWaveADown === isNextDown) {
+                    console.log("Potential Wave C detected moving in correct direction");
+                  }
+                }
+              }
+            }
+            break;
+            
           case 3: // Wave C
             // After completing Wave C, reset to look for new impulse pattern
             console.log("Completed corrective pattern A-B-C, looking for new impulse pattern");
@@ -1054,7 +1439,7 @@ export const analyzeElliottWaves = async (
     try {
       const priceRange = {
         low: Math.min(...priceData.map(d => d.low)),
-        high: Math.max(...priceData.map(d => d.high))  // Fixed: proper arrow function syntax
+        high: Math.max(...priceData.map(d => d.high))  // Fixed arrow function syntax
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -1195,148 +1580,12 @@ export const analyzeElliottWaves = async (
     return generateEmptyAnalysisResult();
     
   } catch (error) {
-    console.error("❌ Error in Elliott Wave analysis:", error);
+    console.error('Error analyzing Elliott Waves:', error);
     return generateEmptyAnalysisResult();
-  }
+  } // Add this closing bracket
 };
 
-/**
- * Validate if a wave follows Elliott Wave rules
- * 
- * @param wave - The wave to validate
- * @param previousWaves - Waves that came before this one
- * @param data - Historical price data
- * @returns Boolean indicating if the wave is valid
- */
-const isValidWave = (wave: Wave, previousWaves: Wave[], data: StockHistoricalData[]): boolean => {
-  if (!wave.startPrice || !wave.endPrice) return false;
-
-  // Wave 1 validation
-  if (wave.number === 1) {
-    // Wave 1 must start from a low point
-    const startIdx = data.findIndex(d => d.timestamp === wave.startTimestamp);
-    const endIdx = data.findIndex(d => d.timestamp === wave.endTimestamp);
-    
-    // Check if there's a lower point in this range
-    const lowestIdx = findLowestPoint(data, startIdx, endIdx);
-    if (data[lowestIdx].low < wave.startPrice) {
-      console.log('Found lower point during Wave 1 - invalidating');
-      return false;
-    }
-    
-    // Wave 1 must move up from start to end
-    return wave.endPrice > wave.startPrice;
-  }
-
-  // Validate subsequent waves
-  if (previousWaves.length > 0) {
-    const wave1 = previousWaves.find(w => w.number === 1);
-    if (wave1) {
-      // If price goes below Wave 1 start, invalidate the pattern
-      if (wave.endPrice < wave1.startPrice) {
-        console.log('Price moved below Wave 1 start - invalidating pattern');
-        return false;
-      }
-    }
-  }
-
-  // Wave passed all validation checks
-  return true;
-};
-
-// Note: The validateWaveSequence function appears to be referenced but not implemented
-// This is likely one source of bugs in the current code
-
-// Export a function to clear the memo cache
-export const clearMemoCache = (): void => {
-  memoCache.clear();
-  console.log("In-memory wave analysis cache cleared");
-};
-
-// Move formatDate function to the module level (outside any function)
-const formatDate = (timestamp: any): string => {
-  try {
-    if (timestamp instanceof Date) {
-      return timestamp.toLocaleDateString();
-    }
-    
-    if (typeof timestamp === 'number') {
-      const ms = timestamp < 10000000000 
-        ? timestamp * 1000
-        : timestamp;
-      return new Date(ms).toLocaleDateString();
-    }
-    
-    if (typeof timestamp === 'string') {
-      return new Date(timestamp).toLocaleDateString();
-    }
-
-    return 'Invalid date';
-  } catch (error) {
-    console.error('Error formatting date:', error);
-    return 'Invalid date';
-  }
-};
-
-/**
- * Determine if a wave is impulse or corrective based on Elliott Wave rules
- */
-const isImpulseWave = (waveNumber: string | number): boolean => {
-  if (typeof waveNumber === 'number') {
-    // Waves 1, 3, 5 are impulse; Waves 2, 4 are corrective
-    return waveNumber % 2 === 1;
-  } else {
-    // Wave B is the only corrective wave that's impulsive in direction
-    return waveNumber === 'B';
-  }
-};
-
-/**
- * Determine the wave type based on Elliott Wave rules
- */
-const determineWaveType = (waveNumber: string | number): 'impulse' | 'corrective' => {
-  return isImpulseWave(waveNumber) ? 'impulse' : 'corrective';
-};
-
-// Add a function to detect alternation between Wave 2 and 4
-const hasAlternation = (wave2: Wave, wave4: Wave, data: StockHistoricalData[]): boolean => {
-  // Calculate time duration of each wave
-  const wave2Duration = wave2.endTimestamp! - wave2.startTimestamp;
-  const wave4Duration = wave4.endTimestamp! - wave4.startTimestamp;
-  
-  // Calculate price ranges
-  const wave2Range = Math.abs(wave2.endPrice! - wave2.startPrice);
-  const wave4Range = Math.abs(wave4.endPrice! - wave4.startPrice);
-  
-  // Compare characteristics
-  const hasDifferentDuration = Math.abs(wave4Duration / wave2Duration - 1) > 0.3; // >30% difference
-  const hasDifferentRange = Math.abs(wave4Range / wave2Range - 1) > 0.3; // >30% difference
-  
-  return hasDifferentDuration || hasDifferentRange;
-};
-
-// Add to wave validation
-const validateFibonacciRelationships = (waves: Wave[]): boolean => {
-  if (waves.length < 5) return true; // Not enough waves to check
-  
-  const wave1Length = waves[0].endPrice! - waves[0].startPrice;
-  const wave3Length = waves[2].endPrice! - waves[2].startPrice;
-  const wave5Length = waves[4].endPrice! - waves[4].startPrice;
-  
-  // Wave 3 is often 1.618 times the length of Wave 1
-  const wave3Ratio = wave3Length / wave1Length;
-  const isWave3Valid = Math.abs(wave3Ratio - 1.618) < 0.3 || Math.abs(wave3Ratio - 2.618) < 0.3;
-  
-  // Wave 5 is often 0.618 times Wave 1 or equal to Wave 1
-  const wave5Ratio = wave5Length / wave1Length;
-  const isWave5Valid = Math.abs(wave5Ratio - 0.618) < 0.3 || Math.abs(wave5Ratio - 1.0) < 0.3;
-  
-  console.log(`Fibonacci relationships: Wave3/Wave1 = ${wave3Ratio.toFixed(2)}, Wave5/Wave1 = ${wave5Ratio.toFixed(2)}`);
-  
-  return isWave3Valid && isWave5Valid;
-};
-
-// Add volume validation for Wave 3
+// Then the rest of the functions follow
 const hasVolumeConfirmation = (wave: Wave, data: StockHistoricalData[]): boolean => {
   // Find data points corresponding to this wave
   const startIdx = data.findIndex(d => d.timestamp === wave.startTimestamp);
@@ -1576,3 +1825,30 @@ const enhancedValidateWaveSequence = (waves: Wave[], data: StockHistoricalData[]
   
   return true;
 }
+
+// Update our wave detection for transitions from impulse to corrective patterns
+
+// In the validateWaveSequence or checkCurrentPrice function, add:
+const detectPotentialWaveA = (waves: Wave[], currentPrice: number): boolean => {
+  // Look for a completed Wave 5
+  const wave5 = waves.find(w => w.number === 5 && w.isComplete);
+  if (!wave5 || !wave5.endPrice) return false;
+  
+  // Calculate how far price has retraced from Wave 5 peak
+  const retracement = Math.abs(currentPrice - wave5.endPrice) / wave5.endPrice;
+  
+  // If price has retraced more than 3%, it could be starting Wave A
+  if (retracement > 0.03) {
+    const isUptrend = wave5.endPrice > wave5.startPrice;
+    const isMovingOpposite = (isUptrend && currentPrice < wave5.endPrice) || 
+                            (!isUptrend && currentPrice > wave5.endPrice);
+    
+    if (isMovingOpposite) {
+      console.log(`Potential Wave A detected: ${retracement.toFixed(2)}% retracement from Wave 5 peak`);
+      return true;
+    }
+  }
+  
+  return false;
+};
+
