@@ -112,64 +112,132 @@ const AdminDashboard = () => {
 const loadCacheData = useCallback(async () => {
   setIsRefreshing(true);
   try {
-    // Query all wave analysis entries from Supabase
-    const { data: waveData, error: waveError } = await supabase
-      .from('cache')
-      .select('key, data, timestamp')
-      .like('key', 'wave_analysis_%');
+    // Use paging to avoid timeouts
+    const PAGE_SIZE = 100;
+    
+    // Load wave analysis data
+    let waveData = [];
+    let waveHasMore = true;
+    let waveFrom = 0;
+    
+    while (waveHasMore) {
+      console.log(`Loading wave analysis page from ${waveFrom}`);
+      const { data: pageData, error, count } = await supabase
+        .from('cache')
+        .select('key, data, timestamp', { count: 'exact' })
+        .like('key', 'wave_analysis_%')
+        .range(waveFrom, waveFrom + PAGE_SIZE - 1)
+        .order('timestamp', { ascending: false });
       
-    // Query all historical data entries from Supabase  
-    const { data: histData, error: histError } = await supabase
-      .from('cache')
-      .select('key, data, timestamp')
-      .like('key', 'historical_data_%');
+      if (error) {
+        console.error('Error loading wave analysis page:', error);
+        toast.error(`Error loading wave data: ${error.message}`);
+        break;
+      }
+      
+      if (pageData) {
+        waveData = [...waveData, ...pageData];
+        waveFrom += PAGE_SIZE;
+        waveHasMore = pageData.length === PAGE_SIZE;
+      } else {
+        waveHasMore = false;
+      }
+      
+      // Add a small delay between requests to avoid rate limiting
+      await new Promise(r => setTimeout(r, 100));
+    }
     
-    // Update your loadCacheData function to also fetch AI analysis entries
-
-    // Add this to your loadCacheData function where you query other cache entries
-    const { data: aiData, error: aiError } = await supabase
-      .from('cache')
-      .select('key, data, timestamp')
-      .like('key', 'ai_elliott_wave_%');
+    console.log(`Loaded ${waveData.length} wave analysis entries`);
     
-    if (waveError) throw waveError;
-    if (histError) throw histError;
-    if (aiError) throw aiError;
+    // Load historical data with paging
+    let histData = [];
+    let histHasMore = true;
+    let histFrom = 0;
+    
+    while (histHasMore) {
+      console.log(`Loading historical data page from ${histFrom}`);
+      const { data: pageData, error } = await supabase
+        .from('cache')
+        .select('key, data, timestamp')
+        .like('key', 'historical_data_%')
+        .range(histFrom, histFrom + PAGE_SIZE - 1)
+        .order('timestamp', { ascending: false });
+      
+      if (error) {
+        console.error('Error loading historical data page:', error);
+        toast.error(`Error loading historical data: ${error.message}`);
+        break;
+      }
+      
+      if (pageData) {
+        histData = [...histData, ...pageData];
+        histFrom += PAGE_SIZE;
+        histHasMore = pageData.length === PAGE_SIZE;
+      } else {
+        histHasMore = false;
+      }
+      
+      // Add a small delay between requests to avoid rate limiting
+      await new Promise(r => setTimeout(r, 100));
+    }
+    
+    console.log(`Loaded ${histData.length} historical data entries`);
+    
+    // Load AI analysis entries with paging (optional)
+    let aiData = [];
+    try {
+      const { data: aiPageData, error: aiError } = await supabase
+        .from('cache')
+        .select('key')
+        .like('key', 'ai_elliott_wave_%')
+        .range(0, PAGE_SIZE - 1);
+      
+      if (!aiError && aiPageData) {
+        aiData = aiPageData;
+      }
+    } catch (aiErr) {
+      console.error('Error loading AI analysis count:', aiErr);
+      // Non-critical, so continue
+    }
     
     // Process wave analysis data
     const waveAnalyses = {};
-    if (waveData) {
+    if (waveData && waveData.length > 0) {
       for (const item of waveData) {
-        const key = item.key.replace('wave_analysis_', '');
-        waveAnalyses[key] = {
-          analysis: item.data,
-          timestamp: item.timestamp
-        };
+        // Only process if we have data to avoid errors
+        if (item && item.key && item.data) {
+          const key = item.key.replace('wave_analysis_', '');
+          waveAnalyses[key] = {
+            analysis: item.data,
+            timestamp: item.timestamp
+          };
+        }
       }
     }
     
     // Process historical data
     const historicalData = {};
-    if (histData) {
+    if (histData && histData.length > 0) {
       for (const item of histData) {
-        const key = item.key.replace('historical_data_', '');
-        historicalData[key] = {
-          data: item.data,
-          timestamp: item.timestamp
-        };
+        // Only process if we have data to avoid errors
+        if (item && item.key && item.data) {
+          const key = item.key.replace('historical_data_', '');
+          historicalData[key] = {
+            data: item.data,
+            timestamp: item.timestamp
+          };
+        }
       }
     }
 
-    if (aiData) {
-      setAiAnalysisCount(aiData.length);
-    }
-    
+    // Update UI with counts
     setWaveAnalyses(waveAnalyses);
     setHistoricalData(historicalData);
+    setAiAnalysisCount(aiData.length);
     
   } catch (error) {
     console.error('Error loading cache data from Supabase:', error);
-    toast.error('Failed to load data from Supabase');
+    toast.error(`Failed to load data: ${error.message || 'Unknown error'}`);
   } finally {
     setIsRefreshing(false);
   }

@@ -35,6 +35,9 @@ export interface Wave {
   isComplete: boolean;        // Whether the wave is complete
   isImpulse?: boolean;        // Whether this is an impulse wave (1,3,5,B are impulse; 2,4,A,C are corrective)
   degree?: string;            // Wave degree (Grand Super Cycle, Super Cycle, Cycle, Primary, etc.)
+  isValid?: boolean;          // Whether the wave follows Elliott Wave rules
+  isTerminated?: boolean;     // Whether the wave was terminated early due to rule violation
+  violationReason?: string;   // Description of the rule violation if any
 }
 
 // Define the WaveAnalysisResult interface - the complete analysis output
@@ -173,100 +176,176 @@ const calculateFibTargetsForWaves = (waves: Wave[], data: StockHistoricalData[])
       });
     }
   } 
-  // Update the Wave 4 Fibonacci targets section
+  // Update the Wave 4 Fibonacci targets section in calculateFibTargetsForWaves function
 
-else if (lastWaveNumber === 4 && wave1) {
+else if (lastWaveNumber === 4) {
   // For Wave 4: calculate key retracement levels of Wave 3
-  // Wave 4 typically retraces 38.2% or 50% of Wave 3
+  // Wave 4 typically retraces 23.6%, 38.2%, or 50% of Wave 3
+  const wave1 = waves.find(w => w.number === 1);
   const wave3 = waves.find(w => w.number === 3);
-  const wave2 = waves.find(w => w.number === 2);
   
-  if (wave3 && wave3.startPrice && wave3.endPrice && wave2 && wave2.endPrice) {
-    // Create standard retracement levels
-    const retracementLevels = calculateFibRetracement(
-      wave3.startPrice,
-      wave3.endPrice
-    );
+  if (wave3 && wave3.startPrice && wave3.endPrice && wave1 && wave1.endPrice) {
+    console.log("Calculating Wave 4 targets based on Elliott Wave principles:");
+    console.log(`- Wave 1 end: ${wave1.endPrice}`);
+    console.log(`- Wave 3 range: ${wave3.startPrice} to ${wave3.endPrice}`);
     
-    // Filter out any retracement levels that would go below Wave 2's end
-    const validRetracements = retracementLevels.filter(level => level.price > wave2.endPrice);
+    // Calculate Wave 3's height
+    const wave3Height = Math.abs(wave3.endPrice - wave3.startPrice);
+    const isUptrend = wave3.endPrice > wave3.startPrice;
+    const direction = isUptrend ? -1 : 1; // For retracements, we move in opposite direction
     
-    // Add Wave 2 end as an absolute barrier that shouldn't be crossed
+    // Specific Fibonacci levels for Wave 4 retracements
+    const fibLevels = [
+      { level: 0.236, label: "23.6% of Wave 3" },
+      { level: 0.382, label: "38.2% of Wave 3" },
+      { level: 0.5, label: "50% of Wave 3" },
+    ];
+    
+    // Calculate each retracement level as potential target for Wave 4
+    const retraceTargets = fibLevels.map(({ level, label }) => {
+      // Calculate the price target based on Wave 3's high and retracement level
+      const targetPrice = wave3.endPrice + (wave3Height * level * direction);
+      
+      // Check if this target would violate the Wave 1 territory rule
+      const violatesWave1 = isUptrend ? 
+        targetPrice < wave1.endPrice : 
+        targetPrice > wave1.endPrice;
+      
+      // Only include valid targets that respect Wave 1's territory
+      if (violatesWave1) {
+        console.log(`${label} target (${targetPrice.toFixed(2)}) violates Wave 1 territory - discarding`);
+        return null;
+      }
+      
+      return {
+        level,
+        price: targetPrice,
+        label,
+        isExtension: false
+      };
+    }).filter(target => target !== null) as FibTarget[];
+    
+    // Add all valid retracement targets
+    fibTargets.push(...retraceTargets);
+    
+    // Add Wave 1 end as an absolute barrier that shouldn't be crossed (critical level)
     fibTargets.push({
       level: 0,
-      price: wave2.endPrice,
-      label: "Wave 2 End (Limit)",
+      price: wave1.endPrice,
+      label: "Wave 1 End (Critical)",
       isExtension: false,
-      isCritical: true // Mark as a critical level that shouldn't be broken
+      isCritical: true // Important boundary that shouldn't be crossed
     });
     
-    // Only add the valid retracements to our targets
-    fibTargets.push(...validRetracements);
+    // Add the level of sub-wave 4 of Wave 3 if we had that information
+    // This would require a more detailed sub-wave analysis
     
-    // Also add the popular 38.2% and 50% retracement levels if they're valid
-    const wave3Range = wave3.endPrice - wave3.startPrice;
-    const target382 = wave3.endPrice - (wave3Range * 0.382);
-    const target50 = wave3.endPrice - (wave3Range * 0.5);
+    // Additional check for Wave 4 depth - it shouldn't retrace more than 50% of Wave 3
+    // This is already handled by our target calculation above
     
-    // Ensure these key levels are included if they're valid (above Wave 2 end)
-    if (target382 > wave2.endPrice && !validRetracements.some(t => Math.abs(t.price - target382) < 0.01)) {
-      fibTargets.push({
-        level: 0.382,
-        price: target382,
-        label: "38.2%",
-        isExtension: false
-      });
-    }
-    
-    if (target50 > wave2.endPrice && !validRetracements.some(t => Math.abs(t.price - target50) < 0.01)) {
-      fibTargets.push({
-        level: 0.5,
-        price: target50,
-        label: "50.0%",
-        isExtension: false
-      });
-    }
-    
-    // If we add the Wave 1 end check as well, it should be this:
-    if (wave1.endPrice) {
-      // Add Wave 1 end as another important level
-      fibTargets.push({
-        level: 0,
-        price: wave1.endPrice,
-        label: "Wave 1 End",
-        isExtension: false,
-        isCritical: true // Secondary critical level
-      });
-    }
+    // Log all generated targets
+    console.log(`Generated ${fibTargets.length} valid targets for Wave 4:`, 
+                fibTargets.map(t => `${t.label}: $${t.price.toFixed(2)}`).join(', '));
   }
 }
-  else if (lastWaveNumber === 5) {
-    // For Wave 5: calculate extensions from Wave 4 end
-    // Wave 5 is often 0.618, 1.0, or 1.618 × Wave 1
-    const wave1 = waves.find(w => w.number === 1);
+else if (lastWaveNumber === 5) {
+  // For Wave 5: calculate projections based on Wave relationships
+  const wave1 = waves.find(w => w.number === 1);
+  const wave3 = waves.find(w => w.number === 3);
+  const wave4 = waves.find(w => w.number === 4);
+  
+  if (wave1 && wave1.startPrice && wave1.endPrice && 
+      wave3 && wave3.startPrice && wave3.endPrice && 
+      wave4 && wave4.startPrice && lastWave.startPrice) {
     
-    if (wave1 && wave1.startPrice && wave1.endPrice && lastWave.startPrice) {
-      const wave1Length = Math.abs(wave1.endPrice - wave1.startPrice);
-      const isUptrend = wave1.endPrice > wave1.startPrice;
-      const direction = isUptrend ? 1 : -1;
-      
-      const projectionLevels = [
-        { level: 0.618, label: "61.8%" },
-        { level: 1.0, label: "100%" },
-        { level: 1.618, label: "161.8%" }
-      ];
-      
-      const wave5Targets = projectionLevels.map(({ level, label }) => ({
-        level,
-        price: lastWave.startPrice! + (wave1Length * level * direction),
-        label,
-        isExtension: true
-      }));
-      
-      fibTargets.push(...wave5Targets);
-    }
+    // Calculate wave lengths
+    const wave1Length = Math.abs(wave1.endPrice - wave1.startPrice);
+    const wave3Length = Math.abs(wave3.endPrice - wave3.startPrice);
+    const isUptrend = wave3.endPrice > wave3.startPrice;
+    const direction = isUptrend ? 1 : -1;
+    
+    // Calculate targets based on the different Elliott Wave relationships
+    
+    // Target 1: 0.618 of Wave 3 measured from Wave 4 low
+    const target618of3 = lastWave.startPrice + (wave3Length * 0.618 * direction);
+    fibTargets.push({
+      level: 0.618,
+      price: target618of3,
+      label: "61.8% of Wave 3",
+      isExtension: true
+    });
+    
+    // Target 2: 1.0 of Wave 3 measured from Wave 4 low
+    const target100of3 = lastWave.startPrice + (wave3Length * 1.0 * direction);
+    fibTargets.push({
+      level: 1.0,
+      price: target100of3,
+      label: "100% of Wave 3",
+      isExtension: true
+    });
+    
+    // Target 3: 1.618 of Wave 3 measured from Wave 4 low
+    const target1618of3 = lastWave.startPrice + (wave3Length * 1.618 * direction);
+    fibTargets.push({
+      level: 1.618,
+      price: target1618of3,
+      label: "161.8% of Wave 3",
+      isExtension: true
+    });
+    
+    // Target 4: Equal to Wave 1 measured from Wave 4 low (common when Wave 3 is extended)
+    const targetEqualW1 = lastWave.startPrice + (wave1Length * 1.0 * direction);
+    fibTargets.push({
+      level: 1.0,
+      price: targetEqualW1,
+      label: "100% of Wave 1",
+      isExtension: true
+    });
+    
+    // Target 5: 1.618 of Wave 1 measured from Wave 4 low
+    const target1618ofW1 = lastWave.startPrice + (wave1Length * 1.618 * direction);
+    fibTargets.push({
+      level: 1.618,
+      price: target1618ofW1,
+      label: "161.8% of Wave 1",
+      isExtension: true
+    });
+    
+    // Target 6: 1.618 of (Wave 1 + Wave 3) measured from Wave 4 low
+    const combinedLength = wave1Length + wave3Length;
+    const target1618Combined = lastWave.startPrice + (combinedLength * 1.618 * direction);
+    fibTargets.push({
+      level: 1.618,
+      price: target1618Combined,
+      label: "161.8% of (W1+W3)",
+      isExtension: true
+    });
+    
+    // Target 7: 0.618 of (Wave 1 + Wave 3) measured from Wave 4 low (conservative target)
+    const target618Combined = lastWave.startPrice + (combinedLength * 0.618 * direction);
+    fibTargets.push({
+      level: 0.618,
+      price: target618Combined,
+      label: "61.8% of (W1+W3)",
+      isExtension: true
+    });
+    
+    // Log all the targets for debugging
+    console.log(`Generated ${fibTargets.length} targets for Wave 5:`, 
+                fibTargets.map(t => `${t.label}: $${t.price.toFixed(2)}`).join(', '));
+                
+    // Also add any important existing targets that are still applicable
+    const wave3End = wave3.endPrice;
+    fibTargets.push({
+      level: 0,
+      price: wave3End,
+      label: "Wave 3 High",
+      isExtension: false,
+      isCritical: true // Important psychological level
+    });
   }
-  else {
+}
+else {
     // Default behavior for other waves
     // Calculate retracements based on the previous wave's move
     const previousWave = waves[waves.length - 2];
@@ -295,26 +374,38 @@ const validateFibTargets = (fibTargets: FibTarget[], waves: Wave[]): FibTarget[]
   // If we don't have enough waves for validation, return as-is
   if (waves.length < 2) return fibTargets;
   
+  // Find each required wave (using find to get the most recent instance if multiple exist)
   const wave1 = waves.find(w => w.number === 1);
   const wave2 = waves.find(w => w.number === 2);
   const wave3 = waves.find(w => w.number === 3);
   const wave4 = waves.find(w => w.number === 4);
   
-  // Filter targets based on Elliott Wave rules
+  // Check which wave is the current/last one
+  const lastWave = waves[waves.length - 1];
+  
+  console.log(`Validating ${fibTargets.length} targets for current wave ${lastWave?.number}`);
+  
+  // Filter targets based on Elliott Wave rules - add stricter filtering
   return fibTargets.filter(target => {
-    // For Wave 4, ensure targets don't go below Wave 2 end
-    if (wave4 && wave2 && target.label.includes('4')) {
-      return target.price >= wave2.endPrice!;
+    // CRITICAL FIX: For all targets when in Wave 4, enforce Wave 1 end boundary
+    if (lastWave?.number === 4 && wave1?.endPrice) {
+      const isValid = target.price >= wave1.endPrice;
+      if (!isValid) {
+        console.log(`REMOVED invalid Wave 4 target: ${target.label} at ${target.price.toFixed(2)} (violates Wave 1 end at ${wave1.endPrice.toFixed(2)})`);
+        return false; // Remove invalid targets
+      }
     }
     
     // For Wave 2, targets shouldn't go below Wave 1 start
-    if (wave2 && wave1 && target.label.includes('2')) {
-      return target.price >= wave1.startPrice;
+    if (lastWave?.number === 2 && wave1?.startPrice && target.price < wave1.startPrice) {
+      console.log(`REMOVED invalid Wave 2 target: ${target.label} at ${target.price.toFixed(2)} (below Wave 1 start)`);
+      return false;
     }
     
-    // For Wave 3, ensure targets are beyond Wave 1 end
-    if (wave3 && wave1 && target.label.includes('3') && target.isExtension) {
-      return target.price >= wave1.endPrice!;
+    // For Wave 3, ensure extension targets are beyond Wave 1 end
+    if (lastWave?.number === 3 && wave1?.endPrice && target.isExtension && target.price <= wave1.endPrice) {
+      console.log(`REMOVED invalid Wave 3 target: ${target.label} at ${target.price.toFixed(2)} (not beyond Wave 1 end)`);
+      return false;
     }
     
     return true;
@@ -322,7 +413,17 @@ const validateFibTargets = (fibTargets: FibTarget[], waves: Wave[]): FibTarget[]
 }
 
 // Call this validator before returning targets in calculateFibTargetsForWaves
-return validateFibTargets(fibTargets, waves);
+// At the end of calculateFibTargetsForWaves, apply the validation
+
+// Apply validation to all targets as a final check
+const validatedTargets = validateFibTargets(fibTargets, waves);
+  
+// Add additional debug logging
+if (validatedTargets.length !== fibTargets.length) {
+  console.log(`Validation removed ${fibTargets.length - validatedTargets.length} invalid targets`);
+}
+  
+return validatedTargets;
 };
 
 /**
@@ -781,30 +882,63 @@ const completeWaveAnalysis = (
               waveValid = false;
             } 
             // Check for overlap with Wave 1's end price (stricter rule)
-            else if (waves.length > 0) {
-              const wave1 = waves.find(w => w.number === 1);
+            else {
+              const wave1 = waves.find(w => w.number === 1) || pendingWaves.find(w => w.number === 1);
+              
               if (wave1 && endPoint.low <= wave1.endPrice!) {
                 console.log("Wave 4 invalidated - overlaps Wave 1 END territory");
                 patternInvalidated = true;
                 waveValid = false;
+              } else {
+                // Wave 4 is valid, next pivot should be considered for Wave 5
+                console.log("Wave 4 confirmed, expecting Wave 5 next");
               }
             } 
-            // Check if there's a Wave 1 in pending waves
-            else if (pendingWaves.length > 0) {
-              const wave1 = pendingWaves.find(w => w.number === 1);
-              if (wave1 && endPoint.low <= wave1.endPrice!) {
-                console.log("Wave 4 invalidated - overlaps Wave 1 END territory (from pending)");
-                patternInvalidated = true;
-                waveValid = false;
-              }
-            }
             break;
             
           case 5:
-            // ALWAYS transition to corrective pattern after Wave 5, regardless of amplitude
-            console.log("Completed impulse pattern 1-5, transitioning to corrective A-B-C pattern");
-            phase = 'corrective';
-            waveCount = 0; // Will increment to 1 for Wave A
+            // Make Wave 5 detection more lenient
+            // Simple rule: After Wave 4, if price moves in the direction of Wave 1 & 3, it's Wave 5
+            if (waves.length > 0 || pendingWaves.length > 0) {
+              const wave3 = waves.find(w => w.number === 3) || pendingWaves.find(w => w.number === 3);
+              const wave1 = waves.find(w => w.number === 1) || pendingWaves.find(w => w.number === 1);
+              
+              // If Wave 3 exists, Wave 5 should move in the same direction
+              if (wave3) {
+                const wave3Direction = wave3.endPrice! > wave3.startPrice;
+                const wave5Direction = endPoint.high > startPoint.low;
+                
+                if (wave3Direction !== wave5Direction) {
+                  console.log("Wave 5 invalidated - wrong direction compared to Wave 3");
+                  patternInvalidated = true;
+                  waveValid = false;
+                } else {
+                  console.log("Wave 5 confirmed - moving in correct direction");
+                  confirmPattern = true; // Force confirmation of the entire pattern
+                }
+              }
+              // If only Wave 1 exists, use that for direction
+              else if (wave1) {
+                const wave1Direction = wave1.endPrice! > wave1.startPrice;
+                const wave5Direction = endPoint.high > startPoint.low;
+                
+                if (wave1Direction !== wave5Direction) {
+                  console.log("Wave 5 invalidated - wrong direction compared to Wave 1");
+                  patternInvalidated = true;
+                  waveValid = false;
+                } else {
+                  console.log("Wave 5 confirmed - moving in correct direction");
+                  confirmPattern = true; // Force confirmation of the entire pattern
+                }
+              }
+            }
+            
+            // After Wave 5 is completed, look for corrective waves
+            if (waveValid) {
+              console.log("Completed impulse pattern 1-5, transitioning to corrective A-B-C pattern");
+              phase = 'corrective';
+              waveCount = 0; // Will increment to 1 for Wave A
+            }
             break;
         }
         break;
@@ -920,7 +1054,7 @@ export const analyzeElliottWaves = async (
     try {
       const priceRange = {
         low: Math.min(...priceData.map(d => d.low)),
-        high: Math.max(...priceData.map(d => d.high))  // Fixed arrow function syntax
+        high: Math.max(...priceData.map(d => d.high))  // Fixed: proper arrow function syntax
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -1008,6 +1142,49 @@ export const analyzeElliottWaves = async (
           } else if (!isStillValid) {
             console.log('Current price pattern violates wave rules - wave may be complete or invalidated');
           }
+        }
+
+        // In the analyzeElliottWaves function, where we check for ongoing waves, add this
+
+        // Modify this section to better detect ongoing Wave 5
+        if (result.waves.length > 0) {
+          const latestWave = result.waves[result.waves.length - 1];
+          
+          // If we have a Wave 4 but no Wave 5, check if current price movement suggests Wave 5
+          if (latestWave.number === 4) {
+            const wave1 = result.waves.find(w => w.number === 1);
+            const wave3 = result.waves.find(w => w.number === 3);
+            
+            if (wave1 && wave3) {
+              const impulseDirection = wave1.endPrice! > wave1.startPrice;
+              const currentDirection = currentPrice > latestWave.endPrice!;
+              
+              // If price is moving in the direction of impulsive waves after Wave 4...
+              if (impulseDirection === currentDirection) {
+                console.log('Detected potential ongoing Wave 5 after confirmed Wave 4');
+                
+                // Create a synthetic Wave 5
+                const syntheticWave5: Wave = {
+                  number: 5,
+                  startTimestamp: latestWave.endTimestamp!,
+                  startPrice: latestWave.endPrice!,
+                  // No end timestamp/price as it's ongoing
+                  type: 'impulse',
+                  isComplete: false,
+                  isImpulse: true
+                };
+                
+                // Add to waves and update result
+                result.waves.push(syntheticWave5);
+                result.currentWave = syntheticWave5;
+                
+                // Update Fibonacci targets for this new wave
+                result.fibTargets = calculateFibTargetsForWaves(result.waves, processData);
+              }
+            }
+          }
+          
+          // Rest of your existing wave validation code...
         }
         
         return result;
@@ -1252,24 +1429,150 @@ const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
 
 // Also update the completeWaveAnalysis function to validate wave continuity
 // Add this at an appropriate point inside the function:
+
+// Update the checkCurrentPrice function
+
 const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[]): boolean => {
   if (waves.length === 0) return true;
   const currentPrice = data[data.length - 1].close;
   
+  // Find the current wave (last one in the array)
+  const currentWave = waves[waves.length - 1];
+  
   // Check specific wave rule violations using current price
-  const wave3 = waves.find(w => w.number === 3);
-  if (wave3 && currentPrice < wave3.startPrice) {
-    console.log(`Current price invalidates Wave 3 pattern - price fell below where Wave 3 started`);
-    return false;
+  const wave1 = waves.find(w => w.number === 1);
+  
+  if (currentWave.number === 4 && wave1 && wave1.endPrice) {
+    if (currentPrice < wave1.endPrice) {
+      console.log(`❌ CRITICAL VIOLATION: Current price ${currentPrice.toFixed(2)} breaks below Wave 1 end (${wave1.endPrice.toFixed(2)})`);
+      console.log(`The Wave 4 pattern is invalidated - marking sequence as terminated`);
+      return false;
+    }
   }
   
-  // Add Wave 4 violation check
-  const wave4 = waves.find(w => w.number === 4);
+  // Other existing checks...
+  
+  return true;
+};
+
+// Add these helper functions for wave validation
+
+/**
+ * Validate that Wave 3 is the longest wave in an impulse
+ */
+const validateWave3IsLongest = (waves: Wave[]): boolean => {
   const wave1 = waves.find(w => w.number === 1);
-  if (wave4 && wave1 && currentPrice < wave1.endPrice!) {
-    console.log(`Current price invalidates Wave 4 pattern - price fell below where Wave 1 ended`);
+  const wave3 = waves.find(w => w.number === 3);
+  const wave5 = waves.find(w => w.number === 5);
+  
+  if (!wave1 || !wave3) return true; // Not enough waves to check
+  
+  const wave1Length = Math.abs(wave1.endPrice! - wave1.startPrice);
+  const wave3Length = Math.abs(wave3.endPrice! - wave3.startPrice);
+  
+  // Wave 3 should be longer than Wave 1
+  if (wave3Length <= wave1Length) {
+    console.log("Warning: Wave 3 is not longer than Wave 1 (unusual but not impossible)");
+  }
+  
+  // If Wave 5 exists, validate that Wave 3 is longest
+  if (wave5 && wave5.endPrice) {
+    const wave5Length = Math.abs(wave5.endPrice - wave5.startPrice);
+    
+    if (wave3Length < wave5Length && wave3Length < wave1Length) {
+      console.log("Warning: Wave 3 is the shortest impulse wave (violates Elliott Wave principle)");
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Validate that Wave 5 doesn't enter Wave 1 territory
+ */
+const validateWave5DoesNotOverlapWave1 = (waves: Wave[]): boolean => {
+  const wave1 = waves.find(w => w.number === 1);
+  const wave5 = waves.find(w => w.number === 5);
+  
+  if (!wave1 || !wave5 || !wave5.endPrice) return true; // Not enough waves to check
+  
+  // In an uptrend, Wave 5 low shouldn't go below Wave 1 high
+  // In a downtrend, Wave 5 high shouldn't go above Wave 1 low
+  const isUptrend = wave1.endPrice! > wave1.startPrice;
+  
+  if (isUptrend) {
+    return wave5.startPrice >= wave1.endPrice!;
+  } else {
+    return wave5.startPrice <= wave1.endPrice!;
+  }
+}
+
+/**
+ * Validate that Wave 4 is a corrective pattern
+ */
+const validateWave4IsCorrective = (waves: Wave[]): boolean => {
+  const wave4 = waves.find(w => w.number === 4);
+  
+  if (!wave4) return true; // No Wave 4 to check
+  
+  // Wave 4 must be corrective
+  if (wave4.type !== 'corrective') {
+    console.log("Error: Wave 4 must be corrective");
     return false;
   }
   
   return true;
-};
+}
+
+/**
+ * Check if a wave forms a zigzag pattern
+ * A zigzag consists of a 5-3-5 structure (5 waves down, 3 waves correction, 5 waves down)
+ */
+const detectZigzagPattern = (wave: Wave, data: StockHistoricalData[]): boolean => {
+  // Find data points corresponding to this wave
+  const startIdx = data.findIndex(d => d.timestamp === wave.startTimestamp);
+  const endIdx = data.findIndex(d => d.timestamp === wave.endTimestamp);
+  
+  if (startIdx === -1 || endIdx === -1 || endIdx - startIdx < 10) return false;
+  
+  // Get the price data for this wave segment
+  const waveData = data.slice(startIdx, endIdx + 1);
+  
+  // Look for 3 significant pivot points within the wave (A-B-C structure)
+  // Use a smaller threshold for detecting these sub-pivots
+  const pivots = findPivotsWithThreshold(waveData, 0.01);
+  
+  // A zigzag should have at least 3 significant pivots
+  return pivots.length >= 3;
+}
+
+/**
+ * Update the validateWaveSequence function to check for zigzags in Waves 2 and 4
+ */
+const enhancedValidateWaveSequence = (waves: Wave[], data: StockHistoricalData[]): boolean => {
+  // First perform the basic validation
+  if (!validateWaveSequence(waves, data[data.length - 1].close)) return false;
+  
+  // Then check for zigzag patterns in Wave 2 and 4
+  const wave2 = waves.find(w => w.number === 2);
+  const wave4 = waves.find(w => w.number === 4);
+  
+  if (wave2 && wave2.endTimestamp) {
+    const isZigzag = detectZigzagPattern(wave2, data);
+    if (!isZigzag) {
+      console.log("Warning: Wave 2 doesn't appear to form a zigzag pattern");
+      // Don't fail validation, just warn
+    }
+  }
+  
+  if (wave4 && wave4.endTimestamp) {
+    const isZigzag = detectZigzagPattern(wave4, data);
+    if (!isZigzag) {
+      console.log("Warning: Wave 4 doesn't appear to form a zigzag pattern");
+      // Don't fail validation, just warn
+    }
+  }
+  
+  return true;
+}

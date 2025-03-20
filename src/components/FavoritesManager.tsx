@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { X, Plus } from "lucide-react";
+import { X, Plus, Search } from "lucide-react";
 import { toast } from '@/lib/toast';
 import { supabase } from '@/lib/supabase';
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,6 +14,7 @@ interface FavoritesManagerProps {
 export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesChange }) => {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [newStock, setNewStock] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -108,8 +109,16 @@ export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesC
     }
   };
 
+  // Filter favorites based on search query
+  const filteredFavorites = useMemo(() => {
+    if (!searchQuery) return favorites;
+    const query = searchQuery.trim().toLowerCase();
+    return favorites.filter(stock => stock.toLowerCase().includes(query));
+  }, [favorites, searchQuery]);
+
   return (
     <div className="space-y-4">
+      {/* Add Stock Input */}
       <div className="flex space-x-2">
         <Input
           ref={inputRef}
@@ -125,15 +134,40 @@ export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesC
         </Button>
       </div>
       
+      {/* Add Search Box */}
+      <div className="relative">
+        <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search favorites..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-8"
+        />
+        {searchQuery && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6"
+            onClick={() => setSearchQuery('')}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+      
       {/* Scrollable container for favorites */}
       <ScrollArea className="h-[120px] border rounded-md p-2">
         <div className="flex flex-wrap gap-2 pb-1">
           {isLoading ? (
             <div className="text-sm text-muted-foreground p-2">Loading favorites...</div>
-          ) : favorites.length === 0 ? (
-            <div className="text-sm text-muted-foreground p-2">No favorites added yet</div>
+          ) : filteredFavorites.length === 0 ? (
+            <div className="text-sm text-muted-foreground p-2">
+              {favorites.length === 0 
+                ? "No favorites added yet" 
+                : `No results found for "${searchQuery}"`}
+            </div>
           ) : (
-            favorites.map(stock => (
+            filteredFavorites.map(stock => (
               <Badge key={stock} variant="secondary" className="group">
                 {stock}
                 <button 

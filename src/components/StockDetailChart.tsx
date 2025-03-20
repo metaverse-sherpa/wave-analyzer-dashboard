@@ -168,35 +168,116 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     return sortedWaves.find(wave => wave.number === 1);
   }, [waves]);
   
-  // Update the ohlcData calculation in the useMemo hook
+  // Fix the ohlcData calculation in the useMemo hook
 
-const ohlcData = useMemo(() => {
-  if (!data || data.length === 0) return [] as OHLCDataPoint[];
+const { ohlcData, startIndex: historicalStartIndex } = useMemo(() => {
+  if (!data || data.length === 0) return { ohlcData: [] as OHLCDataPoint[], startIndex: 0 };
   
-  // Filter data starting from most recent Wave 1 (if available)
-  let filteredData = [...data];
+  // Use the mostRecentWave1 that we've already calculated
   if (mostRecentWave1) {
-    const startTime = getTimestampValue(mostRecentWave1.startTimestamp);
-    // Find the exact index of Wave 1 start
-    const wave1Index = data.findIndex(d => getTimestampValue(d.timestamp) >= startTime);
+    const wave1Start = getTimestampValue(mostRecentWave1.startTimestamp);
     
-    if (wave1Index > -1) {
-      // Include exactly 5 bars before Wave 1 for minimal context
-      const contextIndex = Math.max(0, wave1Index - 5);
-      filteredData = data.slice(contextIndex);
-      console.log(`Displaying chart from index ${contextIndex} (Wave 1 starts at ${wave1Index})`);
-    } else {
-      console.warn("Wave 1 start timestamp not found in data");
+    // Add this debug in the ohlcData calculation
+    if (mostRecentWave1) {
+      const wave1Start = getTimestampValue(mostRecentWave1.startTimestamp);
+      console.log(`Most recent Wave 1 starts at: ${new Date(wave1Start).toLocaleString()}`);
+      
+      // Find index of data point 7 days before Wave 1 start
+      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+      const targetStartTime = wave1Start - sevenDaysMs;
+      console.log(`Target chart start time (7 days earlier): ${new Date(targetStartTime).toLocaleString()}`);
     }
+    
+    // Find index of data point 7 days before Wave 1 start
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const targetStartTime = wave1Start - sevenDaysMs;
+    
+    let startIndex = data.findIndex(d => getTimestampValue(d.timestamp) >= targetStartTime);
+    if (startIndex === -1) startIndex = 0;
+    if (startIndex > 0) startIndex--; // Include one more candle for context
+    
+    console.log(`Filtering chart data starting from ${new Date(targetStartTime).toLocaleDateString()} (7 days before most recent Wave 1)`);
+    
+    // Get the filtered historical data
+    const filteredData = data.slice(startIndex).map(d => {
+      // Numeric conversion with validation
+      const close = typeof d.close === 'number' ? d.close : parseFloat(d.close);
+      const open = typeof d.open === 'number' ? d.open : parseFloat(d.open);
+      const high = typeof d.high === 'number' ? d.high : parseFloat(d.high);
+      const low = typeof d.low === 'number' ? d.low : parseFloat(d.low);
+      
+      return {
+        timestamp: getTimestampValue(d.timestamp),
+        open: open,
+        high: high,
+        low: low,
+        close: close
+      };
+    });
+    
+    // Add 20 days of future data points for projections
+    const lastPoint = filteredData[filteredData.length - 1];
+    const futurePoints: OHLCDataPoint[] = [];
+    
+    if (lastPoint) {
+      const lastTimestamp = lastPoint.timestamp;
+      const lastClose = lastPoint.close;
+      
+      // Generate 20 future data points at daily intervals
+      for (let i = 1; i <= 20; i++) {
+        futurePoints.push({
+          timestamp: lastTimestamp + (i * 24 * 60 * 60 * 1000),
+          open: lastClose,
+          high: lastClose,
+          low: lastClose,
+          close: lastClose
+        });
+      }
+      
+      console.log(`Added ${futurePoints.length} future data points for projections`);
+    }
+    
+    // Return combined historical and future data
+    return {
+      ohlcData: [...filteredData, ...futurePoints],
+      startIndex
+    };
   }
   
-  return filteredData.map(d => ({
+  // If no Wave 1, return all data plus 20 days
+  const baseData = data.map(d => ({
     timestamp: getTimestampValue(d.timestamp),
-    open: d.open,
-    high: d.high,
-    low: d.low,
-    close: d.close
+    open: typeof d.open === 'number' ? d.open : parseFloat(d.open),
+    high: typeof d.high === 'number' ? d.high : parseFloat(d.high),
+    low: typeof d.low === 'number' ? d.low : parseFloat(d.low),
+    close: typeof d.close === 'number' ? d.close : parseFloat(d.close)
   }));
+  
+  // Add future points even if no Wave 1
+  if (baseData.length > 0) {
+    const lastPoint = baseData[baseData.length - 1];
+    const futurePoints: OHLCDataPoint[] = [];
+    
+    for (let i = 1; i <= 20; i++) {
+      futurePoints.push({
+        timestamp: lastPoint.timestamp + (i * 24 * 60 * 60 * 1000),
+        open: lastPoint.close,
+        high: lastPoint.close,
+        low: lastPoint.close,
+        close: lastPoint.close
+      });
+    }
+    
+    return {
+      ohlcData: [...baseData, ...futurePoints],
+      startIndex: 0
+    };
+  }
+  
+  return {
+    ohlcData: baseData,
+    startIndex: 0
+  };
 }, [data, mostRecentWave1]);
 
 // First, get the current price - add this right after the ohlcData useMemo block
@@ -213,6 +294,60 @@ const effectiveCurrentPrice = useMemo(() => {
   
   return null;
 }, [livePrice, ohlcData]);
+
+// Add this debugging right after receiving data in the component
+useEffect(() => {
+  if (data && data.length > 0) {
+    console.log("Sample data points:", data.slice(0, 3));
+  }
+}, [data]);
+
+// Add this right after the ohlcData useMemo
+const priceStats = useMemo(() => {
+  if (ohlcData.length === 0) return { min: 0, max: 100, validData: true };
+  
+  // Calculate min and max prices
+  let minPrice = Number.MAX_VALUE;
+  let maxPrice = Number.MIN_VALUE;
+  let invalidCount = 0;
+  
+  ohlcData.forEach(d => {
+    if (!isNaN(d.close) && d.close < 1000000) { // Reasonable upper bound for stock prices
+      minPrice = Math.min(minPrice, d.close);
+      maxPrice = Math.max(maxPrice, d.close);
+    } else {
+      invalidCount++;
+    }
+  });
+  
+  // If too many invalid values or the range is too extreme, something is wrong
+  const isValid = invalidCount < ohlcData.length * 0.1 && maxPrice / minPrice < 1000;
+  
+  if (!isValid) {
+    console.error("Detected potentially corrupted price data:", {
+      minPrice,
+      maxPrice,
+      invalidCount,
+      totalPoints: ohlcData.length,
+      samplePoints: ohlcData.slice(0, 5).map(d => d.close)
+    });
+  }
+  
+  return {
+    min: minPrice === Number.MAX_VALUE ? 0 : minPrice,
+    max: maxPrice === Number.MIN_VALUE ? 100 : maxPrice,
+    validData: isValid
+  };
+}, [ohlcData]);
+
+// Add an effect to alert about bad data
+useEffect(() => {
+  if (!priceStats.validData) {
+    console.error("CRITICAL ERROR: Price data appears to be corrupted. Check data source.");
+    
+    // You could also show a UI error here
+  }
+}, [priceStats.validData]);
   
   // Add a function to check if a wave belongs to the current sequence
   const isWaveInCurrentSequence = (wave: Wave): boolean => {
@@ -227,20 +362,26 @@ const effectiveCurrentPrice = useMemo(() => {
   const chartData: ChartData<'line'> = {
     labels: ohlcData.map(d => new Date(d.timestamp).toLocaleDateString()),
     datasets: [
-      // Price data
+      // Price data - with extra validation
       {
         type: 'line' as const,
         label: symbol,
-        data: ohlcData.map(d => d.close),
-        borderColor: 'rgba(76, 175, 80, 0.5)', // Make more transparent
-        backgroundColor: 'rgba(76, 175, 80, 0.05)', // Make fill very light
-        borderWidth: 1, // Reduce from default (3) to 1
+        data: ohlcData.map(d => {
+          // Extra validation to ensure we don't render bad values
+          if (isNaN(d.close) || d.close > 1000000) {
+            return null; // Skip this point rather than showing bad data
+          }
+          return d.close;
+        }),
+        borderColor: 'rgba(76, 175, 80, 0.7)', // Brighter green border
+        backgroundColor: 'rgba(76, 175, 80, 0.1)', // Much lighter green fill
+        borderWidth: 1.5, // Slightly thicker border
         fill: true,
         tension: 0.1,
-        pointRadius: 0, // Remove points on the price line
-        pointHoverRadius: 0, // No hover effect on points
-        z: 0, // Ensure price data stays behind wave lines
-        // Add explicit datalabels config to hide all labels for this dataset
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        z: 0,
+        spanGaps: true, // Important: connect across null values
         datalabels: {
           display: false
         }
@@ -265,111 +406,202 @@ const effectiveCurrentPrice = useMemo(() => {
       // Wave lines - one dataset per wave
       ...waves
         .filter(wave => {
-          // Only show waves that are part of the current sequence (after most recent Wave 1)
-          return isWaveInCurrentSequence(wave);
+          // Only include waves from the current sequence
+          if (!mostRecentWave1 || wave.number === 0) return false;
+          
+          // Check if this wave's start time is after the most recent Wave 1 start time
+          const wave1StartTime = getTimestampValue(mostRecentWave1.startTimestamp);
+          const waveStartTime = getTimestampValue(wave.startTimestamp);
+          
+          return waveStartTime >= wave1StartTime;
         })
         .map(wave => {
+          // Get wave color based on wave number
           const isCurrentWave = currentWave && wave.number === currentWave.number;
+          const color = getWaveColor(wave.number, isCurrentWave, wave.type);
           
-          // Instead of calculating points for every timestamp, just add the start and end points
-          const dataArray = Array(ohlcData.length).fill(null);
+          // Start and end timestamps
+          const startTimestamp = wave.startTimestamp;
+          const endTimestamp = wave.endTimestamp || data[data.length - 1].timestamp;
           
-          // Find the indexes corresponding to start and end timestamps
-          const startIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.startTimestamp));
-          let endIndex = -1;
+          // Find the data points within this wave's time range
+          let dataArray = Array(ohlcData.length).fill(null);
           
-          if (wave.endTimestamp) {
-            endIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.endTimestamp));
-          } else {
-            // For the current wave without an end timestamp, use the last data point
+          // Find indices with better boundary checking
+          const startIndex = ohlcData.findIndex(d => d.timestamp >= startTimestamp);
+          let endIndex = ohlcData.findIndex(d => d.timestamp >= endTimestamp);
+          
+          // Handle case where endTimestamp is beyond our data
+          if (endIndex === -1) {
             endIndex = ohlcData.length - 1;
           }
           
-          // Ensure valid indexes to draw wave lines properly
-          if (startIndex !== -1) {
-            dataArray[startIndex] = wave.startPrice;
-            
-            // If we have a valid end index, set that point too
-            if (endIndex !== -1) {
-              dataArray[endIndex] = wave.endPrice;
+          // Handle case where startTimestamp is before our data
+          const effectiveStartIndex = startIndex === -1 ? 0 : startIndex;
+          
+          // Debug output
+          console.log(`Drawing Wave ${wave.number}: startIndex=${effectiveStartIndex}, endIndex=${endIndex}, total=${ohlcData.length}`);
+          
+          // Only proceed if we have valid bounds
+          if (effectiveStartIndex <= endIndex && endIndex < ohlcData.length) {
+            // Populate data points for the wave duration
+            for (let i = effectiveStartIndex; i <= endIndex; i++) {
+              dataArray[i] = ohlcData[i].close;
             }
-            // For waves without end points or out-of-range endpoints
-            else if (wave.endPrice) {
-              dataArray[ohlcData.length - 1] = wave.endPrice;
-            }
-            
-            // Connect start and end points with a line by filling in intermediate points
-            if (startIndex < endIndex && wave.startPrice && wave.endPrice) {
-              const priceDiff = wave.endPrice - wave.startPrice;
-              const steps = endIndex - startIndex;
-              for (let i = 1; i < steps; i++) {
-                const interpolatedIndex = startIndex + i;
-                const ratio = i / steps;
-                dataArray[interpolatedIndex] = wave.startPrice + (priceDiff * ratio);
-              }
-            }
+          } else {
+            console.warn(`Wave ${wave.number} is completely outside chart bounds:`, 
+                        { start: effectiveStartIndex, end: endIndex, total: ohlcData.length });
           }
-      
+          
           return {
             type: 'line' as const,
             label: `Wave ${wave.number}`,
             data: dataArray,
-            borderColor: getWaveColor(wave.number, isCurrentWave, currentWave?.type),
-            // Remove pointBackgroundColor as we won't show points except at specific locations
-            
-            // Only show points at the start and end of waves, not along the line
-            pointRadius: (ctx: any) => {
-              const dataIndex = ctx.dataIndex;
-              // Show points only at start and end positions
-              if (dataIndex === startIndex || dataIndex === endIndex) {
-                return isCurrentWave ? 6 : 4;
-              }
-              return 0; // No dots for intermediate points
-            },
-            
-            // Reduce hover effect for cleaner look
-            pointHoverRadius: 4,
-            
-            // Solid line styling
+            borderColor: color,
             borderWidth: isCurrentWave ? 3 : 2,
+            // Add a dashed line pattern if the wave was terminated due to invalidation
+            borderDash: wave.isTerminated ? [5, 5] : [],
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointBackgroundColor: color,
             fill: false,
-            tension: 0.1, // Slight curve for better visual
-            spanGaps: true,
-            stepped: false,
-            z: isCurrentWave ? 15 : 5,
-            
-            // Only show labels at the end points
+            tension: 0.1,
+            z: 10,
             datalabels: {
+              // UPDATED: Only show label at the END of the wave
               display: (ctx: any) => {
-                const dataIndex = ctx.dataIndex;
-                // Only show label at the end point
-                return dataIndex === endIndex;
+                if (!dataArray[ctx.dataIndex]) return false;
+                
+                // Only show at the end index
+                return ctx.dataIndex === endIndex;
               },
-              backgroundColor: getWaveColor(wave.number, isCurrentWave),
-              borderRadius: 4,
+              // UPDATED: Only show the wave number, no Start/End text
+              formatter: (value: any, ctx: any) => {
+                const w = waves.find(w => `Wave ${w.number}` === ctx.dataset.label);
+                
+                // Just return the wave number with warning symbol if terminated
+                return w?.isTerminated 
+                  ? `${w.number}⚠️` 
+                  : `${w.number}`;
+              },
               color: 'white',
+              backgroundColor: color,
+              borderRadius: 4,
+              padding: { left: 6, right: 6, top: 2, bottom: 2 },
               font: {
-                weight: 'bold' as const,
-                size: isCurrentWave ? 14 : 11
+                weight: 'bold',
+                size: 10
               },
-              padding: { left: 5, right: 5, top: 3, bottom: 3 },
-              formatter: () => String(wave.number),
+              // Position the label at end of wave
               anchor: 'end',
-              align: 'top',
-              z: isCurrentWave ? 200 : 100,
-              offset: isCurrentWave ? 8 : 0
+              align: 'bottom',
+              offset: 0
             }
           };
         }),
+      // Add connection lines between waves - with YELLOW color for visibility
+      ...waves
+        .filter(wave => {
+          // Only include waves from the current sequence
+          if (!mostRecentWave1) return false;
+          
+          // Check if this wave belongs to the current sequence
+          const wave1StartTime = getTimestampValue(mostRecentWave1.startTimestamp);
+          const waveStartTime = getTimestampValue(wave.startTimestamp);
+          
+          return waveStartTime >= wave1StartTime && wave.number !== 0;
+        })
+        .map((wave, index, currentSequenceWaves) => {
+          // Skip the first wave since it doesn't need a connection line
+          if (wave.number === 1 || wave.number === 'A') {
+            console.log(`Skipping connection for first wave: ${wave.number}`);
+            return null;
+          }
+          
+          // For each wave, find the previous wave in the sequence
+          let prevWave;
+          
+          // Handle numeric waves (usually impulse waves 1-5)
+          if (typeof wave.number === 'number') {
+            const targetNumber = wave.number - 1;
+            prevWave = currentSequenceWaves.find(w => 
+              typeof w.number === 'number' && w.number === targetNumber
+            );
+            console.log(`Looking for previous wave ${targetNumber}, found: ${prevWave ? 'yes' : 'no'}`);
+          } 
+          // Handle ABC corrective waves
+          else if (wave.number === 'B') {
+            prevWave = currentSequenceWaves.find(w => w.number === 'A');
+          }
+          else if (wave.number === 'C') {
+            prevWave = currentSequenceWaves.find(w => w.number === 'B');
+          }
+          // Handle transition from corrective to impulse
+          else if (
+            ((typeof wave.number === 'number' && wave.number === 1) || 
+             (typeof wave.number === 'string' && wave.number === '1')) && 
+            currentSequenceWaves.some(w => w.number === 'C')
+          ) {
+            prevWave = currentSequenceWaves.find(w => w.number === 'C');
+          }
+          
+          // If we can't find the previous wave or either wave is missing required data, skip
+          if (!prevWave || !prevWave.endTimestamp || !prevWave.endPrice || !wave.startTimestamp || !wave.startPrice) {
+            console.log("Missing data for connection line: Wave " + wave.number);
+            return null;
+          }
+          
+          // Create a straight line connecting the waves
+          const startTime = getTimestampValue(prevWave.endTimestamp);
+          const endTime = getTimestampValue(wave.startTimestamp);
+          const startPrice = prevWave.endPrice;
+          const endPrice = wave.startPrice;
+          
+          // Find indices in the ohlcData array
+          const startIndex = ohlcData.findIndex(d => d.timestamp >= startTime);
+          const endIndex = ohlcData.findIndex(d => d.timestamp >= endTime);
+          
+          // If we can't find the indices, skip this connection
+          if (startIndex === -1 || endIndex === -1) {
+            console.log("Cannot draw connection: indices not found for " + prevWave.number + " to " + wave.number);
+            return null;
+          }
+          
+          console.log("Drawing connection from " + prevWave.number + " (" + startIndex + ") to " + wave.number + " (" + endIndex + ")");
+          
+          // Create data points only at start and end for a direct line
+          const dataArray = Array(ohlcData.length).fill(null);
+          dataArray[startIndex] = startPrice;
+          dataArray[endIndex] = endPrice;
+          
+          return {
+            type: 'line' as const,
+            label: "Connection " + prevWave.number + "-" + wave.number,
+            data: dataArray,
+            borderColor: 'rgba(255, 255, 0, 0.9)', // YELLOW with high opacity for maximum visibility
+            borderWidth: 3.5, // Even thicker for visibility
+            borderDash: [4, 3], // Short dashed pattern
+            pointRadius: 0, // No points along the line
+            fill: false,
+            tension: 0, // Straight line
+            z: 25, // Very high z-index to ensure visibility above everything else
+            spanGaps: true, // CRITICAL: Connects across null values
+            datalabels: {
+              display: false
+            }
+          };
+        })
+        .filter(Boolean), // Remove null entries
       // Fibonacci targets
       ...fibTargets
         .filter(target => {
-          if (!currentWave?.endPrice) return false;
+          // Only show targets if the current wave is NOT complete
+          if (!currentWave || currentWave.isComplete) return false;
           
           if (currentWave.type === 'impulse') {
-            return target.price > currentWave.endPrice;
+            return target.price > currentWave.endPrice || !currentWave.endPrice;
           } else {
-            return target.price < currentWave.endPrice;
+            return target.price < currentWave.endPrice || !currentWave.endPrice;
           }
         })
         .map(target => {
@@ -390,11 +622,12 @@ const effectiveCurrentPrice = useMemo(() => {
             dataArray[startIndex] = startPrice;
           }
           
+          // Always extend to the last point (which is now 20 days in the future)
           dataArray[dataArray.length - 1] = target.price;
           
           return {
             type: 'line' as const,
-            label: `${target.label}: $${target.price.toFixed(2)}`,
+            label: target.label + ": $" + target.price.toFixed(2),
             data: dataArray,
             borderColor: fibColor,
             borderWidth: 1.5,
@@ -410,7 +643,7 @@ const effectiveCurrentPrice = useMemo(() => {
             fill: false,
             tension: 0,
             spanGaps: true,
-            z: 10,
+            z: 5, // Lower z-index to keep below wave lines
             datalabels: {
               // Keep the existing datalabels configuration
               display: (ctx: any) => {
@@ -429,7 +662,7 @@ const effectiveCurrentPrice = useMemo(() => {
               // Simplified formatter - just show the price
               formatter: () => {
                 // Return only the price - no percentage
-                return `$${target.price.toFixed(2)}`;
+                return "$" + target.price.toFixed(2);
               },
               offset: 20,
               clamp: true,
@@ -451,20 +684,35 @@ const effectiveCurrentPrice = useMemo(() => {
     scales: {
       x: {
         grid: {
-          color: '#2d3748'
+          color: (context: any) => {
+            const index = context.tick.value;
+            // Calculate the index in the original data array before filtering
+            const dataLength = data ? data.length : 0;
+            // Check if this point is in the projection area (future data)
+            const isProjection = index >= (dataLength - historicalStartIndex);
+            return isProjection ? 'rgba(76, 175, 80, 0.1)' : '#2d3748';
+          }
         },
         ticks: {
           color: '#d1d5db',
           maxRotation: 0,
           autoSkip: true,
-          maxTicksLimit: 10, // Limit the number of x-axis labels
+          maxTicksLimit: 12, // Increased from 10 to show more dates
           callback: function(value: any, index: number) {
-            // Show fewer date labels for better readability
-            const date = new Date(ohlcData[index]?.timestamp);
-            return date.toLocaleDateString(undefined, {
+            const point = ohlcData[index];
+            if (!point) return '';
+            
+            const date = new Date(point.timestamp);
+            const isProjection = index >= data.length;
+            
+            // Format the date
+            const formattedDate = date.toLocaleDateString(undefined, {
               month: 'short',
               day: 'numeric'
             });
+            
+            // Add a + symbol for future dates
+            return isProjection ? "+" + formattedDate : formattedDate;
           }
         }
       },
@@ -478,7 +726,12 @@ const effectiveCurrentPrice = useMemo(() => {
         // Add a bit of padding to the y-axis so the labels don't get cut off
         afterFit: (scaleInstance: any) => {
           scaleInstance.width = scaleInstance.width + 20;
-        }
+        },
+        // Add min/max settings if we detect data issues
+        ...(priceStats.validData ? {} : {
+          min: priceStats.min * 0.9,
+          max: priceStats.max * 1.1
+        })
       }
     },
     plugins: {
@@ -524,7 +777,7 @@ const effectiveCurrentPrice = useMemo(() => {
           ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
           
           // Draw a small rectangle as background
-          const price = `$${effectiveCurrentPrice.toFixed(2)}`;
+          const price = "$" + effectiveCurrentPrice.toFixed(2);
           const textWidth = ctx.measureText(price).width + 10;
           
           ctx.fillRect(x - 5, y - 10, textWidth, 20);
@@ -557,6 +810,78 @@ const effectiveCurrentPrice = useMemo(() => {
     setChartLoaded(true);
   }, []);
   
+  // Add this before returning the chart component to help diagnose issues
+  useEffect(() => {
+    if (waves.length > 0) {
+      console.log("Wave data available:", waves.map(w => ({
+        number: w.number,
+        start: new Date(w.startTimestamp).toLocaleDateString(),
+        end: w.endTimestamp ? new Date(w.endTimestamp).toLocaleDateString() : 'ongoing',
+        startPrice: w.startPrice,
+        endPrice: w.endPrice || 'ongoing'
+      })));
+      
+      // Check if wave timestamps are within the displayed ohlcData range
+      const dataStart = ohlcData[0]?.timestamp;
+      const dataEnd = ohlcData[ohlcData.length - 1]?.timestamp;
+      
+      if (dataStart && dataEnd) {
+        console.log("Chart data range:", {
+          start: new Date(dataStart).toLocaleDateString(),
+          end: new Date(dataEnd).toLocaleDateString(),
+          points: ohlcData.length
+        });
+        
+        const outOfRangeWaves = waves.filter(w => 
+          w.startTimestamp < dataStart || 
+          (w.endTimestamp && w.endTimestamp > dataEnd)
+        );
+        
+        if (outOfRangeWaves.length > 0) {
+          console.warn("Some waves fall outside chart range:", 
+            outOfRangeWaves.map(w => w.number)
+          );
+        }
+      }
+    }
+  }, [waves, ohlcData]);
+
+  // Fix the out-of-range wave detection
+  useEffect(() => {
+    if (waves.length > 0 && mostRecentWave1) {
+      const wave1Start = getTimestampValue(mostRecentWave1.startTimestamp);
+      
+      // Only count waves from the current sequence - more strict filtering
+      const currentSequenceWaves = waves.filter(wave => {
+        // Check if wave is part of the current sequence (starts after Wave 1)
+        const waveStart = getTimestampValue(wave.startTimestamp);
+        return waveStart >= wave1Start && wave.number !== 0;
+      });
+      
+      // Log the waves we're focusing on
+      console.log("Current sequence waves:", currentSequenceWaves.map(w => w.number));
+      
+      if (currentSequenceWaves.length === 0) {
+        console.warn("No waves in current sequence to display");
+        return;
+      }
+      
+      // Check data range - exclude future projection points
+      const realDataPoints = data.length;
+      const dataStart = ohlcData[0]?.timestamp;
+      const dataEnd = ohlcData[realDataPoints - 1]?.timestamp;
+      
+      if (!dataStart || !dataEnd) return;
+      
+      console.log("Chart data range:", {
+        start: new Date(dataStart).toLocaleDateString(),
+        end: new Date(dataEnd).toLocaleDateString(),
+        actual: realDataPoints,
+        withProjections: ohlcData.length
+      });
+    }
+  }, [waves, ohlcData, mostRecentWave1, data.length]);
+  
   // Return early if no data
   if (!data || data.length === 0) {
     return (
@@ -568,14 +893,22 @@ const effectiveCurrentPrice = useMemo(() => {
   
   return (
     <div className="w-full h-[500px] relative">
+      {/* Add warning banner for invalid data */}
+      {!priceStats.validData && (
+        <div className="bg-red-500/20 border border-red-700 rounded-lg p-3 mb-3 text-red-100">
+          <strong>Warning:</strong> Chart data appears corrupted. Price values may be incorrect.
+          Please try refreshing the page or contact support if the issue persists.
+        </div>
+      )}
+      
       {/* Chart header */}
       <div className="flex justify-between items-start mb-4">
         <div>
           <h3 className="text-lg font-semibold">{symbol} - Elliott Wave Chart</h3>
           <p className="text-xs text-muted-foreground">
             {mostRecentWave1 
-              ? `Showing Elliott Wave sequence from ${new Date(mostRecentWave1.startTimestamp).toLocaleDateString()} to present` 
-              : `No wave patterns detected`
+              ? "Showing Elliott Wave sequence from " + new Date(mostRecentWave1.startTimestamp).toLocaleDateString() + " to present"
+              : "No wave patterns detected"
             }
           </p>
           {mostRecentWave1 && (

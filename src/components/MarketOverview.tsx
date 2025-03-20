@@ -121,86 +121,50 @@ const MarketOverview: React.FC = () => {
     return categorized;
   }, [analyses]);
 
-  // Generate market sentiment based on categorized stocks
-  const marketSentiment = useMemo(() => {
-    const analysisList = Object.values(analyses);
-    
-    if (!analysisList || analysisList.length === 0) {
-      return {
-        count: 0,
-        bullish: 0,
-        bearish: 0,
-        neutral: 0,
-        bullishPercentage: 0,
-        bearishPercentage: 0,
-        neutralPercentage: 0,
-        overallSentiment: 'Neutral'
-      };
-    }
-    
-    let bullish = 0;
-    let bearish = 0;
-    let neutral = 0;
-    
-    analysisList.forEach(analysis => {
-      if (!analysis || !analysis.waves || analysis.waves.length === 0) return;
-      
-      // Get the latest wave classification
-      const latestWave = analysis.waves[analysis.waves.length - 1];
-      
-      // Check if wave properties exist on the wave object
-      if (!latestWave) return;
-      
-      // Access properties safely using optional chaining
-      const waveDegree = (latestWave as any).degree;
-      const waveNumber = (latestWave as any).waveNumber || latestWave.number; // Try both property names
-      const waveTrend = (latestWave as any).trend;
-      
-      // Determine if this is an impulse or corrective wave
-      let isImpulseWave = false;
-      
-      if (typeof waveNumber === 'number') {
-        isImpulseWave = [1, 3, 5].includes(waveNumber);
-      } else if (typeof waveNumber === 'string') {
-        isImpulseWave = ['1', '3', '5'].includes(waveNumber);
-      }
-      
-      // Determine trend direction
-      const isUptrend = waveTrend === 'up' || waveTrend === true;
-      
-      // Classify sentiment
-      if ((isUptrend && isImpulseWave) || (!isUptrend && !isImpulseWave)) {
-        bullish++;
-      } else if ((isUptrend && !isImpulseWave) || (!isUptrend && isImpulseWave)) {
-        bearish++;
-      } else {
-        neutral++;
-      }
-    });
-    
-    const total = bullish + bearish + neutral;
-    const bullishPercentage = Math.round((bullish / total) * 100) || 0;
-    const bearishPercentage = Math.round((bearish / total) * 100) || 0;
-    const neutralPercentage = Math.round((neutral / total) * 100) || 0;
-    
-    // Determine overall sentiment
-    let overallSentiment = 'Neutral';
-    if (bullishPercentage > 60) overallSentiment = 'Bullish';
-    else if (bearishPercentage > 60) overallSentiment = 'Bearish';
-    else if (bullishPercentage > bearishPercentage + 10) overallSentiment = 'Slightly Bullish';
-    else if (bearishPercentage > bullishPercentage + 10) overallSentiment = 'Slightly Bearish';
-    
+  // Fix the market sentiment calculation to align with the categorized stocks counts
+
+const marketSentiment = useMemo(() => {
+  // Instead of processing the wave analysis details, let's use our categorized stocks directly
+  const bullish = categorizedStocks.bullish.length;
+  const bearish = categorizedStocks.bearish.length;
+  const total = bullish + bearish;
+  
+  if (total === 0) {
     return {
-      count: total,
-      bullish,
-      bearish,
-      neutral,
-      bullishPercentage,
-      bearishPercentage,
-      neutralPercentage,
-      overallSentiment
+      count: 0,
+      bullish: 0,
+      bearish: 0,
+      neutral: 0,
+      bullishPercentage: 0,
+      bearishPercentage: 0,
+      neutralPercentage: 0,
+      overallSentiment: 'Neutral'
     };
-  }, [analyses]);
+  }
+  
+  // Calculate percentages based on categorized stocks
+  const bullishPercentage = Math.round((bullish / total) * 100) || 0;
+  const bearishPercentage = Math.round((bearish / total) * 100) || 0;
+  const neutralPercentage = 0; // We don't have neutral in categorizedStocks
+  
+  // Determine overall sentiment
+  let overallSentiment = 'Neutral';
+  if (bullishPercentage > 60) overallSentiment = 'Bullish';
+  else if (bearishPercentage > 60) overallSentiment = 'Bearish';
+  else if (bullishPercentage > bearishPercentage + 10) overallSentiment = 'Slightly Bullish';
+  else if (bearishPercentage > bullishPercentage + 10) overallSentiment = 'Slightly Bearish';
+  
+  return {
+    count: total,
+    bullish,
+    bearish,
+    neutral: 0,
+    bullishPercentage,
+    bearishPercentage,
+    neutralPercentage,
+    overallSentiment
+  };
+}, [categorizedStocks]); // Only depend on categorizedStocks, not analyses
   
   // Navigate to stock details page
   const goToStockDetails = (symbol: string) => {

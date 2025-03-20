@@ -348,7 +348,8 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
 };
 
 // 4. Export the hook separately - this is what components will use
-export const useWaveAnalysis = (): WaveAnalysisContextValue => {
+// Use function declaration instead of const assignment for hooks to improve HMR
+export function useWaveAnalysis(): WaveAnalysisContextValue {
   const context = useContext(WaveAnalysisContext);
   
   if (!context) {
@@ -368,10 +369,4 @@ export const useWaveAnalysis = (): WaveAnalysisContextValue => {
   }
   
   return context;
-};
-
-// Replace your default export with this:
-export const forcePreload = async (symbols: string[]): Promise<void> => {
-  // Implementation of force preload functionality
-  return Promise.resolve();
-};
+}
