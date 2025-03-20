@@ -541,48 +541,175 @@ const chartData = {
         return true;
       })
       .map(wave => {
-        // Modified to only show wave points, not lines
         const startTimestamp = wave.startTimestamp;
+        const endTimestamp = wave.endTimestamp || data[data.length - 1].timestamp;
         
-        // Find the data points within this wave's time range
+        // Find BOTH start and end indices
         const startIndex = ohlcData.findIndex(d => d.timestamp >= startTimestamp);
-        const effectiveStartIndex = startIndex === -1 ? 0 : startIndex;
+        const endIndex = ohlcData.findIndex(d => d.timestamp >= endTimestamp);
         
-        // Create data array with nulls except at the wave point
+        const effectiveStartIndex = startIndex === -1 ? 0 : startIndex;
+        const effectiveEndIndex = endIndex === -1 ? ohlcData.length - 1 : endIndex;
+        
+        // Check invalidation
+        const isInvalidated = invalidWaves?.some(invalidWave => 
+          invalidWave.number === wave.number && 
+          Math.abs(getTimestampValue(invalidWave.startTimestamp) - 
+                   getTimestampValue(wave.startTimestamp)) < 86400000
+        );
+        
+        // Create data array with nulls except at start AND end points
         const dataArray = Array(ohlcData.length).fill(null);
         
         if (effectiveStartIndex < ohlcData.length) {
-          // Only add the point at the wave start
-          dataArray[effectiveStartIndex] = createSafeDataPoint(effectiveStartIndex, wave.startPrice).y;
+          // Add the point at wave start
+          dataArray[effectiveStartIndex] = createSafeDataPoint(effectiveStartIndex, 
+            wave.startPrice).y;
+          
+          // Add the point at wave end (for label placement)
+          if (effectiveEndIndex < ohlcData.length && wave.endPrice) {
+            dataArray[effectiveEndIndex] = createSafeDataPoint(effectiveEndIndex, 
+              wave.endPrice).y;
+          }
         }
         
         return {
           type: 'scatter',
-          label: `Wave ${wave.number}`,
+          label: `Wave ${wave.number}${isInvalidated ? ' (Invalidated)' : ''}`,
           data: dataArray,
-          backgroundColor: 'white', // White dots
-          borderColor: 'rgba(0, 0, 0, 0.5)', // Dark border around dots
-          borderWidth: 1,
-          pointRadius: 4, // Bigger points
-          pointHoverRadius: 6,
-          z: 10,
+          backgroundColor: isInvalidated ? 'rgba(255, 0, 0, 0.7)' : 'white',
+          borderColor: isInvalidated ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.5)',
+          borderWidth: isInvalidated ? 2 : 1,
+          pointRadius: (ctx: any) => {
+            // Only show points at start of wave
+            return ctx.dataIndex === effectiveStartIndex ? 
+              (isInvalidated ? 6 : 4) : 0;
+          },
+          pointHoverRadius: isInvalidated ? 8 : 6,
+          pointStyle: isInvalidated ? 'crossRot' : 'circle',
+          z: 15,
           datalabels: {
-            display: true,
-            formatter: (value: any) => `${wave.number}`,
+            // The issue is with your display condition - it's too restrictive
+            display: (ctx: any) => {
+              // Always show labels for invalidated waves, regardless of end point
+              if (isInvalidated) return true;
+              
+              // For valid waves, only show at the end point if it exists
+              return wave.endPrice && ctx.dataIndex === effectiveEndIndex;
+            },
+            formatter: (value: any, ctx: any) => {
+              // Only show X for invalidated waves and only at the start point
+              if (isInvalidated && ctx.dataIndex === effectiveStartIndex) {
+                return '❌';
+              }
+              // For normal waves, show the wave number
+              return `${wave.number}`;
+            },
             color: 'white',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: isInvalidated ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)',
             borderRadius: 4,
             padding: { left: 6, right: 6, top: 2, bottom: 2 },
             font: {
               weight: 'bold',
-              size: 10
+              size: isInvalidated ? 14 : 10,
             },
-            anchor: 'bottom',
-            align: 'bottom',
-            offset: 5
+            // Position the label directly over the point for invalidated waves
+            anchor: isInvalidated ? 'center' : 'end',
+            align: isInvalidated ? 'center' : 'bottom',
+            offset: isInvalidated ? 0 : 5
           }
         } as CustomChartDataset;
       }),
+    // Add current price line with dashed style
+    ...(effectiveCurrentPrice ? [{
+      type: 'line',
+      label: 'Current Price',
+      data: ohlcData.map((_, index) => createSafeDataPoint(index, effectiveCurrentPrice)),
+      borderColor: 'rgba(255, 255, 255, 0.6)',
+      borderWidth: 1,
+      borderDash: [3, 3],
+      pointRadius: 0,
+      tension: 0,
+      fill: false,
+      z: 20,
+      isLivePrice: livePrice && livePrice > 0,
+      datalabels: {
+        display: false
+      }
+    }] : []) as CustomChartDataset[],
+    // Add Fibonacci targets for incomplete waves
+    ...(currentWave && !currentWave.isComplete && fibTargets && fibTargets.length > 0 ? 
+      fibTargets
+        // Filter out "Wave 3 High" targets
+        .filter(target => !target.label.includes("Wave 3 High"))
+        .map(target => {
+          // Find the start point index for the current wave
+          const startIndex = ohlcData.findIndex(d => 
+            d.timestamp >= getTimestampValue(currentWave.startTimestamp)
+          );
+          
+          if (startIndex === -1) return null;
+          
+          // Create diagonal lines from start of wave to each fib target
+          const dataArray = Array(ohlcData.length).fill(null);
+          
+          // Add the start point
+          dataArray[startIndex] = createSafeDataPoint(startIndex, currentWave.startPrice).y;
+          
+          // Add the target point - draw to the projection area
+          const endIndex = Math.min(startIndex + 15, ohlcData.length - 1);
+          dataArray[endIndex] = createSafeDataPoint(endIndex, target.price).y;
+          
+          // Create the fib target dataset
+          return {
+            type: 'line',
+            label: `${target.label}: $${target.price.toFixed(2)}`,
+            data: ohlcData.map((_, i) => {
+              // Create a straight line from start point to end point
+              if (i === startIndex) {
+                // Starting point - must return a number, not an object
+                return currentWave.startPrice;
+              } 
+              else if (i === endIndex) {
+                // End point - must return a number, not an object
+                return target.price;
+              } 
+              else if (i > startIndex && i < endIndex) {
+                // Calculate points along the line for intermediate points
+                const progress = (i - startIndex) / (endIndex - startIndex);
+                return currentWave.startPrice + (target.price - currentWave.startPrice) * progress;
+              }
+              return null;
+            }),
+            borderColor: target.isExtension ? 'rgba(255, 152, 0, 0.9)' : 'rgba(33, 150, 243, 0.9)',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            fill: false,
+            tension: 0, // Straight line
+            pointRadius: [0], // No points except at the end
+            pointHoverRadius: 4,
+            pointBackgroundColor: target.isExtension ? 'rgba(255, 152, 0, 1.0)' : 'rgba(33, 150, 243, 1.0)',
+            pointBorderColor: 'white',
+            pointBorderWidth: 1,
+            order: 0, // Draw on top
+            datalabels: {
+              // Only show at the end point
+              display: (ctx: any) => ctx.dataIndex === endIndex,
+              // Simplified label - show only the rounded price with 4 decimal places
+              formatter: () => `$${target.price.toFixed(4)}`,
+              color: 'white', // Change to white text
+              backgroundColor: target.isExtension ? 'rgba(255, 152, 0, 0.9)' : 'rgba(33, 150, 243, 0.9)',
+              borderRadius: 4,
+              padding: { left: 6, right: 6, top: 3, bottom: 3 },
+              font: { weight: 'bold', size: 11 },
+              align: 'bottom',
+              anchor: 'bottom',
+              offset: 6
+            }
+          } as CustomChartDataset;
+        }).filter(Boolean)
+    : [])
   ]
 } as unknown as ChartData;
 

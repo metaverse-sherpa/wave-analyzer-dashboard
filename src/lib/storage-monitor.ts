@@ -9,6 +9,7 @@ const ALLOWED_KEYS = [
   'user-settings',   // Add any other keys you want to allow
   'test',             // Used by React DevTools extension
   'reversal-candidates-cache',
+  'symbols',
 ];
 
 // Function to check if a key should be allowed

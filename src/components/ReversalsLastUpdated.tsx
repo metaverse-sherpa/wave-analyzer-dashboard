@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { handleGlobalRefresh } from './ReversalsList';
 
 // Create a simple context to share the refresh state between components
 export const ReversalsContext = React.createContext<{
@@ -10,7 +11,10 @@ export const ReversalsContext = React.createContext<{
 }>({
   lastCacheUpdate: 0,
   refreshReversals: () => {
-    console.log('Default refresh function called - this should be overridden by provider');
+    console.log('Default refresh function called - using global refresh');
+    // Get symbols from localStorage or a simpler method
+    const symbols = localStorage.getItem('symbols')?.split(',') || ['AAPL', 'MSFT', 'GOOG'];
+    handleGlobalRefresh(symbols);
   },
   loading: false
 });

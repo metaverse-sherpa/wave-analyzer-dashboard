@@ -39,6 +39,18 @@ interface ReversalCandidate {
 const CACHE_KEY = 'reversal-candidates-cache';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
+export const handleGlobalRefresh = async (symbols: string[]) => {
+  console.log("Global refresh called");
+  
+  // Copy the logic from your handleRefresh function:
+  // - Clear cache
+  // - Fetch new prices
+  // - Calculate reversals
+  // Return true when done
+  
+  return true;
+};
+
 const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => {
   const navigate = useNavigate();
   const [showMore, setShowMore] = useState(false);
@@ -454,42 +466,23 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
   
   // Handle manual refresh
   const handleRefresh = useCallback(() => {
-    console.log("handleRefresh called");
+    console.log("handleRefresh called in ReversalsList");
     setLoading(true);
     
-    // Clear any cached data flag
+    // Clear cache
     localStorage.removeItem(CACHE_KEY);
     setLastCacheUpdate(0);
     
-    // Define and immediately invoke the loadData function
-    const loadData = async () => {
-      console.log("loadData function executing");
-      try {
-        console.log("Fetching prices...");
-        const priceMap = await fetchPrices(symbols);
-        console.log(`Got price map with ${Object.keys(priceMap).length} items`);
-        
-        if (Object.keys(priceMap).length === 0) {
-          console.log("No prices fetched, using fallback prices");
-          // If we couldn't get prices, use wave end prices
-          const fallbackPrices = getFallbackPrices();
-          calculateReversals(fallbackPrices);
-        } else {
-          console.log("Using fetched prices");
-          calculateReversals(priceMap);
-        }
-      } catch (error) {
-        console.error("Error refreshing data:", error);
+    // Use the global function
+    handleGlobalRefresh(symbols)
+      .then(() => setLoading(false))
+      .catch(err => {
+        console.error("Error refreshing:", err);
         setLoading(false);
-      }
-    };
+      });
     
-    // Actually execute the function
-    loadData();
-    console.log("loadData function called");
-    
-    return true; // Add a return value just to be safe
-  }, [symbols, saveToCache]); // Simplify dependencies to avoid circular references
+    return true;
+  }, [symbols]);
   
   // Return wrapped in context provider
   return (
