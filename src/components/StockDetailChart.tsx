@@ -558,6 +558,18 @@ const chartData = {
         return true;
       })
       .map(wave => {
+        // Don't render the final wave if it's the current wave and it's incomplete
+        // Compare with currentWave to ensure we're referring to the same wave
+        const isCurrentWave = currentWave && 
+                             wave.number === currentWave.number && 
+                             getTimestampValue(wave.startTimestamp) === getTimestampValue(currentWave.startTimestamp);
+        
+        // Skip rendering this wave if it's the current incomplete wave
+        // It will be drawn separately with a connection to the live price
+        if (isCurrentWave && !currentWave.isComplete) {
+          return null;
+        }
+        
         const startTimestamp = wave.startTimestamp;
         const endTimestamp = wave.endTimestamp || data[data.length - 1].timestamp;
         
@@ -636,7 +648,9 @@ const chartData = {
             offset: isInvalidated ? 0 : 5
           }
         } as CustomChartDataset;
-      }),
+      })
+      .filter(Boolean), // Filter out nulls for skipped waves
+
     // Add current price line with dashed style
     ...(effectiveCurrentPrice ? [{
       type: 'line',
@@ -729,7 +743,92 @@ const chartData = {
             }
           } as CustomChartDataset;
         }).filter(Boolean)
-    : [])
+    : []),
+
+    // Then add a new dataset specifically for the incomplete current wave
+    // Add this right after the waves mapping code
+    ...(currentWave && !currentWave.isComplete ? [{
+      type: 'line',
+      label: `Current Wave ${currentWave.number} (In Progress)`,
+      data: ohlcData.map((d, index) => {
+        // Find the index for the start of the current wave
+        const startIndex = ohlcData.findIndex(d => 
+          d.timestamp >= getTimestampValue(currentWave.startTimestamp)
+        );
+        
+        // Create a line from the wave start to the current price
+        if (index === startIndex) {
+          return currentWave.startPrice;
+        } else if (index > startIndex) {
+          // For the last point (current), use the live price
+          if (index === ohlcData.length - chartPaddingDays) {
+            return effectiveCurrentPrice;
+          }
+          
+          // For intermediate points, draw a straight line
+          // Calculate progress from start to current time
+          const totalTimespan = ohlcData[ohlcData.length - chartPaddingDays].timestamp - 
+                               ohlcData[startIndex].timestamp;
+          const currentProgress = d.timestamp - ohlcData[startIndex].timestamp;
+          const progress = totalTimespan > 0 ? (currentProgress / totalTimespan) : 0;
+          
+          // Linear interpolation from wave start price to current price
+          if (progress >= 0 && progress <= 1) {
+            return currentWave.startPrice + 
+                   (effectiveCurrentPrice - currentWave.startPrice) * progress;
+          }
+        }
+        return null;
+      }),
+      borderColor: getWaveColor(currentWave.number, true),
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      borderDash: [5, 5], // Dashed line for ongoing wave
+      pointRadius: [0], // No points except at specific locations
+      pointHoverRadius: 4,
+      fill: false,
+      tension: 0, // Straight line
+      z: 10,
+      datalabels: {
+        // Only show at start point and current price point
+        display: (ctx: any) => {
+          const startIndex = ohlcData.findIndex(d => 
+            d.timestamp >= getTimestampValue(currentWave.startTimestamp)
+          );
+          
+          // Show at the wave start
+          if (ctx.dataIndex === startIndex) return true;
+          
+          // Also show at the current price point
+          if (ctx.dataIndex === ohlcData.length - chartPaddingDays) return true;
+          
+          return false;
+        },
+        formatter: (value: any, ctx: any) => {
+          const startIndex = ohlcData.findIndex(d => 
+            d.timestamp >= getTimestampValue(currentWave.startTimestamp)
+          );
+          
+          // At wave start, show the wave number
+          if (ctx.dataIndex === startIndex) {
+            return `${currentWave.number}`;
+          }
+          
+          // At current price, show nothing (price is shown by current price line)
+          return '';
+        },
+        color: 'white',
+        backgroundColor: getWaveColor(currentWave.number, true),
+        borderRadius: 4,
+        padding: { left: 6, right: 6, top: 2, bottom: 2 },
+        font: {
+          weight: 'bold',
+          size: 10,
+        },
+        anchor: 'center',
+        align: 'center'
+      }
+    }] : [])
   ]
 } as unknown as ChartData;
 
