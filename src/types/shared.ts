@@ -1,20 +1,46 @@
 // Shared types used across the application
 export interface Wave {
-  number: string | number;
-  startTimestamp: number;  // Use number for all timestamps for compatibility
-  endTimestamp?: number;   // Optional for incomplete waves
-  startPrice: number;
-  endPrice?: number;       // Optional for incomplete waves
-  type: 'impulse' | 'corrective';
-  isComplete: boolean;
-  isImpulse?: boolean;
+  number: string | number;    // Wave number or letter (1, 2, 3, 4, 5, A, B, C)
+  startTimestamp: number;     // Timestamp for wave start
+  endTimestamp?: number;      // Timestamp for wave end (undefined if wave is in progress)
+  startPrice: number;         // Price at start of wave
+  endPrice?: number;          // Price at end of wave (undefined if wave is in progress)
+  type: 'impulse' | 'corrective';  // Wave type
+  isComplete: boolean;        // Whether the wave is complete
+  isImpulse?: boolean;        // Whether this is an impulse wave (1,3,5,B are impulse; 2,4,A,C are corrective)
+  degree?: string;            // Wave degree (Grand Super Cycle, Super Cycle, Cycle, Primary, etc.)
+  isValid?: boolean;          // Whether the wave follows Elliott Wave rules
+  isTerminated?: boolean;     // Whether the wave was terminated early due to rule violation
+  violationReason?: string;   // Description of the rule violation if any
+  
+  // Add these new properties for invalidation tracking
+  invalidationTimestamp?: number;  // When the wave was invalidated
+  invalidationPrice?: number;      // Price at invalidation
+  invalidationRule?: string;       // Which rule was violated
+
+  // Add these new properties for more detailed invalidation tracking
+  violatedWave?: {
+    number: number | string;
+    price: number;
+    timestamp?: number;
+  };
+  invalidationDetails?: {
+    validationLevel: number;
+    currentPrice: number;
+    percentViolation: string;
+  };
 }
 
 export interface FibTarget {
-  price: number;
-  label: string;
-  isExtension: boolean; // Make this required (not optional)
-  level: number;
+  level: number;      // Fibonacci ratio (e.g., 0.618, 1.618)
+  price: number;      // Price target
+  label: string;      // Display label (e.g., "61.8%")
+  isExtension: boolean; // True for extensions, false for retracements
+  isCritical?: boolean; // Optional flag for critical levels that shouldn't be broken
+  isPrimary?: boolean;  // Optional flag for primary Fibonacci levels
+  isExtended?: boolean; // Optional flag for extended wave targets
+  isFlat?: boolean;     // Optional flag for flat correction targets
+  isZigzag?: boolean;   // Optional flag for zigzag correction targets
 }
 
 export interface StockHistoricalData {

@@ -102,6 +102,7 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
           // Use startTimestamp for comparison instead of id
           const isSelected = selectedWave && wave.startTimestamp === selectedWave.startTimestamp;
           const isCurrent = currentWave && wave.startTimestamp === currentWave.startTimestamp;
+          const isInvalid = wave.invalidationTimestamp && wave.invalidationPrice;
           
           return (
             <div key={`${wave.number}-${wave.startTimestamp}`}>
@@ -110,17 +111,20 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                   ${wave.type === 'impulse' ? 'border-green-500/20' : 'border-red-500/20'}
                   ${isSelected 
                     ? 'bg-primary/20 border-2 border-yellow-400' 
-                    : 'hover:bg-accent/50 cursor-pointer transition-colors'}`}
+                    : 'hover:bg-accent/50 cursor-pointer transition-colors'}
+                  ${isInvalid ? 'border-red-500 border-dashed' : ''}`}
                 onClick={() => onWaveSelect(wave)}
                 role="button"
                 tabIndex={0}
               >
                 <div className="flex items-center gap-3">
                   <span className={`font-medium ${
-                    wave.type === 'impulse' ? 'text-green-500' : 'text-red-500'
+                    isInvalid ? 'text-red-500' : 
+                    (wave.type === 'impulse' ? 'text-green-500' : 'text-red-500')
                   }`}>
                     Wave {wave.number}
                     {isCurrent && <span className="ml-1 text-primary animate-pulse">•</span>}
+                    {isInvalid && <span className="ml-1 text-red-500">✗</span>}
                   </span>
                   <span className={`text-muted-foreground ${isSelected ? 'font-medium' : ''}`}>
                     {formatDate(wave.startTimestamp)} ({formatPrice(wave.startPrice!)})
@@ -129,21 +133,35 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                   <span className={`text-muted-foreground ${isSelected ? 'font-medium' : ''}`}>
                     {formatDate(wave.endTimestamp)} ({formatPrice(wave.endPrice!)})
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatDate(wave.startTimestamp)} - {wave.endTimestamp ? formatDate(wave.endTimestamp) : 'Present'}
-                  </span>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded-full ${
-                  wave.type === 'impulse' 
-                    ? 'bg-green-500/10 text-green-500' 
-                    : 'bg-red-500/10 text-red-500'
-                }`}>
-                  {wave.type}
-                </span>
+                <div className="flex flex-col items-end">
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    isInvalid ? 'bg-red-500/20 text-red-500' :
+                    (wave.type === 'impulse' 
+                      ? 'bg-green-500/10 text-green-500' 
+                      : 'bg-red-500/10 text-red-500')
+                  }`}>
+                    {isInvalid ? 'Invalid' : wave.type}
+                  </span>
+                  
+                  {/* Show invalidation details if this wave was invalidated */}
+                  {isInvalid && (
+                    <div className="text-xs text-red-400 mt-1">
+                      Invalidated: {formatDate(wave.invalidationTimestamp)} at {formatPrice(wave.invalidationPrice)}
+                    </div>
+                  )}
+                </div>
               </div>
               
-              {/* Fibonacci Targets Table - Only show for current wave */}
-              {isCurrent && (
+              {/* Show invalidation reason if available */}
+              {isInvalid && wave.invalidationRule && (
+                <div className="mt-1 mb-2 px-3 py-2 bg-red-500/5 border border-red-500/20 rounded text-xs text-red-400">
+                  <span className="font-medium">Rule violated:</span> {wave.invalidationRule}
+                </div>
+              )}
+              
+              {/* Fibonacci Targets Table - Only show for current wave and valid waves */}
+              {isCurrent && !isInvalid && (
                 <div className="mt-2 mb-4 pl-4 pr-2 py-3 bg-secondary/30 rounded-lg border border-border/50">
                   <h4 className="text-xs font-medium text-muted-foreground mb-2">
                     Fibonacci {wave.type === 'impulse' ? 'Extension' : 'Retracement'} Targets:

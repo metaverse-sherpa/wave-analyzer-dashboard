@@ -349,7 +349,7 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
 
 // 4. Export the hook separately - this is what components will use
 // Use function declaration instead of const assignment for hooks to improve HMR
-export function useWaveAnalysis(): WaveAnalysisContextValue {
+export const useWaveAnalysis = (): WaveAnalysisContextValue => {
   const context = useContext(WaveAnalysisContext);
   
   if (!context) {
@@ -369,4 +369,4 @@ export function useWaveAnalysis(): WaveAnalysisContextValue {
   }
   
   return context;
-}
+};

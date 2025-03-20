@@ -15,6 +15,9 @@
  */
 
 import { StockHistoricalData } from "@/services/yahooFinanceService";
+import { Wave, FibTarget } from '@/types/shared';
+
+export type { Wave, FibTarget };
 
 // Add this at the top level of your file, outside any function
 const thresholdCombinations = [
@@ -24,25 +27,12 @@ const thresholdCombinations = [
   { max: 0.07, min: 0.03 }
 ];
 
-// Define the Wave interface - represents a single Elliott Wave
-export interface Wave {
-  number: string | number;    // Wave number or letter (1, 2, 3, 4, 5, A, B, C)
-  startTimestamp: number;     // Timestamp for wave start
-  endTimestamp?: number;      // Timestamp for wave end (undefined if wave is in progress)
-  startPrice: number;         // Price at start of wave
-  endPrice?: number;          // Price at end of wave (undefined if wave is in progress)
-  type: 'impulse' | 'corrective';  // Wave type
-  isComplete: boolean;        // Whether the wave is complete
-  isImpulse?: boolean;        // Whether this is an impulse wave (1,3,5,B are impulse; 2,4,A,C are corrective)
-  degree?: string;            // Wave degree (Grand Super Cycle, Super Cycle, Cycle, Primary, etc.)
-  isValid?: boolean;          // Whether the wave follows Elliott Wave rules
-  isTerminated?: boolean;     // Whether the wave was terminated early due to rule violation
-  violationReason?: string;   // Description of the rule violation if any
-}
+
 
 // Define the WaveAnalysisResult interface - the complete analysis output
 export interface WaveAnalysisResult {
   waves: Wave[];                             // All detected waves in sequence
+  invalidWaves: Wave[];                      // All invalidated waves for visualization
   currentWave: Wave;                         // Most recent/current wave
   fibTargets: FibTarget[];                   // Fibonacci price targets
   trend: 'bullish' | 'bearish' | 'neutral';  // Overall trend direction
@@ -50,17 +40,6 @@ export interface WaveAnalysisResult {
   correctivePattern?: boolean;               // True if we've identified a complete corrective pattern (waves A-B-C)
 }
 
-// Define the Fibonacci target interface - price levels for potential reversals
-export interface FibTarget {
-  level: number;      // Fibonacci ratio (e.g., 0.618, 1.618)
-  price: number;      // Price target
-  label: string;      // Display label (e.g., "61.8%")
-  isExtension: boolean; // True for extensions, false for retracements
-  isCritical?: boolean; // Optional flag for critical levels that shouldn't be broken
-  isExtended?: boolean; // Optional flag for extended wave targets
-  isFlat?: boolean;      // Optional flag for flat correction targets
-  isZigzag?: boolean;    // Optional flag for zigzag correction targets
-}
 
 /**
  * Determine whether a wave is impulse or corrective based on its number/letter
@@ -339,9 +318,27 @@ else if (lastWaveNumber === 4) {
 }
 else if (lastWaveNumber === 5) {
   // For Wave 5: calculate projections based on Wave relationships
-  const wave1 = waves.find(w => w.number === 1);
-  const wave3 = waves.find(w => w.number === 3);
-  const wave4 = waves.find(w => w.number === 4);
+  
+  // Find the MOST RECENT waves by working backwards from the current wave
+  const recentWaves = [...waves].reverse();
+  
+  // Find Wave 4 and then Wave 3 that occurred just before this Wave 5
+  const wave4 = recentWaves.find(w => w.number === 4);
+  const wave3 = wave4 
+    ? waves.slice(0, waves.indexOf(wave4)).reverse().find(w => w.number === 3)
+    : recentWaves.find(w => w.number === 3);
+  
+  // Find Wave 1 from the same sequence
+  const wave1 = wave3
+    ? waves.slice(0, waves.indexOf(wave3)).reverse().find(w => w.number === 1)
+    : recentWaves.find(w => w.number === 1);
+  
+  // Add debug logging to confirm we're getting the correct waves
+  console.log("Found waves for Fibonacci calculations:");
+  if (wave1) console.log(`Wave 1: ${wave1.startPrice} to ${wave1.endPrice}`);
+  if (wave3) console.log(`Wave 3: ${wave3.startPrice} to ${wave3.endPrice}`);
+  if (wave4) console.log(`Wave 4: ${wave4.startPrice} to ${wave4.endPrice}`);
+  console.log(`Current Wave 5: ${lastWave.startPrice} to ${lastWave.endPrice || "ongoing"}`);
   
   if (wave1 && wave1.startPrice && wave1.endPrice && 
       wave3 && wave3.startPrice && wave3.endPrice && 
@@ -428,10 +425,32 @@ else if (lastWaveNumber === 5) {
     fibTargets.push({
       level: 0,
       price: wave3End,
-      label: "Wave 3 High",
+      label: `Wave 3 High (${formatPrice(wave3End)})`,
       isExtension: false,
       isCritical: true // Important psychological level
     });
+    
+    // Add the Wave 3 timestamp to the label for better clarity
+    function formatPrice(price: number): string {
+      return "$" + price.toFixed(2);
+    }
+    
+    // Add logging to help diagnose any future issues
+    console.log(`Added Wave 3 High target: ${formatPrice(wave3End)}`);
+  } else {
+    console.log("Could not find all required waves for Wave 5 Fibonacci targets");
+    
+    // Add fallback in case we can't find the proper waves
+    if (wave3 && wave3.endPrice) {
+      console.log(`Using available Wave 3 (${wave3.endPrice.toFixed(2)}) as reference level`);
+      fibTargets.push({
+        level: 0,
+        price: wave3.endPrice,
+        label: `Wave 3 High (${wave3.endPrice.toFixed(2)})`,
+        isExtension: false,
+        isCritical: true
+      });
+    }
   }
 }
 // Add to calculateFibTargetsForWaves function:
@@ -860,6 +879,7 @@ const getWaveTrend = (waveNumber: string | number): 'bullish' | 'bearish' | 'neu
  */
 const generateEmptyAnalysisResult = (): WaveAnalysisResult => ({
   waves: [],  // Empty array, not undefined
+  invalidWaves: [],  // Empty array for invalidated waves
   currentWave: {  // Properly initialized Wave object
     number: 0,
     startTimestamp: 0,
@@ -1045,6 +1065,7 @@ const completeWaveAnalysis = (
   console.log('✅ Initial pivot sequence validated');
   
   const waves: Wave[] = [];
+  const invalidWaves: Wave[] = []; // Store invalidated waves for visualization
   let pendingWaves: Wave[] = []; // Store potential waves here until validated
   let waveCount = 1;
   let phase: 'impulse' | 'corrective' = 'impulse';
@@ -1147,10 +1168,38 @@ const completeWaveAnalysis = (
               console.log("Wave 2 invalidated - no Wave 1 in pending waves");
               patternInvalidated = true;
               waveValid = false;
+              
+              // Mark invalidation point with current timestamp and price
+              wave.isValid = false;
+              wave.isTerminated = true;
+              wave.invalidationTimestamp = endPoint.timestamp;
+              wave.invalidationPrice = endPoint.low;
+              wave.invalidationRule = "No preceding Wave 1";
+              
+              // Store this invalid wave for display purposes
+              invalidWaves.push(wave);
+              
+              // Immediately restart search for Wave 1
+              phase = 'impulse';
+              waveCount = 1;
             } else if (endPoint.low <= pendingWaves[0].startPrice!) {
               console.log("Wave 2 invalidated - retraced beyond Wave 1 start");
               patternInvalidated = true;
               waveValid = false;
+              
+              // Mark invalidation point with current timestamp and price
+              wave.isValid = false;
+              wave.isTerminated = true;
+              wave.invalidationTimestamp = endPoint.timestamp;
+              wave.invalidationPrice = endPoint.low;
+              wave.invalidationRule = "Retraced beyond Wave 1 start";
+              
+              // Store this invalid wave for display purposes
+              invalidWaves.push(wave);
+              
+              // Immediately restart search for Wave 1
+              phase = 'impulse';
+              waveCount = 1;
             }
             break;
             
@@ -1177,17 +1226,45 @@ const completeWaveAnalysis = (
               patternInvalidated = true;
               waveValid = false;
             } 
-            // Check for overlap with Wave 1's end price (stricter rule)
+            // Enhance the Wave 4 overlap checking
             else {
               const wave1 = waves.find(w => w.number === 1) || pendingWaves.find(w => w.number === 1);
               
-              if (wave1 && endPoint.low <= wave1.endPrice!) {
-                console.log("Wave 4 invalidated - overlaps Wave 1 END territory");
-                patternInvalidated = true;
-                waveValid = false;
-              } else {
-                // Wave 4 is valid, next pivot should be considered for Wave 5
-                console.log("Wave 4 confirmed, expecting Wave 5 next");
+              if (wave1 && wave1.endPrice) {
+                // Strict Wave 4 validation for both completed and in-progress waves
+                const isBullish = wave1.endPrice > wave1.startPrice;
+                
+                // For a completed Wave 4, check its lowest/highest point
+                const isInvalidated = isBullish ? 
+                  endPoint.low <= wave1.endPrice : 
+                  endPoint.high >= wave1.endPrice;
+                
+                if (isInvalidated) {
+                  console.log(`Wave 4 invalidated - overlaps Wave 1 price territory`);
+                  console.log(`Wave 4 ${isBullish ? 'low' : 'high'}: ${isBullish ? endPoint.low.toFixed(2) : endPoint.high.toFixed(2)}`);
+                  console.log(`Wave 1 ${isBullish ? 'high' : 'low'}: ${wave1.endPrice.toFixed(2)}`);
+                  
+                  patternInvalidated = true;
+                  waveValid = false;
+                  
+                  // Mark invalidation point with current timestamp and price
+                  wave.isValid = false;
+                  wave.isTerminated = true;
+                  wave.invalidationTimestamp = endPoint.timestamp;
+                  wave.invalidationPrice = isBullish ? endPoint.low : endPoint.high;
+                  wave.invalidationRule = "Wave 4 entered Wave 1 price territory";
+                  
+                  // Store this invalid wave for display purposes
+                  invalidWaves.push({...wave});
+                  
+                  // Immediately restart search for Wave 1
+                  phase = 'impulse';
+                  waveCount = 1;
+                } else {
+                  // Wave 4 is valid, next pivot should be considered for Wave 5
+                  console.log("Wave 4 confirmed - does not overlap Wave 1 price territory");
+                  console.log("Expecting Wave 5 next");
+                }
               }
             } 
             break;
@@ -1370,7 +1447,7 @@ const completeWaveAnalysis = (
       onProgress([...waves, ...pendingWaves.map(w => ({...w, isPending: true}))]);
     }
 
-    if (!checkCurrentPrice(waves, data)) {
+    if (!checkCurrentPrice(waves, data, invalidWaves)) {
       console.log("Current price invalidates the pattern, resetting analysis");
       waves.length = 0; // Clear all waves to restart pattern detection
       pendingWaves.length = 0;
@@ -1387,6 +1464,7 @@ const completeWaveAnalysis = (
   // Return complete analysis result with only confirmed waves
   return {
     waves,
+    invalidWaves, // Add this new property
     currentWave: waves.length > 0 ? 
       // If the last wave ends at the latest price point, it might be ongoing
       (waves[waves.length - 1].endTimestamp === data[data.length - 1].timestamp ?
@@ -1585,50 +1663,9 @@ export const analyzeElliottWaves = async (
   } // Add this closing bracket
 };
 
-// Then the rest of the functions follow
-const hasVolumeConfirmation = (wave: Wave, data: StockHistoricalData[]): boolean => {
-  // Find data points corresponding to this wave
-  const startIdx = data.findIndex(d => d.timestamp === wave.startTimestamp);
-  const endIdx = data.findIndex(d => d.timestamp === wave.endTimestamp);
-  
-  if (startIdx === -1 || endIdx === -1) return true;
-  
-  // Calculate average volume before the wave
-  const beforeIdx = Math.max(0, startIdx - 10);
-  const beforeVolume = data.slice(beforeIdx, startIdx)
-    .reduce((sum, d) => sum + (d.volume || 0), 0) / (startIdx - beforeIdx);
-  
-  // Calculate average volume during the wave
-  const waveVolume = data.slice(startIdx, endIdx + 1)
-    .reduce((sum, d) => sum + (d.volume || 0), 0) / (endIdx - startIdx + 1);
-  
-  // Wave 3 should typically have higher volume
-  const volumeRatio = waveVolume / beforeVolume;
-  console.log(`Volume ratio for wave ${wave.number}: ${volumeRatio.toFixed(2)}`);
-  
-  return wave.number === 3 ? volumeRatio > 1.2 : true;
-};
 
 type WaveWithConfidence = Wave & { confidence: number };
 
-// Add confidence scoring
-const calculateWaveConfidence = (wave: Wave, waves: Wave[], data: StockHistoricalData[]): number => {
-  let confidence = 100;
-  
-  // Rules-based deductions with safety checks
-  if (wave.number === 2 && wave.endPrice && wave.startPrice && wave.endPrice < wave.startPrice * 0.9) 
-    confidence -= 10; // Deep Wave 2
-  
-  if (wave.number === 3 && wave.endPrice && waves.length > 0 && waves[0].endPrice && 
-      wave.endPrice < waves[0].endPrice * 1.5) 
-    confidence -= 10; // Weak Wave 3
-  
-  if (wave.number === 4 && wave.endPrice && waves.length > 0 && waves[0].endPrice && 
-      wave.endPrice < waves[0].endPrice) 
-    confidence -= 25; // Wave 4 overlap
-  
-  return Math.max(0, Math.min(100, confidence));
-};
 
 // Add this function to validate wave sequence integrity
 const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
@@ -1679,176 +1716,81 @@ const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
 // Also update the completeWaveAnalysis function to validate wave continuity
 // Add this at an appropriate point inside the function:
 
-// Update the checkCurrentPrice function
+// Enhance the checkCurrentPrice function to strictly enforce Wave 4 non-overlap rule
 
-const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[]): boolean => {
+const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWaves: Wave[] = []): boolean => {
   if (waves.length === 0) return true;
+  
   const currentPrice = data[data.length - 1].close;
+  const currentTimestamp = data[data.length - 1].timestamp;
   
   // Find the current wave (last one in the array)
   const currentWave = waves[waves.length - 1];
   
-  // Check specific wave rule violations using current price
-  const wave1 = waves.find(w => w.number === 1);
-  
-  if (currentWave.number === 4 && wave1 && wave1.endPrice) {
-    if (currentPrice < wave1.endPrice) {
-      console.log(`❌ CRITICAL VIOLATION: Current price ${currentPrice.toFixed(2)} breaks below Wave 1 end (${wave1.endPrice.toFixed(2)})`);
-      console.log(`The Wave 4 pattern is invalidated - marking sequence as terminated`);
-      return false;
+  // ENHANCED WAVE 4 VALIDATION:
+  // Check if current wave is Wave 4 or if we're in Wave 4
+  if (currentWave.number === 4 || 
+      (waves.length >= 3 && waves[waves.length - 1].number === 3 && !waves[waves.length - 1].isComplete)) {
+    
+    // Find Wave 1 from the current sequence
+    const wave1 = waves.find(w => w.number === 1);
+    
+    if (wave1 && wave1.endPrice) {
+      // In a bullish market, Wave 4 low should not go below Wave 1 high
+      // In a bearish market, Wave 4 high should not go above Wave 1 low
+      const isBullish = wave1.endPrice > wave1.startPrice;
+      const isInvalidated = isBullish ? 
+        currentPrice < wave1.endPrice : 
+        currentPrice > wave1.endPrice;
+      
+      if (isInvalidated) {
+        console.log(`❌ CRITICAL VIOLATION: Wave 4 entered Wave 1 price territory`);
+        console.log(`Current price ${currentPrice.toFixed(2)} ${isBullish ? 'below' : 'above'} Wave 1 ${isBullish ? 'high' : 'low'} (${wave1.endPrice.toFixed(2)})`);
+        
+        // Mark the current wave as invalid with detailed information
+        currentWave.isValid = false;
+        currentWave.isTerminated = true;
+        currentWave.invalidationTimestamp = currentTimestamp;
+        currentWave.invalidationPrice = currentPrice;
+        currentWave.invalidationRule = "Wave 4 entered Wave 1 price territory";
+        
+        // Store detailed information about this invalidation event
+        invalidWaves.push({
+          ...currentWave,
+          
+          // Add reference to the violated rule
+          violatedWave: {
+            number: 1,
+            price: wave1.endPrice,
+            timestamp: wave1.endTimestamp
+          },
+          
+          // Add specific values for visualization
+          invalidationDetails: {
+            validationLevel: wave1.endPrice,
+            currentPrice: currentPrice,
+            percentViolation: ((Math.abs(currentPrice - wave1.endPrice) / wave1.endPrice) * 100).toFixed(2) + "%"
+          }
+        });
+        
+        console.log(`The Elliott Wave pattern is invalidated - searching for a new Wave 1`);
+        
+        // Return false to trigger pattern reset
+        return false;
+      }
     }
   }
   
-  // Other existing checks...
+  // Additional checking for diagonal triangle exception (rare case)
+  if (currentWave.number === 4 && waves.length >= 4) {
+    // Check for diagonal triangle pattern (complex check - can add if needed)
+    // For now, let's just focus on the main rule
+  }
+  
+  // Other wave validations can be added here
   
   return true;
 };
 
-// Add these helper functions for wave validation
 
-/**
- * Validate that Wave 3 is the longest wave in an impulse
- */
-const validateWave3IsLongest = (waves: Wave[]): boolean => {
-  const wave1 = waves.find(w => w.number === 1);
-  const wave3 = waves.find(w => w.number === 3);
-  const wave5 = waves.find(w => w.number === 5);
-  
-  if (!wave1 || !wave3) return true; // Not enough waves to check
-  
-  const wave1Length = Math.abs(wave1.endPrice! - wave1.startPrice);
-  const wave3Length = Math.abs(wave3.endPrice! - wave3.startPrice);
-  
-  // Wave 3 should be longer than Wave 1
-  if (wave3Length <= wave1Length) {
-    console.log("Warning: Wave 3 is not longer than Wave 1 (unusual but not impossible)");
-  }
-  
-  // If Wave 5 exists, validate that Wave 3 is longest
-  if (wave5 && wave5.endPrice) {
-    const wave5Length = Math.abs(wave5.endPrice - wave5.startPrice);
-    
-    if (wave3Length < wave5Length && wave3Length < wave1Length) {
-      console.log("Warning: Wave 3 is the shortest impulse wave (violates Elliott Wave principle)");
-      return false;
-    }
-  }
-  
-  return true;
-}
-
-/**
- * Validate that Wave 5 doesn't enter Wave 1 territory
- */
-const validateWave5DoesNotOverlapWave1 = (waves: Wave[]): boolean => {
-  const wave1 = waves.find(w => w.number === 1);
-  const wave5 = waves.find(w => w.number === 5);
-  
-  if (!wave1 || !wave5 || !wave5.endPrice) return true; // Not enough waves to check
-  
-  // In an uptrend, Wave 5 low shouldn't go below Wave 1 high
-  // In a downtrend, Wave 5 high shouldn't go above Wave 1 low
-  const isUptrend = wave1.endPrice! > wave1.startPrice;
-  
-  if (isUptrend) {
-    return wave5.startPrice >= wave1.endPrice!;
-  } else {
-    return wave5.startPrice <= wave1.endPrice!;
-  }
-}
-
-/**
- * Validate that Wave 4 is a corrective pattern
- */
-const validateWave4IsCorrective = (waves: Wave[]): boolean => {
-  const wave4 = waves.find(w => w.number === 4);
-  
-  if (!wave4) return true; // No Wave 4 to check
-  
-  // Wave 4 must be corrective
-  if (wave4.type !== 'corrective') {
-    console.log("Error: Wave 4 must be corrective");
-    return false;
-  }
-  
-  return true;
-}
-
-/**
- * Check if a wave forms a zigzag pattern
- * A zigzag consists of a 5-3-5 structure (5 waves down, 3 waves correction, 5 waves down)
- */
-const detectZigzagPattern = (wave: Wave, data: StockHistoricalData[]): boolean => {
-  // Find data points corresponding to this wave
-  const startIdx = data.findIndex(d => d.timestamp === wave.startTimestamp);
-  const endIdx = data.findIndex(d => d.timestamp === wave.endTimestamp);
-  
-  if (startIdx === -1 || endIdx === -1 || endIdx - startIdx < 10) return false;
-  
-  // Get the price data for this wave segment
-  const waveData = data.slice(startIdx, endIdx + 1);
-  
-  // Look for 3 significant pivot points within the wave (A-B-C structure)
-  // Use a smaller threshold for detecting these sub-pivots
-  const pivots = findPivotsWithThreshold(waveData, 0.01);
-  
-  // A zigzag should have at least 3 significant pivots
-  return pivots.length >= 3;
-}
-
-/**
- * Update the validateWaveSequence function to check for zigzags in Waves 2 and 4
- */
-const enhancedValidateWaveSequence = (waves: Wave[], data: StockHistoricalData[]): boolean => {
-  // First perform the basic validation
-  if (!validateWaveSequence(waves, data[data.length - 1].close)) return false;
-  
-  // Then check for zigzag patterns in Wave 2 and 4
-  const wave2 = waves.find(w => w.number === 2);
-  const wave4 = waves.find(w => w.number === 4);
-  
-  if (wave2 && wave2.endTimestamp) {
-    const isZigzag = detectZigzagPattern(wave2, data);
-    if (!isZigzag) {
-      console.log("Warning: Wave 2 doesn't appear to form a zigzag pattern");
-      // Don't fail validation, just warn
-    }
-  }
-  
-  if (wave4 && wave4.endTimestamp) {
-    const isZigzag = detectZigzagPattern(wave4, data);
-    if (!isZigzag) {
-      console.log("Warning: Wave 4 doesn't appear to form a zigzag pattern");
-      // Don't fail validation, just warn
-    }
-  }
-  
-  return true;
-}
-
-// Update our wave detection for transitions from impulse to corrective patterns
-
-// In the validateWaveSequence or checkCurrentPrice function, add:
-const detectPotentialWaveA = (waves: Wave[], currentPrice: number): boolean => {
-  // Look for a completed Wave 5
-  const wave5 = waves.find(w => w.number === 5 && w.isComplete);
-  if (!wave5 || !wave5.endPrice) return false;
-  
-  // Calculate how far price has retraced from Wave 5 peak
-  const retracement = Math.abs(currentPrice - wave5.endPrice) / wave5.endPrice;
-  
-  // If price has retraced more than 3%, it could be starting Wave A
-  if (retracement > 0.03) {
-    const isUptrend = wave5.endPrice > wave5.startPrice;
-    const isMovingOpposite = (isUptrend && currentPrice < wave5.endPrice) || 
-                            (!isUptrend && currentPrice > wave5.endPrice);
-    
-    if (isMovingOpposite) {
-      console.log(`Potential Wave A detected: ${retracement.toFixed(2)}% retracement from Wave 5 peak`);
-      return true;
-    }
-  }
-  
-  return false;
-};
 

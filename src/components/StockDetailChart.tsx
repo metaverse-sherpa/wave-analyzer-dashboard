@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { StockHistoricalData } from '@/services/yahooFinanceService';
-import { Wave, FibTarget } from '@/utils/elliottWaveAnalysis';
-import { formatTimestamp } from '@/utils/dateUtils';
+import { Wave, FibTarget } from '@/types/shared';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { Skeleton } from '@/components/ui/skeleton';
+import {formatTimestamp} from '@/utils/dateUtils';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -132,11 +133,12 @@ interface StockDetailChartProps {
   symbol: string;
   data: StockHistoricalData[];
   waves: Wave[];
-  currentWave: Wave | null;
+  invalidWaves?: Wave[];  // Add this property
+  currentWave: Wave;
   fibTargets: FibTarget[];
-  selectedWave: Wave | null;
-  onClearSelection: () => void;
-  livePrice?: number; // Add this new prop
+  selectedWave?: Wave | null;
+  onClearSelection?: () => void;
+  livePrice?: number;
 }
 
 // Define OHLCDataPoint interface
@@ -163,7 +165,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   fibTargets,
   selectedWave,
   onClearSelection,
-  livePrice // Use the prop passed from the parent component
+  livePrice, // Use the prop passed from the parent component
+  invalidWaves
 }) => {
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [chartLoaded, setChartLoaded] = useState(false);
@@ -693,6 +696,56 @@ useEffect(() => {
             }
           };
         }),
+      // Add markers for invalid waves
+      ...(invalidWaves || []).map(wave => {
+        // Only include waves with invalidation information
+        if (!wave.invalidationTimestamp || !wave.invalidationPrice) return null;
+        
+        // Find the index in the data array
+        const invalidIdx = ohlcData.findIndex(d => d.timestamp >= wave.invalidationTimestamp);
+        if (invalidIdx === -1) return null;
+        
+        // Create specific highlighting for Wave 4 invalidations
+        const isWave4Violation = wave.number === 4 && wave.invalidationRule?.includes("Wave 1");
+        
+        // Create a dataset that shows an X at the invalidation point
+        return {
+          type: 'scatter' as const,
+          label: `Wave ${wave.number} Invalidated: ${wave.invalidationRule}`,
+          data: ohlcData.map((d, i) => {
+            if (i === invalidIdx) {
+              return { x: i, y: wave.invalidationPrice };
+            }
+            return null;
+          }),
+          backgroundColor: isWave4Violation ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.8)',
+          borderColor: isWave4Violation ? 'rgba(255, 0, 0, 1)' : 'rgba(255, 0, 0, 0.8)',
+          borderWidth: isWave4Violation ? 3 : 2,
+          pointStyle: isWave4Violation ? 'crossRot' : 'crossRot', // X shape
+          pointRadius: isWave4Violation ? 12 : 10,
+          pointHoverRadius: isWave4Violation ? 14 : 12,
+          showLine: false,
+          z: 40,
+          datalabels: {
+            display: true,
+            align: 'bottom',
+            anchor: 'center',
+            backgroundColor: isWave4Violation ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.8)',
+            borderRadius: 4,
+            color: 'white',
+            font: {
+              size: isWave4Violation ? 12 : 11,
+              weight: 'bold' as const
+            },
+            padding: { left: 6, right: 6, top: 3, bottom: 3 },
+            formatter: () => isWave4Violation ? 
+              `Wave 4 Invalid: Entered Wave 1 Territory` : 
+              `Wave ${wave.number} Invalid: ${wave.invalidationRule?.split(' ')[0]}...`,
+            offset: 8,
+            clamp: true
+          }
+        };
+      }).filter(Boolean),
     ] as ChartDataset<'line', any>[], // Type assertion to fix dataset type issues
   };
   

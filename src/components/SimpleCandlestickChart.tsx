@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { StockHistoricalData } from "@/services/yahooFinanceService";
-import { Wave } from "@/utils/elliottWaveAnalysis";
+import { Wave } from "@/types/shared";
 import {
   ResponsiveContainer,
   AreaChart,

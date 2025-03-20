@@ -1,6 +1,6 @@
 import React from 'react';
 import { Line } from 'recharts';
-import { Wave } from "@/utils/elliottWaveAnalysis";
+import { Wave } from "@/types/shared";  
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
