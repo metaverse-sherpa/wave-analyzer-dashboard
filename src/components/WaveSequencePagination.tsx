@@ -110,47 +110,93 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Wave list with integrated Fibonacci targets */}
       <div className="space-y-1">
         {displayedWaves.map((wave) => {
           const isInvalid = !!wave.invalidationTimestamp;
           const isSelected = selectedWave && selectedWave.startTimestamp === wave.startTimestamp;
+          const isCurrentWave = currentWave && 
+                               wave.number === currentWave.number && 
+                               wave.startTimestamp === currentWave.startTimestamp;
           
           return (
-            <div 
-              key={`wave-${wave.number}-${wave.startTimestamp}`}
-              className={`
-                flex justify-between items-center p-2 rounded-md cursor-pointer
-                ${isSelected ? 'bg-primary/20 border border-primary/50' : 'bg-card hover:bg-muted/10'}
-                ${isInvalid ? 'border-red-500/50 border' : ''}
-              `}
-              onClick={() => onWaveSelect(wave)}
-            >
-              <div className="flex items-center space-x-2">
-                {/* Add an "X" symbol for invalid waves */}
-                {isInvalid && (
-                  <span className="text-red-500 font-bold">❌</span>
-                )}
-                <span className={`font-medium ${isInvalid ? 'text-red-400' : ''}`}>
-                  Wave {wave.number}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(wave.startTimestamp).toLocaleDateString()}
-                </span>
+            <React.Fragment key={`wave-${wave.number}-${wave.startTimestamp}`}>
+              {/* Wave entry */}
+              <div 
+                className={`
+                  flex justify-between items-center p-2 rounded-md cursor-pointer
+                  ${isSelected ? 'bg-primary/20 border border-primary/50' : 'bg-card hover:bg-muted/10'}
+                  ${isInvalid ? 'border-red-500/50 border' : ''}
+                  ${isCurrentWave && !wave.isComplete ? 'border-green-500/30 border' : ''}
+                `}
+                onClick={() => onWaveSelect(wave)}
+              >
+                <div className="flex items-center space-x-2">
+                  {isInvalid && (
+                    <span className="text-red-500 font-bold">❌</span>
+                  )}
+                  {isCurrentWave && !wave.isComplete && (
+                    <span className="text-green-500 font-bold">🔄</span>
+                  )}
+                  <span className={`font-medium ${
+                    isInvalid ? 'text-red-400' : 
+                    (isCurrentWave && !wave.isComplete) ? 'text-green-400' : ''
+                  }`}>
+                    Wave {wave.number}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(wave.startTimestamp).toLocaleDateString()}
+                  </span>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  {isInvalid ? (
+                    <span className="text-xs text-red-400">
+                      {wave.invalidationRule?.split(' ')[0]}...
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      ${wave.startPrice.toFixed(2)} → ${wave.endPrice?.toFixed(2) || 'ongoing'}
+                    </span>
+                  )}
+                </div>
               </div>
               
-              <div className="flex items-center space-x-2">
-                {/* Show additional invalidation details if available */}
-                {isInvalid ? (
-                  <span className="text-xs text-red-400">
-                    {wave.invalidationRule?.split(' ')[0]}...
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">
-                    ${wave.startPrice.toFixed(2)} → ${wave.endPrice?.toFixed(2) || 'ongoing'}
-                  </span>
-                )}
-              </div>
-            </div>
+              {/* Fibonacci targets for current wave */}
+              {isCurrentWave && !wave.isComplete && fibTargets && fibTargets.length > 0 && (
+                <div className="ml-4 mb-3 mt-1 p-2 border-l-2 border-green-500/30 pl-2">
+                  <div className="text-xs font-medium text-muted-foreground mb-1">
+                    Fibonacci Targets for Wave {wave.number}:
+                  </div>
+                  <div className="space-y-1">
+                    {fibTargets
+                      .filter(target => !target.label.includes("Wave 3 High"))
+                      .map((target, index) => {
+                        const percentToTarget = calculatePercentChange(target.price, wave.startPrice);
+                        
+                        return (
+                          <div 
+                            key={`fib-${index}`}
+                            className="flex justify-between items-center rounded-sm p-1 text-xs"
+                          >
+                            <span className={`${target.isExtension ? 'text-orange-400' : 'text-blue-400'}`}>
+                              {target.label}
+                            </span>
+                            <div className="flex items-center space-x-1">
+                              <span className={`font-medium ${target.isExtension ? 'text-orange-400' : 'text-blue-400'}`}>
+                                ${target.price.toFixed(2)}
+                              </span>
+                              <span className="text-muted-foreground text-xs">
+                                {percentToTarget}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
           );
         })}
       </div>
