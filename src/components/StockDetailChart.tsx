@@ -30,6 +30,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels';
 // Add to StockDetailChart.tsx at the imports section
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { useAdminSettings } from '@/context/AdminSettingsContext';
 
 // Add this code right after the component imports, before the chart registration
 
@@ -189,6 +190,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   livePrice, // Use the prop passed from the parent component
   invalidWaves
 }) => {
+  const { settings } = useAdminSettings();
+  const chartPaddingDays = settings.chartPaddingDays;
+  
   const [viewMode, setViewMode] = useState<'all' | 'current'>('current');
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [chartLoaded, setChartLoaded] = useState(false);
@@ -248,16 +252,22 @@ const { ohlcData, startIndex: historicalStartIndex } = useMemo(() => {
     const futurePoints: OHLCDataPoint[] = [];
     
     if (lastPoint) {
+      // Use the live price if available, otherwise fall back to the last close price
+      const projectionPrice = livePrice && livePrice > 0 ? livePrice : lastPoint.close;
+      
       // Generate future points
-      for (let i = 1; i <= 20; i++) {
+      for (let i = 1; i <= chartPaddingDays; i++) {
         futurePoints.push({
           timestamp: lastPoint.timestamp + (i * 24 * 60 * 60 * 1000),
-          open: lastPoint.close,
-          high: lastPoint.close,
-          low: lastPoint.close,
-          close: lastPoint.close
+          open: projectionPrice,
+          high: projectionPrice,
+          low: projectionPrice,
+          close: projectionPrice
         });
       }
+      
+      // Log the projection for debugging
+      console.log(`Using ${livePrice && livePrice > 0 ? 'live price' : 'last close'} for projections: $${projectionPrice.toFixed(4)}`);
     }
     
     return {
@@ -309,7 +319,7 @@ const { ohlcData, startIndex: historicalStartIndex } = useMemo(() => {
       
       if (lastPoint) {
         // Generate future points
-        for (let i = 1; i <= 20; i++) {
+        for (let i = 1; i <= chartPaddingDays; i++) {
           futurePoints.push({
             timestamp: lastPoint.timestamp + (i * 24 * 60 * 60 * 1000),
             open: lastPoint.close,
@@ -981,13 +991,13 @@ useEffect(() => {
     // Only calculate data range if there's data
     if (ohlcData.length > 0) {
       const dataStart = ohlcData[0]?.timestamp;
-      const dataEnd = ohlcData[ohlcData.length - 21]?.timestamp; // Exclude future projection points
+      const dataEnd = ohlcData[ohlcData.length - (chartPaddingDays + 1)]?.timestamp; // Exclude future projection points
       
       if (dataStart && dataEnd) {
         console.log("Chart data range:", {
           start: new Date(dataStart).toLocaleDateString(),
           end: new Date(dataEnd).toLocaleDateString(),
-          points: ohlcData.length - 20 // Exclude projection points
+          points: ohlcData.length - chartPaddingDays // Exclude projection points
         });
         
         // Now check if waves are in range, but only warn about it

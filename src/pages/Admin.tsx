@@ -93,6 +93,7 @@ const AdminDashboard = () => {
   const [topStocks, setTopStocks] = useState<{symbol: string}[]>([]);
   const [stockCount, setStockCount] = useState(100);
   const [cacheExpiryDays, setCacheExpiryDays] = useState(7); // Default to 7 days
+  const [chartPaddingDays, setChartPaddingDays] = useState(20); // Default to 20 days
   const [aiAnalysisCount, setAiAnalysisCount] = useState(0);
   
   // Add back these state variables
@@ -949,7 +950,8 @@ const clearCacheByType = async (type: 'historical' | 'waves' | 'ai', skipConfirm
   // Add this function to save settings to Supabase
 const saveSettings = useCallback(async (settings: { 
   stockCount: number,
-  cacheExpiryDays: number 
+  cacheExpiryDays: number,
+  chartPaddingDays: number  // Add this line
 }) => {
   try {
     setIsRefreshing(true);
@@ -998,6 +1000,10 @@ const loadSettings = useCallback(async () => {
     
     if (data?.data?.cacheExpiryDays !== undefined) {
       setCacheExpiryDays(data.data.cacheExpiryDays);
+    }
+    
+    if (data?.data?.chartPaddingDays !== undefined) {
+      setChartPaddingDays(data.data.chartPaddingDays);
     }
   } catch (error) {
     console.error('Error loading settings:', error);
@@ -1371,8 +1377,10 @@ useEffect(() => {
         onOpenChange={setSettingsOpen}
         stockCount={stockCount}
         cacheExpiryDays={cacheExpiryDays}
+        chartPaddingDays={chartPaddingDays}  // Add this line
         setStockCount={setStockCount}
         setCacheExpiryDays={setCacheExpiryDays}
+        setChartPaddingDays={setChartPaddingDays}  // Add this line
         saveSettings={saveSettings}
         isRefreshing={isRefreshing}
         loadSettings={loadSettings}  // Add this line
@@ -1387,9 +1395,15 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   stockCount: number;
   cacheExpiryDays: number;
+  chartPaddingDays: number;  // Add this line
   setStockCount: (count: number) => void;
   setCacheExpiryDays: (days: number) => void;
-  saveSettings: (settings: { stockCount: number; cacheExpiryDays: number }) => void;
+  setChartPaddingDays: (days: number) => void;  // Add this line
+  saveSettings: (settings: { 
+    stockCount: number; 
+    cacheExpiryDays: number;
+    chartPaddingDays: number;  // Add this line 
+  }) => void;
   isRefreshing: boolean;
   loadSettings: () => Promise<void>; // Add this line
 }
@@ -1400,26 +1414,36 @@ const SettingsDialog = ({
   onOpenChange,
   stockCount,
   cacheExpiryDays,
+  chartPaddingDays,  // Add this line
   setStockCount,
   setCacheExpiryDays,
+  setChartPaddingDays,  // Add this line
   saveSettings,
   isRefreshing,
   loadSettings  // Add this line
 }: SettingsDialogProps) => {
   const [localStockCount, setLocalStockCount] = useState(stockCount);
   const [localCacheExpiryDays, setLocalCacheExpiryDays] = useState(cacheExpiryDays);
+  const [localChartPaddingDays, setLocalChartPaddingDays] = useState(chartPaddingDays);  // Add this line
+  const [activeTab, setActiveTab] = useState("settings");
   
   useEffect(() => {
     if (isOpen) {
       setLocalStockCount(stockCount);
       setLocalCacheExpiryDays(cacheExpiryDays);
+      setLocalChartPaddingDays(chartPaddingDays);
     }
-  }, [isOpen, stockCount, cacheExpiryDays]);
+  }, [isOpen, stockCount, cacheExpiryDays, chartPaddingDays]);  // Add chartPaddingDays to dependency array
   
   const handleSave = () => {
     setStockCount(localStockCount);
     setCacheExpiryDays(localCacheExpiryDays);
-    saveSettings({ stockCount: localStockCount, cacheExpiryDays: localCacheExpiryDays });
+    setChartPaddingDays(localChartPaddingDays);  // Add this line
+    saveSettings({ 
+      stockCount: localStockCount, 
+      cacheExpiryDays: localCacheExpiryDays,
+      chartPaddingDays: localChartPaddingDays  // Add this line
+    });
     onOpenChange(false);
   };
   
@@ -1429,62 +1453,91 @@ const SettingsDialog = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Cog className="h-5 w-5" />
-            Cache Settings
+            Settings
           </DialogTitle>
           <DialogDescription>
             Configure admin preferences and system parameters.
           </DialogDescription>
         </DialogHeader>
         
-        <div className="py-4 space-y-6">
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="stocks-to-analyze">Number of Stocks to Analyze</Label>
-              <span className="text-sm font-medium">{localStockCount}</span>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="settings">General Settings</TabsTrigger>
+            <TabsTrigger value="favorites">Favorites</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="settings" className="space-y-6 mt-4">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="stocks-to-analyze">Number of Stocks to Analyze</Label>
+                <span className="text-sm font-medium">{localStockCount}</span>
+              </div>
+              <Slider
+                id="stocks-to-analyze"
+                min={10}
+                max={5000}
+                step={10}
+                value={[localStockCount]}
+                onValueChange={(value) => setLocalStockCount(value[0])}
+                className="mt-2"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                This controls how many top stocks are loaded and analyzed. 
+                Higher numbers require more processing time.
+              </p>
             </div>
-            <Slider
-              id="stocks-to-analyze"
-              min={10}
-              max={5000}
-              step={10}
-              value={[localStockCount]}
-              onValueChange={(value) => setLocalStockCount(value[0])}
-              className="mt-2"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              This controls how many top stocks are loaded and analyzed. 
-              Higher numbers require more processing time.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="cache-expiry-days">Cache Expiry (Days)</Label>
-              <span className="text-sm font-medium">{localCacheExpiryDays}</span>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="cache-expiry-days">Cache Expiry (Days)</Label>
+                <span className="text-sm font-medium">{localCacheExpiryDays}</span>
+              </div>
+              <Slider
+                id="cache-expiry-days"
+                min={1}
+                max={30}
+                step={1}
+                value={[localCacheExpiryDays]}
+                onValueChange={(value) => setLocalCacheExpiryDays(value[0])}
+                className="mt-2"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                This controls how long cached data is retained before being refreshed.
+              </p>
             </div>
-            <Slider
-              id="cache-expiry-days"
-              min={1}
-              max={30}
-              step={1}
-              value={[localCacheExpiryDays]}
-              onValueChange={(value) => setLocalCacheExpiryDays(value[0])}
-              className="mt-2"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              This controls how long cached data is retained before being refreshed.
-            </p>
-          </div>
-        </div>
-        
-        <div className="border-t my-4"></div>
-  
-        <div className="space-y-2">
-          <h4 className="font-medium">Favorite Stocks</h4>
-          <p className="text-sm text-muted-foreground">
-            Add stocks that should always be included in analysis.
-          </p>
-          <FavoritesManager onFavoritesChange={loadSettings} />
-        </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="chart-padding-days">Chart Future Projection Days</Label>
+                <span className="text-sm font-medium">{localChartPaddingDays}</span>
+              </div>
+              <Slider
+                id="chart-padding-days"
+                min={5}
+                max={60}
+                step={1}
+                value={[localChartPaddingDays]}
+                onValueChange={(value) => setLocalChartPaddingDays(value[0])}
+                className="mt-2"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                This controls how many days of future projection space are added to charts.
+              </p>
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="favorites" className="mt-4">
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium">Favorite Stocks</h4>
+              <p className="text-xs text-muted-foreground">
+                Add stocks that should always be included in analysis regardless of market cap.
+              </p>
+              <div className="border rounded-md p-3 max-h-[300px] overflow-auto">
+                <FavoritesManager onFavoritesChange={loadSettings} />
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
         
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

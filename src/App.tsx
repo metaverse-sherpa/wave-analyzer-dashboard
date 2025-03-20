@@ -51,6 +51,7 @@ import AdminDashboard from "./pages/Admin";
 import { toast } from "@/components/ui/use-toast";
 import AnalysisStatusTracker from './components/AnalysisStatusTracker';
 import { initStorageMonitor } from '@/lib/storage-monitor';
+import { AdminSettingsProvider } from '@/context/AdminSettingsContext';
 
 // Initialize it before your app renders
 if (process.env.NODE_ENV === 'development') {
@@ -231,74 +232,76 @@ const App = () => {
             <KillSwitchContext.Provider value={{ killSwitch: calculationKillSwitch, setKillSwitch: setCalculationKillSwitch }}>
               <HistoricalDataProvider>
                 <WaveAnalysisProvider>
-                  <AnalysisStatusTracker />
-                  {loadState === 'loading' ? (
-                    <div className="flex items-center justify-center h-screen">
-                      <div className="text-center p-8">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4 mx-auto"></div>
-                        <h2 className="text-xl font-bold mb-2">Loading Data</h2>
-                        <p className="text-muted-foreground mb-4">
-                          Please wait while we load stock data and perform analysis...
-                        </p>
-                        
-                        {apiAvailable === false && (
-                          <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-4 text-left">
-                            <p className="text-yellow-700">
-                              <strong>Warning:</strong> The API server appears to be unavailable. 
-                              The application will work with limited functionality.
-                            </p>
-                          </div>
-                        )}
-                        
-                        <button
-                          onClick={() => {
-                            setLoadState('success');
-                            toast({
-                              title: "Limited Functionality",
-                              description: 'Data loading bypassed. Some features may be limited.',
-                              variant: "default" // Changed from "warning"
-                            });
-                          }}
-                          className="mt-4 px-4 py-2 bg-muted text-muted-foreground rounded"
-                        >
-                          Skip Loading
-                        </button>
+                  <AdminSettingsProvider>
+                    <AnalysisStatusTracker />
+                    {loadState === 'loading' ? (
+                      <div className="flex items-center justify-center h-screen">
+                        <div className="text-center p-8">
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4 mx-auto"></div>
+                          <h2 className="text-xl font-bold mb-2">Loading Data</h2>
+                          <p className="text-muted-foreground mb-4">
+                            Please wait while we load stock data and perform analysis...
+                          </p>
+                          
+                          {apiAvailable === false && (
+                            <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-4 text-left">
+                              <p className="text-yellow-700">
+                                <strong>Warning:</strong> The API server appears to be unavailable. 
+                                The application will work with limited functionality.
+                              </p>
+                            </div>
+                          )}
+                          
+                          <button
+                            onClick={() => {
+                              setLoadState('success');
+                              toast({
+                                title: "Limited Functionality",
+                                description: 'Data loading bypassed. Some features may be limited.',
+                                variant: "default" // Changed from "warning"
+                              });
+                            }}
+                            className="mt-4 px-4 py-2 bg-muted text-muted-foreground rounded"
+                          >
+                            Skip Loading
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <ErrorBoundary>
-                      <Toaster />
-                      <Sonner position="top-right" closeButton />
-                      <BrowserRouter>
-                        <Routes>
-                          <Route path="/" element={<Index />} />
-                          <Route path="/stocks/:symbol" element={<StockDetails />} />
-                          <Route path="/dashboard" element={<Dashboard />} />
-                          <Route path="/admin" element={<AdminDashboard />} />
-                          <Route path="*" element={<NotFound />} />
-                        </Routes>
-                      </BrowserRouter>
-                    </ErrorBoundary>
-                  )}
-                  
-                  <DataInitializer 
-                    onDataLoaded={() => {
-                      // Only update state if not already loaded
-                      if (loadState === 'loading') {
-                        console.log("Data successfully loaded from DataInitializer");
-                        setLoadState('success');
-                      }
-                    }}
-                    onError={(msg) => {
-                      console.error("DataInitializer error:", msg);
-                      // Still set success to allow app to load
-                      if (loadState === 'loading') {
-                        setLoadState('success');
-                      }
-                    }}
-                  />
-                  
-                  {/* Your emergency buttons */}
+                    ) : (
+                      <ErrorBoundary>
+                        <Toaster />
+                        <Sonner position="top-right" closeButton />
+                        <BrowserRouter>
+                          <Routes>
+                            <Route path="/" element={<Index />} />
+                            <Route path="/stocks/:symbol" element={<StockDetails />} />
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/admin" element={<AdminDashboard />} />
+                            <Route path="*" element={<NotFound />} />
+                          </Routes>
+                        </BrowserRouter>
+                      </ErrorBoundary>
+                    )}
+                    
+                    <DataInitializer 
+                      onDataLoaded={() => {
+                        // Only update state if not already loaded
+                        if (loadState === 'loading') {
+                          console.log("Data successfully loaded from DataInitializer");
+                          setLoadState('success');
+                        }
+                      }}
+                      onError={(msg) => {
+                        console.error("DataInitializer error:", msg);
+                        // Still set success to allow app to load
+                        if (loadState === 'loading') {
+                          setLoadState('success');
+                        }
+                      }}
+                    />
+                    
+                    {/* Your emergency buttons */}
+                  </AdminSettingsProvider>
                 </WaveAnalysisProvider>
               </HistoricalDataProvider>
             </KillSwitchContext.Provider>
