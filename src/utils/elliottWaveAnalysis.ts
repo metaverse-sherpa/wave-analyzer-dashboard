@@ -1091,9 +1091,33 @@ const completeWaveAnalysis = (
       continue;
     }
 
-    // Reset pattern if prior wave was invalidated
+    // Handle invalidation and restart wave detection more intelligently
     if (patternInvalidated) {
       console.log('Pattern invalidated, looking for new Wave 1');
+      
+      // Get the restart timestamp if it exists on the last wave
+      const lastWave = waves[waves.length - 1] || (pendingWaves.length > 0 ? pendingWaves[pendingWaves.length - 1] : null);
+      const restartTimestamp = lastWave?.restartFromTimestamp;
+      
+      // If we have a restart timestamp from Wave 2 end, use it
+      if (restartTimestamp) {
+        // Find the pivot pair that matches or follows our restart timestamp
+        let foundRestart = false;
+        
+        for (let j = i; j < pivotPairs.length; j++) {
+          if (pivotPairs[j].startPoint.timestamp >= restartTimestamp) {
+            console.log(`Restarting wave detection at pivot ${j} (${formatDate(pivotPairs[j].startPoint.timestamp)})`);
+            i = j - 1; // Will be incremented to j at next loop iteration
+            foundRestart = true;
+            break;
+          }
+        }
+        
+        if (!foundRestart) {
+          console.log(`Could not find restart pivot - continuing from current position`);
+        }
+      }
+      
       phase = 'impulse';
       waveCount = 1;
       patternInvalidated = false;
@@ -1464,7 +1488,7 @@ const completeWaveAnalysis = (
   // Return complete analysis result with only confirmed waves
   return {
     waves,
-    invalidWaves, // Add this new property
+    invalidWaves, // Make sure this property is included
     currentWave: waves.length > 0 ? 
       // If the last wave ends at the latest price point, it might be ongoing
       (waves[waves.length - 1].endTimestamp === data[data.length - 1].timestamp ?
@@ -1517,7 +1541,7 @@ export const analyzeElliottWaves = async (
     try {
       const priceRange = {
         low: Math.min(...priceData.map(d => d.low)),
-        high: Math.max(...priceData.map(d => d.high))  // Fixed arrow function syntax
+        high: Math.max(...priceData.map(d => d.high))  // Proper arrow function syntax
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -1716,7 +1740,7 @@ const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
 // Also update the completeWaveAnalysis function to validate wave continuity
 // Add this at an appropriate point inside the function:
 
-// Enhance the checkCurrentPrice function to strictly enforce Wave 4 non-overlap rule
+// Enhance the checkCurrentPrice function to restart pattern detection more intelligently
 
 const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWaves: Wave[] = []): boolean => {
   if (waves.length === 0) return true;
@@ -1734,6 +1758,7 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
     
     // Find Wave 1 from the current sequence
     const wave1 = waves.find(w => w.number === 1);
+    const wave2 = waves.find(w => w.number === 2);
     
     if (wave1 && wave1.endPrice) {
       // In a bullish market, Wave 4 low should not go below Wave 1 high
@@ -1747,6 +1772,11 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
         console.log(`❌ CRITICAL VIOLATION: Wave 4 entered Wave 1 price territory`);
         console.log(`Current price ${currentPrice.toFixed(2)} ${isBullish ? 'below' : 'above'} Wave 1 ${isBullish ? 'high' : 'low'} (${wave1.endPrice.toFixed(2)})`);
         
+        // Store Wave 2's end point for later use when restarting wave detection
+        if (wave2) {
+          console.log(`Will restart wave detection at Wave 2 end: ${formatDate(wave2.endTimestamp!)} (${wave2.endPrice!.toFixed(2)})`);
+        }
+        
         // Mark the current wave as invalid with detailed information
         currentWave.isValid = false;
         currentWave.isTerminated = true;
@@ -1754,26 +1784,22 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
         currentWave.invalidationPrice = currentPrice;
         currentWave.invalidationRule = "Wave 4 entered Wave 1 price territory";
         
-        // Store detailed information about this invalidation event
+        // Store this invalid wave for display
         invalidWaves.push({
           ...currentWave,
-          
-          // Add reference to the violated rule
-          violatedWave: {
-            number: 1,
-            price: wave1.endPrice,
-            timestamp: wave1.endTimestamp
-          },
-          
-          // Add specific values for visualization
-          invalidationDetails: {
-            validationLevel: wave1.endPrice,
-            currentPrice: currentPrice,
-            percentViolation: ((Math.abs(currentPrice - wave1.endPrice) / wave1.endPrice) * 100).toFixed(2) + "%"
-          }
+          // Include allowed properties only
+          isValid: false,
+          isTerminated: true,
+          invalidationTimestamp: currentTimestamp,
+          invalidationPrice: currentPrice,
+          invalidationRule: "Wave 4 entered Wave 1 price territory"
         });
         
-        console.log(`The Elliott Wave pattern is invalidated - searching for a new Wave 1`);
+        // Store Wave 2's end timestamp to allow pattern restart from that point
+        // This will be used in completeWaveAnalysis to know where to restart
+        currentWave.restartFromTimestamp = wave2?.endTimestamp;
+        
+        console.log(`The Elliott Wave pattern is invalidated - searching for a new Wave 1 from Wave 2 end`);
         
         // Return false to trigger pattern reset
         return false;
@@ -1781,13 +1807,7 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
     }
   }
   
-  // Additional checking for diagonal triangle exception (rare case)
-  if (currentWave.number === 4 && waves.length >= 4) {
-    // Check for diagonal triangle pattern (complex check - can add if needed)
-    // For now, let's just focus on the main rule
-  }
-  
-  // Other wave validations can be added here
+  // Other validations...
   
   return true;
 };

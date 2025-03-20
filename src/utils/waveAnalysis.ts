@@ -72,6 +72,7 @@ export const analyzeWaves = (
   
   return {
     waves,
+    invalidWaves: [], // Add this line to initialize with empty array
     currentWave: waves.length > 0 ? waves[waves.length - 1] : null,
     fibTargets: calculateFibTargets(waves[0], waves[1]),
     trend: determineTrend(waves) as 'bullish' | 'bearish' | 'neutral',

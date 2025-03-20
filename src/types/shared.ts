@@ -29,6 +29,9 @@ export interface Wave {
     currentPrice: number;
     percentViolation: string;
   };
+
+  // For internal use in wave detection algorithm
+  restartFromTimestamp?: number;  // Store where to restart pattern detection after invalidation
 }
 
 export interface FibTarget {
@@ -54,6 +57,7 @@ export interface StockHistoricalData {
 
 export interface WaveAnalysisResult {
   waves: Wave[];
+  invalidWaves: Wave[];  // Add this line to include invalidated waves
   currentWave: Wave;
   fibTargets: FibTarget[];
   trend: 'bullish' | 'bearish' | 'neutral'; // Add 'neutral' to the allowed values

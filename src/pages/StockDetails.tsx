@@ -95,6 +95,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [historicalData, setHistoricalData] = useState<StockHistoricalData[]>([]);
   const [analysis, setAnalysis] = useState<WaveAnalysisResult>({
     waves: [],
+    invalidWaves: [], // Add this line
     currentWave: null,
     fibTargets: [],
     trend: 'neutral' as 'bullish' | 'bearish' | 'neutral',
@@ -283,6 +284,17 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     const refreshInterval = setInterval(fetchLivePrice, 30000);
     return () => clearInterval(refreshInterval);
   }, [symbol]);
+
+  // Add this to StockDetails.tsx, right before returning the JSX
+  useEffect(() => {
+    // Debug on mount to check if invalidWaves are being included
+    if (analysis?.invalidWaves?.length > 0) {
+      console.log(`Found ${analysis.invalidWaves.length} invalid waves:`, 
+        analysis.invalidWaves.map(w => `Wave ${w.number} (${new Date(w.invalidationTimestamp).toLocaleDateString()})`));
+    } else {
+      console.log("No invalid waves found in analysis");
+    }
+  }, [analysis?.invalidWaves]);
   
   const handleBackClick = () => {
     navigate('/');
@@ -371,6 +383,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 selectedWave={selectedWave}
                 onClearSelection={() => setSelectedWave(null)}
                 livePrice={livePrice} // Pass the live price
+                invalidWaves={analysis.invalidWaves} // Add this line
               />
             ) : null}
           </div>
@@ -402,7 +415,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                         {/* Add WaveSequencePagination here */}
                         <div className="mt-4">
                           <WaveSequencePagination 
-                            waves={getMostRecentWaves(analysis.waves, 9)} // Only pass the 7 most recent waves
+                            waves={analysis?.waves || []}
+                            invalidWaves={analysis?.invalidWaves || []} // Add this line
                             selectedWave={selectedWave} // Pass the same selected wave here
                             currentWave={analysis.currentWave} // Add this prop
                             fibTargets={analysis.fibTargets}   // Add this prop

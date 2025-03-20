@@ -5,18 +5,20 @@ import { Wave, FibTarget } from "@/types/shared"; // Make sure this path is corr
 
 interface WaveSequencePaginationProps {
   waves: Wave[];
-  onWaveSelect: (wave: Wave) => void;
+  invalidWaves?: Wave[]; // Add this to accept invalid waves
   selectedWave: Wave | null;
-  currentWave: Wave | null; // Add this prop
-  fibTargets: FibTarget[]; // Add this prop
+  currentWave?: Wave;
+  fibTargets?: FibTarget[];
+  onWaveSelect: (wave: Wave) => void;
 }
 
 const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({ 
   waves,
+  invalidWaves = [], // Add this with a default empty array
   onWaveSelect,
   selectedWave,
-  currentWave, // Add this
-  fibTargets   // Add this
+  currentWave,
+  fibTargets
 }) => {
   const [currentPage, setCurrentPage] = useState(0);
   const wavesPerPage = 9
@@ -80,10 +82,6 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
     });
   }, [waves]);
   
-  const pageCount = Math.ceil(sortedWaves.length / wavesPerPage);
-  const startIndex = currentPage * wavesPerPage;
-  const displayedWaves = sortedWaves.slice(startIndex, startIndex + wavesPerPage);
-
   // First, let's add a function to calculate percentage change
   // Add this before the return statement
   const calculatePercentChange = (target: number, current: number): string => {
@@ -95,137 +93,63 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
     return percentChange >= 0 ? `+${formattedPercent}%` : `${formattedPercent}%`;
   };
 
+  // Combine the waves and invalidWaves, sorted by timestamp
+  const allWaves = useMemo(() => {
+    return [...waves, ...invalidWaves]
+      .sort((a, b) => {
+        const aTime = a.startTimestamp || 0;
+        const bTime = b.startTimestamp || 0;
+        return bTime - aTime; // Newest first
+      })
+      .slice(0, 10); // Show at most 10 waves
+  }, [waves, invalidWaves]);
+
+  const pageCount = Math.ceil(allWaves.length / wavesPerPage);
+  const startIndex = currentPage * wavesPerPage;
+  const displayedWaves = allWaves.slice(startIndex, startIndex + wavesPerPage);
+
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        {displayedWaves.map((wave, index) => {
-          // Use startTimestamp for comparison instead of id
-          const isSelected = selectedWave && wave.startTimestamp === selectedWave.startTimestamp;
-          const isCurrent = currentWave && wave.startTimestamp === currentWave.startTimestamp;
-          const isInvalid = wave.invalidationTimestamp && wave.invalidationPrice;
+        {displayedWaves.map((wave) => {
+          const isInvalid = !!wave.invalidationTimestamp;
+          const isSelected = selectedWave && selectedWave.startTimestamp === wave.startTimestamp;
           
           return (
-            <div key={`${wave.number}-${wave.startTimestamp}`}>
-              <div 
-                className={`px-3 py-2 rounded-lg border flex items-center justify-between text-sm 
-                  ${wave.type === 'impulse' ? 'border-green-500/20' : 'border-red-500/20'}
-                  ${isSelected 
-                    ? 'bg-primary/20 border-2 border-yellow-400' 
-                    : 'hover:bg-accent/50 cursor-pointer transition-colors'}
-                  ${isInvalid ? 'border-red-500 border-dashed' : ''}`}
-                onClick={() => onWaveSelect(wave)}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`font-medium ${
-                    isInvalid ? 'text-red-500' : 
-                    (wave.type === 'impulse' ? 'text-green-500' : 'text-red-500')
-                  }`}>
-                    Wave {wave.number}
-                    {isCurrent && <span className="ml-1 text-primary animate-pulse">•</span>}
-                    {isInvalid && <span className="ml-1 text-red-500">✗</span>}
-                  </span>
-                  <span className={`text-muted-foreground ${isSelected ? 'font-medium' : ''}`}>
-                    {formatDate(wave.startTimestamp)} ({formatPrice(wave.startPrice!)})
-                  </span>
-                  <span className="text-muted-foreground">→</span>
-                  <span className={`text-muted-foreground ${isSelected ? 'font-medium' : ''}`}>
-                    {formatDate(wave.endTimestamp)} ({formatPrice(wave.endPrice!)})
-                  </span>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    isInvalid ? 'bg-red-500/20 text-red-500' :
-                    (wave.type === 'impulse' 
-                      ? 'bg-green-500/10 text-green-500' 
-                      : 'bg-red-500/10 text-red-500')
-                  }`}>
-                    {isInvalid ? 'Invalid' : wave.type}
-                  </span>
-                  
-                  {/* Show invalidation details if this wave was invalidated */}
-                  {isInvalid && (
-                    <div className="text-xs text-red-400 mt-1">
-                      Invalidated: {formatDate(wave.invalidationTimestamp)} at {formatPrice(wave.invalidationPrice)}
-                    </div>
-                  )}
-                </div>
+            <div 
+              key={`wave-${wave.number}-${wave.startTimestamp}`}
+              className={`
+                flex justify-between items-center p-2 rounded-md cursor-pointer
+                ${isSelected ? 'bg-primary/20 border border-primary/50' : 'bg-card hover:bg-muted/10'}
+                ${isInvalid ? 'border-red-500/50 border' : ''}
+              `}
+              onClick={() => onWaveSelect(wave)}
+            >
+              <div className="flex items-center space-x-2">
+                {/* Add an "X" symbol for invalid waves */}
+                {isInvalid && (
+                  <span className="text-red-500 font-bold">❌</span>
+                )}
+                <span className={`font-medium ${isInvalid ? 'text-red-400' : ''}`}>
+                  Wave {wave.number}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {new Date(wave.startTimestamp).toLocaleDateString()}
+                </span>
               </div>
               
-              {/* Show invalidation reason if available */}
-              {isInvalid && wave.invalidationRule && (
-                <div className="mt-1 mb-2 px-3 py-2 bg-red-500/5 border border-red-500/20 rounded text-xs text-red-400">
-                  <span className="font-medium">Rule violated:</span> {wave.invalidationRule}
-                </div>
-              )}
-              
-              {/* Fibonacci Targets Table - Only show for current wave and valid waves */}
-              {isCurrent && !isInvalid && (
-                <div className="mt-2 mb-4 pl-4 pr-2 py-3 bg-secondary/30 rounded-lg border border-border/50">
-                  <h4 className="text-xs font-medium text-muted-foreground mb-2">
-                    Fibonacci {wave.type === 'impulse' ? 'Extension' : 'Retracement'} Targets:
-                  </h4>
-                  
-                  {/* Filter relevant targets */}
-                  {(() => {
-                    const relevantTargets = fibTargets.filter(target => {
-                      const currentPrice = wave.endPrice || 0;
-                      if (wave.type === 'impulse') {
-                        return target.price > currentPrice;
-                      } else {
-                        return target.price < currentPrice;
-                      }
-                    });
-                    
-                    // If no targets are left, all have been met
-                    if (relevantTargets.length === 0 && fibTargets.length > 0) {
-                      return (
-                        <div className="py-2 px-1">
-                          <div className="flex items-center gap-2 text-sm text-amber-500 font-medium">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-pulse">
-                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                              <line x1="12" y1="9" x2="12" y2="13"></line>
-                              <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                            </svg>
-                            All targets met. Likely reversal point.
-                          </div>
-                        </div>
-                      );
-                    }
-                    
-                    // Otherwise show the targets
-                    return (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                        {relevantTargets.map((target, i) => {
-                          const percentChange = calculatePercentChange(target.price, wave.endPrice || 0);
-                          
-                          return (
-                            <div 
-                              key={`${target.label}-${i}`} 
-                              className="flex items-center gap-2"
-                            >
-                              <span className={`${target.isExtension ? 'text-purple-400' : 'text-blue-400'} min-w-[40px]`}>
-                                {target.label}:
-                              </span>
-                              <span className={`font-medium ${
-                                target.price > (wave.endPrice || 0) ? 'text-bullish' : 'text-bearish'
-                              }`}>
-                                {formatPrice(target.price)}
-                              </span>
-                              <span className={`ml-1 text-xs ${
-                                percentChange.startsWith('+') ? 'text-green-400' : 'text-red-400'
-                              }`}>
-                                ({percentChange})
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
+              <div className="flex items-center space-x-2">
+                {/* Show additional invalidation details if available */}
+                {isInvalid ? (
+                  <span className="text-xs text-red-400">
+                    {wave.invalidationRule?.split(' ')[0]}...
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    ${wave.startPrice.toFixed(2)} → ${wave.endPrice?.toFixed(2) || 'ongoing'}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}
