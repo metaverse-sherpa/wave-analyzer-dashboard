@@ -698,14 +698,17 @@ const chartData = {
               display: (ctx: any) => ctx.dataIndex === endIndex,
               // Simplified label - show only the rounded price with 4 decimal places
               formatter: () => `$${target.price.toFixed(4)}`,
-              color: 'white', // Change to white text
-              backgroundColor: target.isExtension ? 'rgba(255, 152, 0, 0.9)' : 'rgba(33, 150, 243, 0.9)',
+              color: target.isExtension ? 'rgba(255, 152, 0, 1.0)' : 'rgba(33, 150, 243, 1.0)', // Match the line color
+              backgroundColor: 'transparent', // Make background transparent
               borderRadius: 4,
-              padding: { left: 6, right: 6, top: 3, bottom: 3 },
-              font: { weight: 'bold', size: 11 },
-              align: 'bottom',
-              anchor: 'bottom',
-              offset: 6
+              padding: { left: 4, right: 4, top: 2, bottom: 2 }, // Reduce padding
+              font: { 
+                weight: 'bold', 
+                size: 11 
+              },
+              align: 'right',
+              anchor: 'center',
+              offset: 10
             }
           } as CustomChartDataset;
         }).filter(Boolean)

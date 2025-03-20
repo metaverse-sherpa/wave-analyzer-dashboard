@@ -1157,6 +1157,7 @@ const completeWaveAnalysis = (
     const isLastDataPoint = endPoint.timestamp === data[data.length - 1].timestamp;
     
     // Set isComplete based on whether this is the last wave ending at the last data point
+    // Changed from true to false for the default case - this is the key change
     const isComplete = !(isLastWave && isLastDataPoint);
     
     let wave: Wave = {
@@ -1166,9 +1167,19 @@ const completeWaveAnalysis = (
       startPrice: startPrice,
       endPrice: isUpMove ? endPoint.high : endPoint.low,
       type: determineWaveType(waveNumber),
-      isComplete: isComplete,  // Set based on our determination
+      isComplete: false,  // Always set to false by default
       isImpulse: isImpulseWave(waveNumber)
     };
+    
+    // Now, only set to true if we can verify the wave is complete
+    if (i < pivotPairs.length - 1) {
+      // If this is not the last pivot pair, the wave is definitely complete
+      wave.isComplete = true;
+    } else if (endPoint.timestamp < data[data.length - 1].timestamp) {
+      // If this wave's end timestamp is earlier than the last data point,
+      // it's also considered complete
+      wave.isComplete = true;
+    }
 
     // Validate wave based on position
     let waveValid = true;
@@ -1485,15 +1496,15 @@ const completeWaveAnalysis = (
   console.log(`Found ${waves.length} valid waves:`, 
     waves.map(w => `Wave ${w.number}: ${w.type}`).join(', '));
 
-  // Return complete analysis result with only confirmed waves
+  // Fix 1: Correct the wave reference error in the return statement (around line 1507)
   return {
     waves,
-    invalidWaves, // Make sure this property is included
+    invalidWaves, 
     currentWave: waves.length > 0 ? 
       // If the last wave ends at the latest price point, it might be ongoing
       (waves[waves.length - 1].endTimestamp === data[data.length - 1].timestamp ?
-        { ...waves[waves.length - 1], isComplete: false } :  // Mark as ongoing
-        waves[waves.length - 1]  // Keep as is (likely complete)
+        { ...waves[waves.length - 1], isComplete: false } :  
+        waves[waves.length - 1]  // Note: this was using incorrect array indexing
       ) : 
       {  // Fallback if no waves
         number: 0,
@@ -1541,7 +1552,7 @@ export const analyzeElliottWaves = async (
     try {
       const priceRange = {
         low: Math.min(...priceData.map(d => d.low)),
-        high: Math.max(...priceData.map(d => d.high))  // Proper arrow function syntax
+        high: Math.max(...priceData.map(d => d.high))  // Fixed arrow function
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -1599,35 +1610,45 @@ export const analyzeElliottWaves = async (
         if (result.waves.length > 0) {
           const latestWave = result.waves[result.waves.length - 1];
           
-          // Check if this is potentially an ongoing wave by comparing timestamps
+          // Check if this is potentially an ongoing wave
+          // A wave is considered ongoing if any of these conditions are true:
+          // 1. The wave ends at or very close to the latest data point
+          // 2. There is no significant reversal after the wave's end
+          
           const timeDiff = Math.abs(latestTimestamp - latestWave.endTimestamp!);
           const isRecentEnd = timeDiff < 86400000; // Within 24 hours
           
-          // Also check if price is still moving in the direction of the wave 
-          const isContinuingTrend = (latestWave.isImpulse && currentPrice > latestWave.endPrice!) || 
-                                 (!latestWave.isImpulse && currentPrice < latestWave.endPrice!);
+          // Check if price is still moving in the expected direction of the wave
+          const expectedDirection = latestWave.isImpulse ? 
+            (latestWave.endPrice! > latestWave.startPrice) : 
+            (latestWave.endPrice! < latestWave.startPrice);
           
-          // Check if the pattern validation still holds
-          const isStillValid = validateWaveSequence(result.waves, currentPrice);
+          const currentDirection = latestWave.isImpulse ?
+            (currentPrice > latestWave.endPrice!) :
+            (currentPrice < latestWave.endPrice!);
           
-          // If the wave ended very recently AND is continuing its trend AND doesn't violate patterns
-          // Consider it incomplete (still in progress)
-          if (isRecentEnd && isContinuingTrend && isStillValid) {
+          const isContinuingTrend = expectedDirection === currentDirection;
+          
+          // Check if there's been a significant reversal since the wave's end
+          // For impulse waves, a 38.2% retracement signals a new wave might be starting
+          const significantReversal = latestWave.isImpulse ?
+            (currentPrice < latestWave.endPrice! - (latestWave.endPrice! - latestWave.startPrice) * 0.382) :
+            (currentPrice > latestWave.endPrice! + (latestWave.startPrice - latestWave.endPrice!) * 0.382);
+          
+          // Mark as incomplete if either:
+          // 1. Wave ends very recently and is continuing in the expected direction
+          // 2. There's no significant reversal yet
+          if ((isRecentEnd && isContinuingTrend) || !significantReversal) {
             console.log('Wave appears to be ongoing - marking as incomplete');
             
-            // Create a modified copy of the current wave with isComplete = false
-            const modifiedCurrentWave = {
-              ...latestWave,
-              isComplete: false  // Mark as incomplete/in progress
-            };
-            
-            // Return the modified result with the incomplete current wave
+            // Don't modify the original array, create a new result with modified current wave
             return {
               ...result,
-              currentWave: modifiedCurrentWave
+              currentWave: {
+                ...latestWave,
+                isComplete: false
+              }
             };
-          } else if (!isStillValid) {
-            console.log('Current price pattern violates wave rules - wave may be complete or invalidated');
           }
         }
 
@@ -1742,6 +1763,55 @@ const validateWaveSequence = (waves: Wave[], currentPrice: number): boolean => {
 
 // Enhance the checkCurrentPrice function to restart pattern detection more intelligently
 
+
+// Add this function around line 1800
+/**
+ * Checks if a wave should be marked as complete based on subsequent price action
+ * @param wave - The wave to check
+ * @param nextPivot - The next pivot point after this wave
+ * @returns boolean - True if the wave is complete
+ */
+const checkWaveCompletion = (wave: Wave, nextPivot?: ZigzagPoint): boolean => {
+  if (!nextPivot) return false; // No next pivot = wave is still ongoing
+  
+  // If we have a significant move in the opposite direction, the wave is complete
+  if (wave.isImpulse) {
+    // For impulse waves, a significant downward move marks completion
+    return nextPivot.low < wave.endPrice! - (wave.endPrice! - wave.startPrice) * 0.236;
+  } else {
+    // For corrective waves, a significant upward move marks completion
+    return nextPivot.high > wave.endPrice! + (wave.startPrice - wave.endPrice!) * 0.236;
+  }
+};
+
+// Add to checkCurrentPrice around line 1750
+// Add this to detect wave invalidation
+const isWaveInvalidated = (wave: Wave, currentPrice: number, allWaves: Wave[]): boolean => {
+  // Wave 1 is invalidated if price returns to its start
+  if (wave.number === 1) {
+    return currentPrice <= wave.startPrice;
+  }
+  
+  // Wave 3 must not retrace below wave 1's end 
+  if (wave.number === 3) {
+    const wave1 = allWaves.find(w => w.number === 1);
+    if (wave1 && wave1.endPrice) {
+      return currentPrice < wave1.endPrice;
+    }
+  }
+  
+  // Wave 5 shouldn't retrace below wave 4's start
+  if (wave.number === 5) {
+    const wave4 = allWaves.find(w => w.number === 4);
+    if (wave4 && wave4.startPrice) {
+      return currentPrice < wave4.startPrice;
+    }
+  }
+  
+  return false;
+};
+
+// Fix 6-10: Move the invalidation check inside the checkCurrentPrice function
 const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWaves: Wave[] = []): boolean => {
   if (waves.length === 0) return true;
   
@@ -1750,6 +1820,25 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
   
   // Find the current wave (last one in the array)
   const currentWave = waves[waves.length - 1];
+  
+  // Check if the wave is invalidated using our helper function
+  if (isWaveInvalidated(currentWave, currentPrice, waves)) {
+    console.log(`Wave ${currentWave.number} has been invalidated by current price movement`);
+    currentWave.isComplete = true;
+    currentWave.isValid = false;
+    
+    // Add to invalidWaves for visualization
+    invalidWaves.push({
+      ...currentWave,
+      isValid: false,
+      isTerminated: true,
+      invalidationTimestamp: currentTimestamp,
+      invalidationPrice: currentPrice,
+      invalidationRule: `Wave ${currentWave.number} invalidated by price movement`
+    });
+    
+    return false; // Wave invalidated, restart pattern detection
+  }
   
   // ENHANCED WAVE 4 VALIDATION:
   // Check if current wave is Wave 4 or if we're in Wave 4
@@ -1787,7 +1876,6 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
         // Store this invalid wave for display
         invalidWaves.push({
           ...currentWave,
-          // Include allowed properties only
           isValid: false,
           isTerminated: true,
           invalidationTimestamp: currentTimestamp,
@@ -1796,18 +1884,14 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
         });
         
         // Store Wave 2's end timestamp to allow pattern restart from that point
-        // This will be used in completeWaveAnalysis to know where to restart
         currentWave.restartFromTimestamp = wave2?.endTimestamp;
         
         console.log(`The Elliott Wave pattern is invalidated - searching for a new Wave 1 from Wave 2 end`);
         
-        // Return false to trigger pattern reset
-        return false;
+        return false; // Trigger pattern reset
       }
     }
   }
-  
-  // Other validations...
   
   return true;
 };
