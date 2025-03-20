@@ -32,6 +32,8 @@ export interface Wave {
 
   // For internal use in wave detection algorithm
   restartFromTimestamp?: number;  // Store where to restart pattern detection after invalidation
+
+  isInvalidated?: boolean;  // Add this property
 }
 
 export interface FibTarget {

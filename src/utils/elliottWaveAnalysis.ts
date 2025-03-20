@@ -1501,11 +1501,46 @@ const completeWaveAnalysis = (
     waves,
     invalidWaves, 
     currentWave: waves.length > 0 ? 
-      // If the last wave ends at the latest price point, it might be ongoing
-      (waves[waves.length - 1].endTimestamp === data[data.length - 1].timestamp ?
-        { ...waves[waves.length - 1], isComplete: false } :  
-        waves[waves.length - 1]  // Note: this was using incorrect array indexing
-      ) : 
+      // Create a completely new object to avoid shared reference issues
+      (() => {
+        const lastWave = waves[waves.length - 1];
+        const isLastDataPoint = lastWave.endTimestamp === data[data.length - 1].timestamp;
+        
+        // For the last detected wave, if it's at the most recent data point,
+        // consider it ongoing (incomplete) unless explicitly invalidated
+        const shouldBeIncomplete = isLastDataPoint && !lastWave.isInvalidated && !lastWave.isTerminated;
+        
+        // Create a new currentWave object with correct isComplete status
+        let currentWave = {
+          ...lastWave,
+          isComplete: shouldBeIncomplete ? false : lastWave.isComplete
+        };
+        
+        // Also update the actual wave in the waves array to maintain consistency
+        if (shouldBeIncomplete && lastWave.isComplete) {
+          waves[waves.length - 1] = {
+            ...lastWave,
+            isComplete: false
+          };
+        }
+        
+        // For any wave marked as incomplete, remove endTimestamp and endPrice
+        if (!currentWave.isComplete) {
+          // Create a new object without the end properties
+          const { endTimestamp, endPrice, ...waveWithoutEndProperties } = currentWave;
+          currentWave = waveWithoutEndProperties;
+          
+          // Also remove from the main waves array for consistency
+          if (waves.length > 0 && !waves[waves.length - 1].isComplete) {
+            const { endTimestamp, endPrice, ...cleanWave } = waves[waves.length - 1];
+            waves[waves.length - 1] = cleanWave;
+          }
+          
+          console.log(`Removed end properties from incomplete wave ${currentWave.number}`);
+        }
+        
+        return currentWave;
+      })() : 
       {  // Fallback if no waves
         number: 0,
         startTimestamp: 0,
@@ -1552,7 +1587,7 @@ export const analyzeElliottWaves = async (
     try {
       const priceRange = {
         low: Math.min(...priceData.map(d => d.low)),
-        high: Math.max(...priceData.map(d => d.high))  // Fixed arrow function
+        high: Math.max(...priceData.map(d => d.high))  // Properly fixed arrow function
       };
       console.log(`Price range: $${priceRange.low.toFixed(2)} to $${priceRange.high.toFixed(2)}`);
     } catch (err) {
@@ -1824,14 +1859,18 @@ const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWa
   // Check if the wave is invalidated using our helper function
   if (isWaveInvalidated(currentWave, currentPrice, waves)) {
     console.log(`Wave ${currentWave.number} has been invalidated by current price movement`);
+    
+    // Set isComplete to true ONLY when invalidated
     currentWave.isComplete = true;
     currentWave.isValid = false;
+    currentWave.isInvalidated = true; // Add explicit invalidation flag
     
     // Add to invalidWaves for visualization
     invalidWaves.push({
       ...currentWave,
       isValid: false,
       isTerminated: true,
+      isInvalidated: true,
       invalidationTimestamp: currentTimestamp,
       invalidationPrice: currentPrice,
       invalidationRule: `Wave ${currentWave.number} invalidated by price movement`
