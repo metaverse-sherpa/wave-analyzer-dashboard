@@ -49,6 +49,7 @@ interface ActiveAnalysis {
 interface HistoricalDataEntry {
   data: any[];
   timestamp: number;
+  isLoaded?: boolean; // Add isLoaded property
 }
 
 interface WaveAnalysisEntry {
@@ -57,6 +58,7 @@ interface WaveAnalysisEntry {
     [key: string]: any;
   };
   timestamp: number;
+  isLoaded?: boolean; // Add isLoaded property
 }
 
 // Define a proper type for selectedData
@@ -110,139 +112,208 @@ const AdminDashboard = () => {
   const { getHistoricalData } = useHistoricalData(); // Fixed to match the exported name
 
   // Fix loadCacheData function - it's incomplete in your code
-const loadCacheData = useCallback(async () => {
+const [localCacheTimestamp, setLocalCacheTimestamp] = useState<number>(0);
+const LOCAL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+// Modify loadCacheData function to implement hybrid caching
+const loadCacheData = useCallback(async (forceRefresh = false) => {
   setIsRefreshing(true);
+  console.log('Loading cache data, forceRefresh =', forceRefresh);
+  
   try {
-    // Use paging to avoid timeouts
-    const PAGE_SIZE = 100;
+    // Check if we have a recent local cache and force refresh wasn't requested
+    const now = Date.now();
+    const cachedData = localStorage.getItem('admin_dashboard_cache');
+    const cachedTimestamp = localCacheTimestamp || parseInt(localStorage.getItem('admin_dashboard_cache_timestamp') || '0');
     
-    // Load wave analysis data
+    if (!forceRefresh && cachedData && (now - cachedTimestamp < LOCAL_CACHE_TTL)) {
+      // Use local cache if it's recent enough
+      console.log('Using local cache from', new Date(cachedTimestamp).toLocaleTimeString());
+      const parsedCache = JSON.parse(cachedData);
+      setWaveAnalyses(parsedCache.waves || {});
+      setHistoricalData(parsedCache.historical || {});
+      setAiAnalysisCount(parsedCache.aiCount || 0);
+      setIsRefreshing(false);
+      return;
+    }
+    
+    // Load metadata-only from Supabase (not full data)
+    const PAGE_SIZE = 500; // Increase page size since we're only fetching metadata
+    
+    // For waves: Only fetch keys and timestamps, not full data
     let waveData = [];
     let waveHasMore = true;
     let waveFrom = 0;
     
     while (waveHasMore) {
-      console.log(`Loading wave analysis page from ${waveFrom}`);
-      const { data: pageData, error, count } = await supabase
+      const { data: pageData, error } = await supabase
         .from('cache')
-        .select('key, data, timestamp', { count: 'exact' })
+        .select('key, timestamp') // Don't fetch the full data!
         .like('key', 'wave_analysis_%')
         .range(waveFrom, waveFrom + PAGE_SIZE - 1)
         .order('timestamp', { ascending: false });
       
       if (error) {
-        console.error('Error loading wave analysis page:', error);
-        toast.error(`Error loading wave data: ${error.message}`);
+        console.error('Error loading wave analysis metadata:', error);
         break;
       }
       
-      if (pageData) {
+      if (pageData && pageData.length > 0) {
         waveData = [...waveData, ...pageData];
         waveFrom += PAGE_SIZE;
         waveHasMore = pageData.length === PAGE_SIZE;
       } else {
         waveHasMore = false;
       }
-      
-      // Add a small delay between requests to avoid rate limiting
-      await new Promise(r => setTimeout(r, 100));
     }
     
-    console.log(`Loaded ${waveData.length} wave analysis entries`);
-    
-    // Load historical data with paging
+    // Similarly for historical data - only metadata
     let histData = [];
     let histHasMore = true;
     let histFrom = 0;
     
     while (histHasMore) {
-      console.log(`Loading historical data page from ${histFrom}`);
       const { data: pageData, error } = await supabase
         .from('cache')
-        .select('key, data, timestamp')
+        .select('key, timestamp') // Don't fetch the full data!
         .like('key', 'historical_data_%')
         .range(histFrom, histFrom + PAGE_SIZE - 1)
         .order('timestamp', { ascending: false });
       
       if (error) {
-        console.error('Error loading historical data page:', error);
-        toast.error(`Error loading historical data: ${error.message}`);
+        console.error('Error loading historical metadata:', error);
         break;
       }
       
-      if (pageData) {
+      if (pageData && pageData.length > 0) {
         histData = [...histData, ...pageData];
         histFrom += PAGE_SIZE;
         histHasMore = pageData.length === PAGE_SIZE;
       } else {
         histHasMore = false;
       }
-      
-      // Add a small delay between requests to avoid rate limiting
-      await new Promise(r => setTimeout(r, 100));
     }
     
-    console.log(`Loaded ${histData.length} historical data entries`);
+    console.log(`Loaded metadata: ${waveData.length} wave entries, ${histData.length} historical entries`);
     
-    // Load AI analysis entries with paging (optional)
-    let aiData = [];
-    try {
-      const { data: aiPageData, error: aiError } = await supabase
-        .from('cache')
-        .select('key')
-        .like('key', 'ai_elliott_wave_%')
-        .range(0, PAGE_SIZE - 1);
-      
-      if (!aiError && aiPageData) {
-        aiData = aiPageData;
-      }
-    } catch (aiErr) {
-      console.error('Error loading AI analysis count:', aiErr);
-      // Non-critical, so continue
-    }
+    // Build lightweight objects with metadata only
+    const waveAnalysesObj: Record<string, WaveAnalysisEntry> = {};
+    const historicalDataObj: Record<string, HistoricalDataEntry> = {};
     
-    // Process wave analysis data
-    const waveAnalyses = {};
-    if (waveData && waveData.length > 0) {
-      for (const item of waveData) {
-        // Only process if we have data to avoid errors
-        if (item && item.key && item.data) {
-          const key = item.key.replace('wave_analysis_', '');
-          waveAnalyses[key] = {
-            analysis: item.data,
-            timestamp: item.timestamp
-          };
-        }
-      }
-    }
+    waveData.forEach(item => {
+      const key = item.key.replace('wave_analysis_', '');
+      waveAnalysesObj[key] = {
+        analysis: { waves: [] }, // Empty placeholder - will be loaded on demand
+        timestamp: item.timestamp,
+        isLoaded: false
+      };
+    });
     
-    // Process historical data
-    const historicalData = {};
-    if (histData && histData.length > 0) {
-      for (const item of histData) {
-        // Only process if we have data to avoid errors
-        if (item && item.key && item.data) {
-          const key = item.key.replace('historical_data_', '');
-          historicalData[key] = {
-            data: item.data,
-            timestamp: item.timestamp
-          };
-        }
-      }
-    }
-
-    // Update UI with counts
-    setWaveAnalyses(waveAnalyses);
-    setHistoricalData(historicalData);
-    setAiAnalysisCount(aiData.length);
+    histData.forEach(item => {
+      const key = item.key.replace('historical_data_', '');
+      historicalDataObj[key] = {
+        data: [], // Empty placeholder - will be loaded on demand
+        timestamp: item.timestamp,
+        isLoaded: false
+      };
+    });
+    
+    // Update state with lightweight objects
+    setWaveAnalyses(waveAnalysesObj);
+    console.log(`Setting histData state with ${Object.keys(historicalDataObj).length} entries`);
+    console.dir(Object.keys(historicalDataObj).slice(0, 5)); // Show first 5 keys
+    setHistoricalData(historicalDataObj);
+    
+    // Log what we're setting
+    console.log(`Setting state with: ${Object.keys(waveAnalysesObj).length} wave entries, ${Object.keys(historicalDataObj).length} historical entries`);
+    
+    // Get AI analysis count (just count, no data)
+    const { count: aiCount } = await supabase
+      .from('cache')
+      .select('key', { count: 'exact', head: true })
+      .like('key', 'ai_elliott_wave_%');
+    
+    setAiAnalysisCount(aiCount || 0);
+    
+    // Save to localStorage for future quick loads
+    const cacheData = {
+      waves: waveAnalysesObj,
+      historical: historicalDataObj,
+      aiCount: aiCount || 0
+    };
+    localStorage.setItem('admin_dashboard_cache', JSON.stringify(cacheData));
+    localStorage.setItem('admin_dashboard_cache_timestamp', now.toString());
+    setLocalCacheTimestamp(now);
     
   } catch (error) {
-    console.error('Error loading cache data from Supabase:', error);
-    toast.error(`Failed to load data: ${error.message || 'Unknown error'}`);
+    console.error('Error loading cache metadata:', error);
+    toast.error('Failed to load cache metadata');
   } finally {
     setIsRefreshing(false);
   }
 }, [supabase]);
+
+// Add this function to load the full data when a user clicks on an item
+const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'historical') => {
+  try {
+    // Show loading toast
+    toast.info(`Loading full ${type === 'waves' ? 'wave analysis' : 'historical'} data for ${key}...`);
+    
+    const cacheKey = type === 'waves' ? `wave_analysis_${key}` : `historical_data_${key}`;
+    
+    // Fetch the full data for just this item, ensure we get the entire data object
+    const { data, error } = await supabase
+      .from('cache')
+      .select('*') // Get all fields including data
+      .eq('key', cacheKey)
+      .single();
+    
+    if (error) {
+      console.error(`Error loading ${type} data for ${key}:`, error);
+      toast.error(`Failed to load ${type} data: ${error.message}`);
+      throw error;
+    }
+    
+    if (!data || !data.data) {
+      console.error(`No data found for ${key}`);
+      toast.error(`No data found for ${key}`);
+      return null;
+    }
+    
+    console.log(`Successfully loaded ${type} data for ${key}:`, {
+      dataSize: JSON.stringify(data.data).length,
+      recordCount: Array.isArray(data.data) ? data.data.length : 'Not an array'
+    });
+    
+    // Update the state with the full data
+    if (type === 'waves') {
+      setWaveAnalyses(prev => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          analysis: data.data, // Store the entire analysis object
+          isLoaded: true
+        }
+      }));
+    } else {
+      setHistoricalData(prev => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          data: data.data, // Store all historical data points
+          isLoaded: true
+        }
+      }));
+    }
+    
+    // Return the complete data
+    return data.data;
+  } catch (error) {
+    console.error(`Error loading details for ${key}:`, error);
+    toast.error(`Failed to load ${type} data for ${key}`);
+    return null;
+  }
+}, [supabase, toast]);
 
   // 2. NOW define functions that depend on loadCacheData
   const analyzeWaves = useCallback(async () => {
@@ -257,12 +328,14 @@ const loadCacheData = useCallback(async () => {
         
       if (histError) throw histError;
       
-      // Process the keys to get symbols
+      // Process the keys to get symbols - but limit to stockCount TOTAL
       const stocksToAnalyze = (histData || [])
         .map(item => item.key.replace('historical_data_', ''))
         .filter(key => key.includes('_1d'))
         .map(key => key.split('_')[0])
-        .slice(0, stockCount); // Limit by stockCount
+        .slice(0, stockCount); // IMPORTANT: Apply the limit here
+      
+      console.log(`Analyzing ${stocksToAnalyze.length} stocks (limit: ${stockCount})`);
       
       if (stocksToAnalyze.length === 0) {
         toast.error('No historical data found in Supabase. Please preload historical data first.');
@@ -313,7 +386,8 @@ const loadCacheData = useCallback(async () => {
                 ...prev,
                 [`${symbol}_1d`]: {
                   analysis: analysis,
-                  timestamp: Date.now()
+                  timestamp: Date.now(),
+                  isLoaded: true // Mark as loaded
                 }
               }));
             }
@@ -330,6 +404,16 @@ const loadCacheData = useCallback(async () => {
       
       // Wait for all analyses to complete before showing final toast
       toast.success(`Wave analysis completed for ${completed} stocks`);
+
+      // Add this block to update localStorage cache
+      const cacheData = {
+        waves: waveAnalyses,
+        historical: historicalData,
+        aiCount: aiAnalysisCount
+      };
+      localStorage.setItem('admin_dashboard_cache', JSON.stringify(cacheData));
+      localStorage.setItem('admin_dashboard_cache_timestamp', Date.now().toString());
+      setLocalCacheTimestamp(Date.now());
     } catch (error) {
       console.error('Error analyzing waves:', error);
       toast.error('Failed to analyze waves');
@@ -401,39 +485,55 @@ const fetchTopStocks = useCallback(async (limit: number) => {
         console.warn('Could not retrieve favorites:', favError);
       }
       
-      // Create a set of all stock symbols we want to fetch, with favorites prioritized
-      const uniqueSymbols = new Set<string>();
+      // Create an array of all stock symbols we want to fetch, with favorites prioritized
+      let symbolsToProcess: string[] = [];
 
       // Add favorites first (if available)
       if (favoritesData?.data && Array.isArray(favoritesData.data)) {
-        favoritesData.data.forEach(symbol => uniqueSymbols.add(String(symbol)));
+        // Only take favorites up to the stockCount limit
+        symbolsToProcess = favoritesData.data
+          .slice(0, stockCount)
+          .map(symbol => String(symbol));
       }
 
-      // Then add the rest of the top stocks up to the limit
-      stocks.forEach(stock => {
-        if (uniqueSymbols.size < stockCount) {
-          uniqueSymbols.add(String(stock.symbol));
+      // If we still have room for more stocks, add from the API results
+      if (symbolsToProcess.length < stockCount) {
+        const remainingCount = stockCount - symbolsToProcess.length;
+        
+        // Create a set of existing symbols to avoid duplicates
+        const existingSymbols = new Set(symbolsToProcess);
+        
+        // Add unique top stocks up to the remaining count
+        for (const stock of stocks) {
+          const symbol = String(stock.symbol);
+          if (!existingSymbols.has(symbol)) {
+            symbolsToProcess.push(symbol);
+            existingSymbols.add(symbol);
+            
+            // Stop when we reach the total limit
+            if (symbolsToProcess.length >= stockCount) break;
+          }
         }
-      });
-
-      const symbols = Array.from(uniqueSymbols);
+      }
+      
+      console.log(`Processing total of ${symbolsToProcess.length} stocks (limit: ${stockCount})`);
       
       // Initialize progress tracking with the actual symbols to fetch
       setHistoryLoadProgress({
-        total: symbols.length,
+        total: symbolsToProcess.length,
         current: 0,
         inProgress: true
       });
       
-      // Rest of function remains the same...
+      // Process the limited list of symbols
       let completed = 0;
       let failed = 0;
       let errors = [];
       
-      // Process stocks in batches to avoid overwhelming the browser
+      // Rest of function remains the same, but use symbolsToProcess instead of symbols
       const batchSize = 3;
-      for (let i = 0; i < symbols.length; i += batchSize) {
-        const batch = symbols.slice(i, i + batchSize);
+      for (let i = 0; i < symbolsToProcess.length; i += batchSize) {
+        const batch = symbolsToProcess.slice(i, i + batchSize);
         
         // Process each stock in the batch concurrently
         await Promise.all(batch.map(async (symbol) => {
@@ -522,7 +622,8 @@ const fetchTopStocks = useCallback(async (limit: number) => {
               ...prev,
               [symbol]: {
                 data: formattedData,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                isLoaded: true // Mark as loaded
               }
             }));
             
@@ -550,7 +651,8 @@ const fetchTopStocks = useCallback(async (limit: number) => {
       }
       
       // Refresh the cache display
-      loadCacheData();
+      console.log('Historical data load complete, refreshing cache display...');
+      await loadCacheData(true); // Force refresh to ensure we see the latest data
       
       // Show final status
       if (failed > 0) {
@@ -668,8 +770,11 @@ const fetchTopStocks = useCallback(async (limit: number) => {
           throw error;
         }
         
-        // Update display
-        await loadCacheData();
+        // Clear state IMMEDIATELY so UI updates
+        setWaveAnalyses({});
+        
+        // Then refresh data
+        await loadCacheData(true); // Force refresh to ensure cleared state
         toast.success('Wave analysis cache cleared successfully from Supabase');
       } catch (error) {
         console.error('Error clearing wave cache from Supabase:', error);
@@ -693,7 +798,11 @@ const fetchTopStocks = useCallback(async (limit: number) => {
         
         if (error) throw error;
         
-        await loadCacheData();
+        // Clear state IMMEDIATELY so UI updates
+        setHistoricalData({});
+        
+        // Then refresh data
+        await loadCacheData(true); // Force refresh to ensure cleared state
         toast.success('Historical data cache cleared successfully');
       } catch (error) {
         console.error('Error clearing historical cache:', error);
@@ -1051,6 +1160,21 @@ useEffect(() => {
   }
 }, [settingsChanged, preloadHistoricalData, analyzeWaves]);
 
+  // Update the useEffect at the bottom of the component
+  useEffect(() => {
+    // When the component mounts, load data from Supabase, not cache
+    const initialLoad = async () => {
+      try {
+        await loadSettings();
+        await loadCacheData(true); // Force a fresh load on initial page load
+      } catch (err) {
+        console.error('Error during initial data load:', err);
+      }
+    };
+    
+    initialLoad();
+  }, [loadSettings, loadCacheData]);
+
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center">
@@ -1067,7 +1191,7 @@ useEffect(() => {
         <div>
           <Button 
             variant="outline" 
-            onClick={loadCacheData} 
+            onClick={() => loadCacheData(true)} // Force refresh parameter
             className="mr-2"
             disabled={isRefreshing}
           >
@@ -1256,11 +1380,20 @@ useEffect(() => {
                           data={waveData}
                           type="waves"
                           onDelete={deleteCacheItem}
-                          onClick={() => {
+                          onClick={async () => {
+                            // Always load fresh data when clicking - don't rely on isLoaded flag
+                            const fullData = await loadItemDetails(key, "waves");
+                            if (!fullData) return; // Don't open modal if loading failed
+                            
+                            // Now that we have the data, update selectedData and open the modal
                             setSelectedData({
                               type: 'waves',
                               key,
-                              data: waveData
+                              data: {
+                                analysis: fullData, // Use the freshly loaded data
+                                timestamp: (rawData as WaveAnalysisEntry).timestamp || Date.now(),
+                                isLoaded: true
+                              } as WaveAnalysisEntry
                             });
                             setModalOpen(true);
                           }}
@@ -1313,7 +1446,12 @@ useEffect(() => {
               )}
               
               <ScrollArea className="h-[500px]">
-                {Object.keys(filteredHistoricalData || {}).length === 0 ? (
+                {isRefreshing ? (
+                  <div className="p-4 text-center text-muted-foreground">
+                    <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
+                    Updating historical data...
+                  </div>
+                ) : Object.keys(filteredHistoricalData || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
                     {Object.keys(historicalData).length === 0 ? (
                       "No historical data cache found"
@@ -1331,11 +1469,20 @@ useEffect(() => {
                         data={data as HistoricalDataEntry}
                         type="historical"
                         onDelete={deleteCacheItem}
-                        onClick={() => {
+                        onClick={async () => {
+                          // Always load fresh data when clicking - don't rely on isLoaded flag
+                          const fullData = await loadItemDetails(key, "historical");
+                          if (!fullData) return; // Don't open modal if loading failed
+                          
+                          // Now that we have the data, update selectedData and open the modal
                           setSelectedData({
                             type: 'historical',
                             key,
-                            data: data as HistoricalDataEntry
+                            data: {
+                              data: fullData, // Use the freshly loaded data 
+                              timestamp: (data as HistoricalDataEntry).timestamp || Date.now(),
+                              isLoaded: true
+                            } as HistoricalDataEntry
                           });
                           setModalOpen(true);
                         }}

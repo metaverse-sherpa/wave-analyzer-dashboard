@@ -10,6 +10,8 @@ const ALLOWED_KEYS = [
   'test',             // Used by React DevTools extension
   'reversal-candidates-cache',
   'symbols',
+  'admin_dashboard_cache', // Used by admin dashboard
+  'admin_dashboard_cache_timestamp', // Used by admin dashboard
 ];
 
 // Function to check if a key should be allowed
