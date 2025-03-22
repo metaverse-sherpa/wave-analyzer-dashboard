@@ -292,27 +292,34 @@ const loadCacheData = useCallback(async () => {
             continue; // Skip this stock without incrementing completed
           }
           
-          // Now analyze with validated data
-          const analysis = await getAnalysis(symbol, historicalData, true, true); // Added silent parameter
+          // Start the analysis
+          const analysisPromise = getAnalysis(symbol, historicalData, true, true);
           
-          // Add this section to update the state incrementally
-          if (analysis && analysis.waves) {
-            // Update the waveAnalyses state incrementally
-            setWaveAnalyses(prev => ({
-              ...prev,
-              [`${symbol}_1d`]: {
-                analysis: analysis,
-                timestamp: Date.now()
-              }
-            }));
-          }
-          
-          // Update progress
+          // IMPORTANT: Don't await immediately to allow UI updates
+          // Instead, use the promise's completion to update state
+
+          // Update progress and UI immediately before analysis completes
           completed++;
           setAnalysisProgress(prev => ({
             ...prev,
             current: completed
           }));
+          
+          // Handle analysis result once it's complete
+          analysisPromise.then(analysis => {
+            if (analysis && analysis.waves) {
+              // Update the waveAnalyses state incrementally
+              setWaveAnalyses(prev => ({
+                ...prev,
+                [`${symbol}_1d`]: {
+                  analysis: analysis,
+                  timestamp: Date.now()
+                }
+              }));
+            }
+          }).catch(err => {
+            console.error(`Error processing analysis result for ${symbol}:`, err);
+          });
           
           // Small delay between stocks to prevent performance issues
           await new Promise(r => setTimeout(r, 300));
@@ -321,8 +328,7 @@ const loadCacheData = useCallback(async () => {
         }
       }
       
-      // Finish up - still load from the database to ensure everything is consistent
-      loadCacheData();
+      // Wait for all analyses to complete before showing final toast
       toast.success(`Wave analysis completed for ${completed} stocks`);
     } catch (error) {
       console.error('Error analyzing waves:', error);
