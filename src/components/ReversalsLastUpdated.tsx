@@ -27,22 +27,22 @@ const ReversalsLastUpdated: React.FC = () => {
   
   // Add logging to debug
   const handleRefreshClick = () => {
-    console.log('Refresh button clicked');
+    console.log('Refresh button clicked - triggering refresh at', new Date().toLocaleTimeString());
     refreshReversals(); // Call the actual refresh function from context
   };
   
   return (
     <>
       {lastCacheUpdate > 0 && (
-        <span className="text-xs text-muted-foreground mr-2">
-          {new Date(lastCacheUpdate).toLocaleTimeString()}
+        <span className="text-xs text-muted-foreground mr-2" title={new Date(lastCacheUpdate).toLocaleString()}>
+          Updated {new Date(lastCacheUpdate).toLocaleTimeString()}
         </span>
       )}
       <Button 
         variant="ghost" 
         size="icon" 
         className="h-6 w-6" 
-        onClick={handleRefreshClick} // Use the logging wrapper
+        onClick={handleRefreshClick}
         disabled={loading}
       >
         <RefreshCw size={14} className={loading ? "animate-spin" : ""} />

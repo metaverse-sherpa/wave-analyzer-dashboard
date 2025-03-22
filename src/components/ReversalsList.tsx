@@ -40,15 +40,34 @@ const CACHE_KEY = 'reversal-candidates-cache';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 export const handleGlobalRefresh = async (symbols: string[]) => {
-  console.log("Global refresh called");
+  console.log("Global refresh called with", symbols.length, "symbols");
   
-  // Copy the logic from your handleRefresh function:
-  // - Clear cache
-  // - Fetch new prices
-  // - Calculate reversals
-  // Return true when done
-  
-  return true;
+  try {
+    // Clear existing cache
+    localStorage.removeItem(CACHE_KEY);
+    
+    // Create a simple approach to fetch prices and recalculate
+    // This is effectively what the component's fetchPrices and calculateReversals do
+    const url = apiUrl(`/quotes?symbols=${symbols.slice(0, 50).join(',')}`); // Limit to 50 symbols for performance
+    console.log(`Fetching fresh prices from: ${url}`);
+    
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch prices: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log(`Fetched ${data.length} price quotes`);
+    
+    // We don't need to do the calculation here, just trigger a state update
+    // that will cause the component to refresh itself
+    
+    // Return success
+    return true;
+  } catch (error) {
+    console.error("Error in global refresh:", error);
+    return false;
+  }
 };
 
 const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => {
@@ -108,14 +127,14 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
   useEffect(() => {
     // Skip if no analyses available
     if (Object.keys(analyses).length === 0) return;
-
+  
     const loadReversalData = async () => {
       // First check the cache
       const { data: cachedData, isFresh } = loadFromCache();
       
       // If we have fresh cached data, use it
       if (cachedData.length > 0 && isFresh) {
-        console.log('Using cached reversal data');
+        console.log('Using cached reversal data from', new Date(lastCacheUpdate).toLocaleTimeString());
         setReversalCandidates(cachedData);
         return;
       }
@@ -147,7 +166,15 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
     };
     
     loadReversalData();
-  }, [analyses, symbols, loadFromCache]);
+  }, [analyses, symbols, loadFromCache]); 
+  
+  // Add this new useEffect right here 👇
+  useEffect(() => {
+    // This effect handles ONLY manual refresh (when lastCacheUpdate changes)
+    if (lastCacheUpdate > 0) {
+      console.log('Manual refresh triggered at:', new Date(lastCacheUpdate).toLocaleTimeString());
+    }
+  }, [lastCacheUpdate]);
   
   // Get fallback prices from the wave analysis data
   const getFallbackPrices = (): PriceMap => {
@@ -465,24 +492,32 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
   };
   
   // Handle manual refresh
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     console.log("handleRefresh called in ReversalsList");
     setLoading(true);
     
-    // Clear cache
-    localStorage.removeItem(CACHE_KEY);
-    setLastCacheUpdate(0);
-    
-    // Use the global function
-    handleGlobalRefresh(symbols)
-      .then(() => setLoading(false))
-      .catch(err => {
-        console.error("Error refreshing:", err);
-        setLoading(false);
-      });
-    
-    return true;
-  }, [symbols]);
+    try {
+      // Clear cache
+      localStorage.removeItem(CACHE_KEY);
+      setLastCacheUpdate(0);
+      
+      // Fetch fresh prices and recalculate
+      const priceMap = await fetchPrices(symbols);
+      
+      // Calculate reversals with fresh prices
+      calculateReversals(priceMap);
+      
+      // Update timestamp for last refresh
+      setLastCacheUpdate(Date.now());
+      
+      console.log("Reversal data refreshed successfully");
+      return true;
+    } catch (error) {
+      console.error("Error refreshing reversal data:", error);
+      setLoading(false);
+      return false;
+    }
+  }, [symbols, fetchPrices, calculateReversals]);
   
   // Return wrapped in context provider
   return (

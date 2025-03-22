@@ -120,7 +120,7 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                                wave.startTimestamp === currentWave.startTimestamp;
           
           return (
-            <React.Fragment key={`wave-${wave.number}-${wave.startTimestamp}`}>
+            <div key={`wave-${wave.number}-${wave.startTimestamp}`} className="mb-1">
               {/* Wave entry */}
               <div 
                 className={`
@@ -196,7 +196,7 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                   </div>
                 </div>
               )}
-            </React.Fragment>
+            </div> // Change to closing div which matches the opening div on line 123
           );
         })}
       </div>
