@@ -35,7 +35,12 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { 
+  BrowserRouter as Router, 
+  Routes, 
+  Route, 
+  Navigate 
+} from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Index from "./pages/Index";
 import StockDetails from "./pages/StockDetails";
@@ -52,6 +57,10 @@ import { toast } from "@/components/ui/use-toast";
 import AnalysisStatusTracker from './components/AnalysisStatusTracker';
 import { initStorageMonitor } from '@/lib/storage-monitor';
 import { AdminSettingsProvider } from '@/context/AdminSettingsContext';
+import React from 'react';
+import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/auth/ProtectedRoute';
+import AuthCallback from './components/auth/AuthCallback';
 
 // Initialize it before your app renders
 if (process.env.NODE_ENV === 'development') {
@@ -234,55 +243,34 @@ const App = () => {
                 <WaveAnalysisProvider>
                   <AdminSettingsProvider>
                     <AnalysisStatusTracker />
-                    {loadState === 'loading' ? (
-                      <div className="flex items-center justify-center h-screen">
-                        <div className="text-center p-8">
-                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4 mx-auto"></div>
-                          <h2 className="text-xl font-bold mb-2">Loading Data</h2>
-                          <p className="text-muted-foreground mb-4">
-                            Please wait while we load stock data and perform analysis...
-                          </p>
+                    <AuthProvider>
+                      <Router>
+                        <Routes>
+                          {/* Public routes */}
+                          <Route path="/" element={<Index />} />
                           
-                          {apiAvailable === false && (
-                            <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-4 text-left">
-                              <p className="text-yellow-700">
-                                <strong>Warning:</strong> The API server appears to be unavailable. 
-                                The application will work with limited functionality.
-                              </p>
-                            </div>
-                          )}
+                          {/* Auth callback route */}
+                          <Route path="/auth/callback" element={<AuthCallback />} />
                           
-                          <button
-                            onClick={() => {
-                              setLoadState('success');
-                              toast({
-                                title: "Limited Functionality",
-                                description: 'Data loading bypassed. Some features may be limited.',
-                                variant: "default" // Changed from "warning"
-                              });
-                            }}
-                            className="mt-4 px-4 py-2 bg-muted text-muted-foreground rounded"
-                          >
-                            Skip Loading
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <ErrorBoundary>
-                        <Toaster />
-                        <Sonner position="top-right" closeButton />
-                        <BrowserRouter>
-                          <Routes>
-                            <Route path="/" element={<Index />} />
-                            <Route path="/stocks/:symbol" element={<StockDetails />} />
-                            <Route path="/dashboard" element={<Dashboard />} />
-                            <Route path="/admin" element={<AdminDashboard />} />
-                            <Route path="*" element={<NotFound />} />
-                          </Routes>
-                        </BrowserRouter>
-                      </ErrorBoundary>
-                    )}
-                    
+                          {/* Protected routes - require login */}
+                          <Route path="/stocks/:symbol" element={
+                            <ProtectedRoute>
+                              <StockDetails />
+                            </ProtectedRoute>
+                          } />
+                          
+                          {/* Admin routes - require admin role */}
+                          <Route path="/admin" element={
+                            <ProtectedRoute requireAdmin>
+                              <AdminDashboard />
+                            </ProtectedRoute>
+                          } />
+                          
+                          {/* Fallback route */}
+                          <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                      </Router>
+                    </AuthProvider>
                     <DataInitializer 
                       onDataLoaded={() => {
                         // Only update state if not already loaded

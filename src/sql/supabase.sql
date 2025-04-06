@@ -104,20 +104,109 @@ END;
 $$ LANGUAGE plpgsql;
 
 
-CREATE TABLE profiles (
-    id bigint primary key generated always as identity,
-    user_id uuid references auth.users(id) on delete cascade,
-    role text,
-    created_at timestamp with time zone default now()
+-- HARD RESET: Drop everything and create proper schema
+
+-- First, get rid of all existing profiles and triggers
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+DROP TABLE IF EXISTS public.profiles;
+
+-- Create the profiles table EXACTLY how Supabase expects it
+CREATE TABLE public.profiles (
+  id UUID PRIMARY KEY,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  username TEXT UNIQUE,
+  full_name TEXT,
+  avatar_url TEXT,
+  website TEXT,
+  
+  CONSTRAINT fk_user
+    FOREIGN KEY (id)
+    REFERENCES auth.users (id)
+    ON DELETE CASCADE
 );
 
-CREATE POLICY "Users can view their own profile"
-ON profiles
-FOR SELECT
-USING (user_id = auth.uid());
+-- Set RLS
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Create policies
+CREATE POLICY "Public profiles are viewable by everyone." 
+  ON public.profiles FOR SELECT USING (true);
+
+CREATE POLICY "Users can insert their own profile." 
+  ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile." 
+  ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- Create function to handle new signups
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id)
+  VALUES (NEW.id);
+  RETURN NEW;
+END;
+$$;
+
+-- Create trigger (only after the table exists)
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Grant necessary permissions
+GRANT ALL ON public.profiles TO postgres, service_role;
+GRANT SELECT ON public.profiles TO anon, authenticated;
+GRANT INSERT, UPDATE ON public.profiles TO authenticated;
+
+-- Add a role field to the profiles table
+ALTER TABLE public.profiles ADD COLUMN role TEXT DEFAULT 'user';
+
+-- Add index on username for faster lookups
+CREATE INDEX idx_profiles_username ON public.profiles(username);
+
+-- Modify the handle_new_user function to set a default username
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  username_val TEXT;
+BEGIN
+  -- Extract username from email (part before @)
+  username_val := split_part(NEW.email, '@', 1);
+  
+  -- Make it unique by adding random characters if needed
+  username_val := username_val || '_' || substr(md5(random()::text), 1, 6);
+  
+  -- Insert profile with username
+  INSERT INTO public.profiles (id, username)
+  VALUES (NEW.id, username_val);
+  
+  RETURN NEW;
+END;
+$$;
 
 
-CREATE POLICY "Admins can access all profiles"
-ON profiles
-FOR SELECT
-USING (role = 'admin');
+-- Create function to handle user deletion
+CREATE OR REPLACE FUNCTION public.handle_user_deletion()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  -- Delete the profile for the user being deleted
+  DELETE FROM public.profiles WHERE id = OLD.id;
+  
+  RETURN OLD;
+END;
+$$;
+
+-- Create trigger to execute when a user is deleted
+CREATE TRIGGER on_auth_user_deleted
+  AFTER DELETE ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_user_deletion();
