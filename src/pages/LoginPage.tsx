@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,32 +10,37 @@ import { Loader2 } from 'lucide-react';
 const LoginPage = () => {
   const { signInWithEmail, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  
+
+  // Parse the redirect URL from query parameters
+  const queryParams = new URLSearchParams(location.search);
+  const redirectTo = queryParams.get('redirect') || '/';
+
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       toast.error('Please enter both email and password');
       return;
     }
-    
+
     setLoading(true);
-    
+
     try {
       const { error } = await signInWithEmail(email, password);
-      
+
       if (error) {
         console.error('Login error:', error);
         toast.error(error.message || 'Failed to sign in');
         return;
       }
-      
+
       toast.success('Signed in successfully');
-      navigate('/');
+      navigate(redirectTo); // Navigate to the redirect URL
     } catch (err) {
       console.error('Exception during login:', err);
       toast.error('An unexpected error occurred');
@@ -43,13 +48,17 @@ const LoginPage = () => {
       setLoading(false);
     }
   };
-  
+
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
-    
+
+    // Store the redirect URL for Google OAuth return
+    // We'll use localStorage since Google auth will redirect away from our site
+    localStorage.setItem('authRedirect', redirectTo);
+
     try {
       const { error } = await signInWithGoogle();
-      
+
       if (error) {
         console.error('Google login error:', error);
         toast.error(error.message || 'Failed to sign in with Google');
@@ -61,7 +70,7 @@ const LoginPage = () => {
       setGoogleLoading(false);
     }
   };
-  
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4">
       <div className="w-full max-w-md space-y-8">
@@ -71,7 +80,7 @@ const LoginPage = () => {
             Sign in to your account
           </p>
         </div>
-        
+
         <div className="bg-card rounded-lg border p-6 shadow-sm">
           <form onSubmit={handleEmailLogin} className="space-y-4">
             <div className="space-y-2">
@@ -85,12 +94,12 @@ const LoginPage = () => {
                 required
               />
             </div>
-            
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <Link 
-                  to="/forgot-password" 
+                <Link
+                  to="/forgot-password"
                   className="text-xs text-primary hover:underline"
                 >
                   Forgot password?
@@ -104,9 +113,9 @@ const LoginPage = () => {
                 required
               />
             </div>
-            
-            <Button 
-              type="submit" 
+
+            <Button
+              type="submit"
               className="w-full"
               disabled={loading}
             >
@@ -120,7 +129,7 @@ const LoginPage = () => {
               )}
             </Button>
           </form>
-          
+
           <div className="mt-4 text-center text-sm">
             <p>Don't have an account?{' '}
               <Link to="/signup" className="text-primary hover:underline">
@@ -128,7 +137,7 @@ const LoginPage = () => {
               </Link>
             </p>
           </div>
-          
+
           <div className="relative my-4">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t"></div>
@@ -137,7 +146,7 @@ const LoginPage = () => {
               <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
             </div>
           </div>
-          
+
           <Button
             type="button"
             variant="outline"

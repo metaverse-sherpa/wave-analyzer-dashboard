@@ -390,7 +390,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
                   <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
                   <p className="mb-4">Sign in to view detailed stock charts with technical analysis.</p>
-                  <Link to="/login">
+                  <Link to={`/login?redirect=${encodeURIComponent(window.location.pathname)}`}>
                     <Button>Sign In Now</Button>
                   </Link>
                 </div>
@@ -477,7 +477,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                       <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
                         <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
                         <p className="mb-4">Sign in to access AI-powered Elliott Wave analysis.</p>
-                        <Link to="/login">
+                        <Link to={`/login?redirect=${encodeURIComponent(window.location.pathname)}`}>
                           <Button>Sign In Now</Button>
                         </Link>
                       </div>

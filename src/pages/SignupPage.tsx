@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,9 @@ import { Loader2 } from 'lucide-react';
 const SignupPage = () => {
   const { signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const redirectTo = queryParams.get('redirect') || '/';
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [email, setEmail] = useState('');
@@ -41,7 +44,7 @@ const SignupPage = () => {
       
       // If email confirmation is required, we don't navigate
       // Otherwise, navigate to home
-      navigate('/');
+      navigate(redirectTo);
     } catch (err) {
       console.error('Exception during signup:', err);
       toast.error('An unexpected error occurred');
@@ -59,6 +62,8 @@ const SignupPage = () => {
       if (error) {
         console.error('Google signup error:', error);
         toast.error(error.message || 'Failed to sign up with Google');
+      } else {
+        navigate(redirectTo);
       }
     } catch (err) {
       console.error('Exception during Google signup:', err);

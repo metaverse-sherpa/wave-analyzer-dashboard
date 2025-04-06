@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,6 +17,8 @@ interface LoginModalProps {
 }
 
 const LoginModal = ({ isOpen, onClose, onContinueInPreview }: LoginModalProps) => {
+  const location = useLocation();
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => {
       if (!open) onClose();
@@ -46,7 +48,7 @@ const LoginModal = ({ isOpen, onClose, onContinueInPreview }: LoginModalProps) =
               Continue in Preview
             </Button>
             
-            <Link to="/login">
+            <Link to={`/login?redirect=${encodeURIComponent(location.pathname)}`}>
               <Button>Sign In</Button>
             </Link>
           </div>

@@ -7,35 +7,24 @@ const AuthCallback = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const handleCallback = async () => {
-      try {
-        // Let Supabase handle the callback automatically
-        const { data, error } = await supabase.auth.getSession();
+    // Process the OAuth callback
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        // Get the stored redirect URL
+        const redirectTo = localStorage.getItem('authRedirect') || '/';
         
-        if (error) {
-          console.error('Auth callback error:', error);
-          toast.error('Authentication failed');
-          setTimeout(() => navigate('/login'), 2000);
-          return;
-        }
+        // Clear it from storage
+        localStorage.removeItem('authRedirect');
         
-        if (data?.session) {
-          console.log('Authentication successful');
-          toast.success('Signed in successfully');
-          navigate('/');
-        } else {
-          console.warn('No session found after callback');
-          toast.error('Authentication failed');
-          setTimeout(() => navigate('/login'), 2000);
-        }
-      } catch (err) {
-        console.error('Unexpected error in auth callback:', err);
-        toast.error('An unexpected error occurred');
-        setTimeout(() => navigate('/login'), 2000);
+        // Redirect the user
+        navigate(redirectTo);
       }
+    });
+
+    return () => {
+      // Clean up the listener
+      authListener.subscription.unsubscribe();
     };
-    
-    handleCallback();
   }, [navigate]);
 
   return (
