@@ -1,34 +1,55 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import AuthModal from './AuthModal';
+import { usePreview } from '@/context/PreviewContext';
+import LoginModal from '@/components/auth/LoginModal';
 
 interface SemiProtectedRouteProps {
   children: React.ReactNode;
 }
 
-// This component shows the content but prompts for login if needed
 const SemiProtectedRoute: React.FC<SemiProtectedRouteProps> = ({ children }) => {
   const { user, isLoading } = useAuth();
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const { setPreviewMode } = usePreview();
+  const navigate = useNavigate();
+  const [showLoginModal, setShowLoginModal] = useState(false);
   
   useEffect(() => {
-    // If not loading and no user, show auth modal
-    if (!isLoading && !user) {
-      setShowAuthModal(true);
+    // If user is authenticated, make sure we're not in preview mode
+    if (user) {
+      setPreviewMode(false);
     }
-  }, [isLoading, user]);
+    
+    // Show login modal for unauthenticated users after loading completes
+    if (!isLoading && !user) {
+      setShowLoginModal(true);
+    }
+  }, [isLoading, user, setPreviewMode]);
   
-  // Always show the underlying content
+  // Handle modal close
+  const handleModalClose = () => {
+    setShowLoginModal(false);
+    navigate('/'); // Redirect to dashboard when canceled
+  };
+  
+  // Handle "Continue in Preview Mode" option
+  const handleContinueInPreview = () => {
+    setShowLoginModal(false);
+    setPreviewMode(true); // Enable preview mode
+  };
+  
   return (
     <>
       {children}
       
-      {/* Show auth modal if not logged in */}
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onOpenChange={setShowAuthModal} 
-        mode="login"
-      />
+      {/* Show login modal for unauthenticated users */}
+      {showLoginModal && !user && (
+        <LoginModal 
+          isOpen={showLoginModal}
+          onClose={handleModalClose}
+          onContinueInPreview={handleContinueInPreview}
+        />
+      )}
     </>
   );
 };

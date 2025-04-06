@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge"; // Add this import
@@ -32,6 +32,7 @@ import { formatChartData } from '@/utils/chartUtils';
 import { getElliottWaveAnalysis } from '@/api/deepseekApi';
 import { apiUrl } from '@/utils/apiConfig'; // Add this import at the top
 import { useAuth } from '@/context/AuthContext'; // Add this import
+import { usePreview } from '@/context/PreviewContext'; // Add import
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -93,6 +94,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const navigate = useNavigate();
   
   const { user } = useAuth();
+  const { isPreviewMode } = usePreview(); // Add this near your other hooks
   
   // Load basic data even for non-authenticated users
   useEffect(() => {
@@ -382,7 +384,19 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         {/* Main content area */}
         <div className="space-y-6">
           {/* Chart section */}
-          <div className="bg-card rounded-lg p-6">
+          <div className={`relative mb-8 ${isPreviewMode ? 'overflow-hidden' : ''}`}>
+            {isPreviewMode && (
+              <div className="absolute inset-0 backdrop-blur-md flex flex-col items-center justify-center z-10 bg-background/30">
+                <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
+                  <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
+                  <p className="mb-4">Sign in to view detailed stock charts with technical analysis.</p>
+                  <Link to="/login">
+                    <Button>Sign In Now</Button>
+                  </Link>
+                </div>
+              </div>
+            )}
+            
             {loading ? (
               <Skeleton className="w-full h-[500px]" />
             ) : analysis ? (
@@ -457,13 +471,26 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             <Card>
               <CardContent className="pt-6">
                 <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
-                {analysis && (
-                  <AIAnalysis 
-                    symbol={symbol}
-                    analysis={analysis}
-                    historicalData={historicalData}
-                  />
-                )}
+                <div className={`relative mb-8 ${isPreviewMode ? 'overflow-hidden' : ''}`}>
+                  {isPreviewMode && (
+                    <div className="absolute inset-0 backdrop-blur-md flex flex-col items-center justify-center z-10 bg-background/30">
+                      <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
+                        <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
+                        <p className="mb-4">Sign in to access AI-powered Elliott Wave analysis.</p>
+                        <Link to="/login">
+                          <Button>Sign In Now</Button>
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                  {analysis && (
+                    <AIAnalysis 
+                      symbol={symbol}
+                      analysis={analysis}
+                      historicalData={historicalData}
+                    />
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
