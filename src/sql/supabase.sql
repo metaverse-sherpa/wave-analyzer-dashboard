@@ -210,3 +210,40 @@ $$;
 CREATE TRIGGER on_auth_user_deleted
   AFTER DELETE ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_user_deletion();
+
+
+
+-- Create a storage bucket for user content
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('user-content', 'User Content', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Set up security policies for the user-content bucket
+-- Using 'name' instead of 'path'
+CREATE POLICY "Avatar images are publicly accessible"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'user-content' AND name LIKE 'avatars/%');
+
+CREATE POLICY "Users can upload their own avatars"
+ON storage.objects FOR INSERT
+WITH CHECK (
+  bucket_id = 'user-content' AND
+  name LIKE 'avatars/%' AND
+  auth.uid() = SPLIT_PART(name, '-', 1)::uuid
+);
+
+CREATE POLICY "Users can update their own avatars"
+ON storage.objects FOR UPDATE
+USING (
+  bucket_id = 'user-content' AND
+  name LIKE 'avatars/%' AND
+  auth.uid() = SPLIT_PART(name, '-', 1)::uuid
+);
+
+CREATE POLICY "Users can delete their own avatars"
+ON storage.objects FOR DELETE
+USING (
+  bucket_id = 'user-content' AND
+  name LIKE 'avatars/%' AND
+  auth.uid() = SPLIT_PART(name, '-', 1)::uuid
+);

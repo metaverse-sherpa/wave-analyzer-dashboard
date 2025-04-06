@@ -61,6 +61,12 @@ import React from 'react';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import AuthCallback from './components/auth/AuthCallback';
+import Layout from './components/layout/Layout';
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
+import ProfilePage from './pages/ProfilePage'; // Add this import
+import SemiProtectedRoute from './components/auth/SemiProtectedRoute';
 
 // Initialize it before your app renders
 if (process.env.NODE_ENV === 'development') {
@@ -246,16 +252,25 @@ const App = () => {
                     <AuthProvider>
                       <Router>
                         <Routes>
-                          {/* Public routes */}
+                          {/* Public routes - accessible without authentication */}
                           <Route path="/" element={<Index />} />
+                          <Route path="/stocks/:symbol" element={
+                            <SemiProtectedRoute>
+                              <StockDetails />
+                            </SemiProtectedRoute>
+                          } />
                           
                           {/* Auth callback route */}
                           <Route path="/auth/callback" element={<AuthCallback />} />
                           
+                          {/* Login/Signup routes */}
+                          <Route path="/login" element={<LoginPage />} />
+                          <Route path="/signup" element={<SignupPage />} />
+                          
                           {/* Protected routes - require login */}
-                          <Route path="/stocks/:symbol" element={
+                          <Route path="/profile" element={
                             <ProtectedRoute>
-                              <StockDetails />
+                              <ProfilePage />
                             </ProtectedRoute>
                           } />
                           

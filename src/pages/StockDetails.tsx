@@ -31,6 +31,7 @@ import { supabase } from '@/lib/supabase';
 import { formatChartData } from '@/utils/chartUtils';
 import { getElliottWaveAnalysis } from '@/api/deepseekApi';
 import { apiUrl } from '@/utils/apiConfig'; // Add this import at the top
+import { useAuth } from '@/context/AuthContext'; // Add this import
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -91,6 +92,17 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
   
+  const { user } = useAuth();
+  
+  // Load basic data even for non-authenticated users
+  useEffect(() => {
+    const loadBasicData = async () => {
+      // Load minimal data for preview
+    };
+    
+    loadBasicData();
+  }, [symbol]);
+
   const [stockData, setStockData] = useState<StockData | null>(null);
   const [historicalData, setHistoricalData] = useState<StockHistoricalData[]>([]);
   const [analysis, setAnalysis] = useState<WaveAnalysisResult>({
