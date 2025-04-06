@@ -8,7 +8,7 @@ import { getAllAnalyses, clearAllAnalyses } from '@/services/databaseService';
 import { getAllHistoricalData } from '@/services/cacheService'; // Get the Supabase version
 import { toast } from '@/lib/toast';
 import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity, LineChart, Loader2, 
-         Search, X, Cog } from 'lucide-react';
+         Search, X, Cog, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
@@ -30,6 +30,7 @@ import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
 import { FavoritesManager } from '@/components/FavoritesManager';
+import UserManagement from '@/components/admin/UserManagement';
 
 // Add this at the top of Admin.tsx with other interfaces
 declare global {
@@ -1300,6 +1301,10 @@ useEffect(() => {
                 <BarChart3 className="h-4 w-4 mr-2" />
                 Wave Analysis Cache
               </TabsTrigger>
+              <TabsTrigger value="users">
+                <Users className="h-4 w-4 mr-2" />
+                User Management
+              </TabsTrigger>
             </TabsList>
             
             <TabsContent value="waves" className="border rounded-md p-4 min-h-[500px]">
@@ -1492,6 +1497,9 @@ useEffect(() => {
                   </div>
                 )}
               </ScrollArea>
+            </TabsContent>
+            <TabsContent value="users" className="border rounded-md p-4 min-h-[500px]">
+              <UserManagement />
             </TabsContent>
           </Tabs>
         </div>

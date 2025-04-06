@@ -247,3 +247,92 @@ USING (
   name LIKE 'avatars/%' AND
   auth.uid() = SPLIT_PART(name, '-', 1)::uuid
 );
+
+-- Create a secure function to get user emails (only accessible to admins)
+CREATE OR REPLACE FUNCTION get_users_with_email()
+RETURNS TABLE (
+  id UUID,
+  email TEXT,
+  username TEXT,
+  full_name TEXT,
+  avatar_url TEXT,
+  role TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Check if the current user is an admin
+  IF EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE id = auth.uid() AND role = 'admin'
+  ) THEN
+    -- Return joined data from both tables
+    RETURN QUERY
+    SELECT 
+      p.id,  -- Qualified with table alias to avoid ambiguity
+      u.email,
+      p.username,
+      p.full_name,
+      p.avatar_url,
+      p.role,
+      p.created_at,
+      p.updated_at
+    FROM 
+      profiles p
+    JOIN 
+      auth.users u ON p.id = u.id
+    ORDER BY 
+      p.updated_at DESC;
+  ELSE
+    -- Not an admin - return empty result
+    RAISE EXCEPTION 'Not authorized';
+  END IF;
+END;
+$$;
+
+-- Create policy for admins to update other users' profiles
+CREATE POLICY "Admins can update any profile"
+ON public.profiles 
+FOR UPDATE
+USING (
+  EXISTS (
+    SELECT 1 FROM profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  )
+);
+
+
+CREATE OR REPLACE FUNCTION admin_get_user_emails(user_ids UUID[])
+RETURNS TABLE (
+  user_id UUID,
+  email VARCHAR(255)  -- Changed from TEXT to VARCHAR(255) to match actual type
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Check if the current user is an admin
+  IF EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE id = auth.uid() AND role = 'admin'
+  ) THEN
+    -- Return just the emails for the requested IDs
+    RETURN QUERY
+    SELECT 
+      u.id as user_id,
+      u.email
+    FROM 
+      auth.users u
+    WHERE 
+      u.id = ANY(user_ids);
+  ELSE
+    -- Not an admin - return empty result
+    RAISE EXCEPTION 'Not authorized';
+  END IF;
+END;
+$$;
