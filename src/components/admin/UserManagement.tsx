@@ -26,6 +26,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useAuth } from '@/context/AuthContext';
 
 interface User {
   id: string;
@@ -39,6 +40,7 @@ interface User {
 }
 
 const UserManagement = () => {
+  const { user } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -155,8 +157,19 @@ const UserManagement = () => {
     applySearch(users, query);
   };
 
+  // Add a function to check if this is the current user
+  const isCurrentUser = (userId: string) => {
+    return user?.id === userId;
+  };
+
   // Toggle admin role
   const toggleAdminRole = async (userId: string, currentRole: string) => {
+    // Prevent admins from removing their own admin status
+    if (isCurrentUser(userId) && currentRole === 'admin') {
+      toast.error("You cannot remove your own admin status");
+      return;
+    }
+
     setUpdating(userId);
     try {
       const newRole = currentRole === 'admin' ? 'user' : 'admin';
@@ -335,14 +348,17 @@ const UserManagement = () => {
                         <Checkbox
                           id={`admin-${user.id}`}
                           checked={user.role === 'admin'}
-                          disabled={updating === user.id}
+                          disabled={updating === user.id || (isCurrentUser(user.id) && user.role === 'admin')}
                           onCheckedChange={() => toggleAdminRole(user.id, user.role)}
                         />
                         <Label 
                           htmlFor={`admin-${user.id}`}
-                          className="text-sm font-medium leading-none cursor-pointer"
+                          className={`text-sm font-medium leading-none ${isCurrentUser(user.id) && user.role === 'admin' ? 'text-muted-foreground' : 'cursor-pointer'}`}
                         >
                           Admin
+                          {isCurrentUser(user.id) && user.role === 'admin' && (
+                            <span className="ml-1 text-xs text-muted-foreground">(you)</span>
+                          )}
                         </Label>
                       </div>
                     </div>
