@@ -23,33 +23,34 @@ const LoginModal = ({ isOpen, onClose, onContinueInPreview }: LoginModalProps) =
     <Dialog open={isOpen} onOpenChange={(open) => {
       if (!open) onClose();
     }}>
-      <DialogContent className="sm:max-w-[425px]">
+      {/* Increase dialog width from default to a more accommodating size */}
+      <DialogContent className="sm:max-w-[500px] w-[95vw]">
         <DialogHeader>
           <DialogTitle>Enhanced Features Available</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="break-normal">
             Sign in to access premium features including advanced AI analysis and detailed charts.
           </DialogDescription>
         </DialogHeader>
         
         <div className="py-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground break-normal whitespace-normal">
             You can continue in preview mode with limited functionality, 
             sign in for full access, or return to the dashboard.
           </p>
         </div>
         
         <DialogFooter className="flex flex-col sm:flex-row gap-3 sm:justify-between">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} className="w-full sm:w-auto">
             Back to Dashboard
           </Button>
           
           <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="secondary" onClick={onContinueInPreview}>
+            <Button variant="secondary" onClick={onContinueInPreview} className="w-full sm:w-auto">
               Continue in Preview
             </Button>
             
-            <Link to={`/login?redirect=${encodeURIComponent(location.pathname)}`}>
-              <Button>Sign In</Button>
+            <Link to={`/login?redirect=${encodeURIComponent(location.pathname)}`} className="w-full sm:w-auto">
+              <Button className="w-full">Sign In</Button>
             </Link>
           </div>
         </DialogFooter>
