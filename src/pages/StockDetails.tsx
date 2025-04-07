@@ -384,8 +384,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         {/* Main content area */}
         <div className="space-y-6">
           {/* Chart section */}
-          <div className={`relative mb-8 ${isPreviewMode ? 'overflow-hidden' : ''}`}>
-            {isPreviewMode && (
+          <div className="relative mb-8">
+            {(!user && isPreviewMode) && ( // Check both conditions
               <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
                 <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
                   <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
@@ -397,21 +397,23 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               </div>
             )}
             
-            {loading ? (
-              <Skeleton className="w-full h-[500px]" />
-            ) : analysis ? (
-              <StockDetailChart
-                symbol={symbol}
-                data={historicalData}
-                waves={analysis.waves}
-                currentWave={analysis.currentWave}
-                fibTargets={analysis.fibTargets}
-                selectedWave={selectedWave}
-                onClearSelection={() => setSelectedWave(null)}
-                livePrice={livePrice} // Pass the live price
-                invalidWaves={analysis.invalidWaves} // Add this line
-              />
-            ) : null}
+            <div className={(!user && isPreviewMode) ? "blur-premium" : ""}> {/* Apply blur class when both conditions met */}
+              {loading ? (
+                <Skeleton className="w-full h-[500px]" />
+              ) : analysis ? (
+                <StockDetailChart
+                  symbol={symbol}
+                  data={historicalData}
+                  waves={analysis.waves}
+                  currentWave={analysis.currentWave}
+                  fibTargets={analysis.fibTargets}
+                  selectedWave={selectedWave}
+                  onClearSelection={() => setSelectedWave(null)}
+                  livePrice={livePrice} // Pass the live price
+                  invalidWaves={analysis.invalidWaves} // Add this line
+                />
+              ) : null}
+            </div>
           </div>
 
           {/* Analysis sections in two columns */}
@@ -471,8 +473,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             <Card>
               <CardContent className="pt-6">
                 <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
-                <div className={`relative mb-8 ${isPreviewMode ? 'overflow-hidden' : ''}`}>
-                  {isPreviewMode && (
+                <div className="relative mb-8">
+                  {(!user && isPreviewMode) && ( // Same double-condition check
                     <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
                       <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
                         <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
@@ -483,13 +485,16 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                       </div>
                     </div>
                   )}
-                  {analysis && (
-                    <AIAnalysis 
-                      symbol={symbol}
-                      analysis={analysis}
-                      historicalData={historicalData}
-                    />
-                  )}
+                  
+                  <div className={(!user && isPreviewMode) ? "blur-premium" : ""}> {/* Same blur class application */}
+                    {analysis && (
+                      <AIAnalysis 
+                        symbol={symbol}
+                        analysis={analysis}
+                        historicalData={historicalData}
+                      />
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>

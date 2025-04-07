@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { usePreview } from '@/context/PreviewContext';
@@ -9,47 +9,32 @@ interface SemiProtectedRouteProps {
 }
 
 const SemiProtectedRoute: React.FC<SemiProtectedRouteProps> = ({ children }) => {
-  const { user, isLoading } = useAuth();
-  const { setPreviewMode } = usePreview();
+  const { user, loading } = useAuth();
+  const { isPreviewMode, setIsPreviewMode, showLoginModal, setShowLoginModal, continueInPreview } = usePreview();
   const navigate = useNavigate();
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  
+
   useEffect(() => {
-    // If user is authenticated, make sure we're not in preview mode
-    if (user) {
-      setPreviewMode(false);
-    }
-    
-    // Show login modal for unauthenticated users after loading completes
-    if (!isLoading && !user) {
+    // If not loading, not authenticated, and not in preview mode, show modal
+    if (!loading && !user && !isPreviewMode) {
       setShowLoginModal(true);
+    } else {
+      setShowLoginModal(false);
     }
-  }, [isLoading, user, setPreviewMode]);
-  
-  // Handle modal close
-  const handleModalClose = () => {
+  }, [user, loading, isPreviewMode, setShowLoginModal]);
+
+  const handleClose = () => {
     setShowLoginModal(false);
-    navigate('/'); // Redirect to dashboard when canceled
+    // Don't automatically set preview mode when closing - require explicit action
   };
-  
-  // Handle "Continue in Preview Mode" option
-  const handleContinueInPreview = () => {
-    setShowLoginModal(false);
-    setPreviewMode(true); // Enable preview mode
-  };
-  
+
   return (
     <>
       {children}
-      
-      {/* Show login modal for unauthenticated users */}
-      {showLoginModal && !user && (
-        <LoginModal 
-          isOpen={showLoginModal}
-          onClose={handleModalClose}
-          onContinueInPreview={handleContinueInPreview}
-        />
-      )}
+      <LoginModal 
+        isOpen={showLoginModal} 
+        onClose={handleClose} 
+        onContinueInPreview={continueInPreview}
+      />
     </>
   );
 };
