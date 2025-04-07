@@ -21,6 +21,13 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       hmr: {
         overlay: false,
+      },
+      proxy: {
+        '/api': {
+          target: 'https://api-backend.metaversesherpa.workers.dev',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api/, '')
+        }
       }
     },
     plugins: [

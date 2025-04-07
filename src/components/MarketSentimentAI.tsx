@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, Minus, Sparkles, RefreshCw } from "lucide-react";
+import { Sparkles, RefreshCw, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { usePreview } from '@/context/PreviewContext';
 import { Link } from 'react-router-dom';
 import { getAIMarketSentiment } from '@/services/aiMarketService';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
 interface MarketSentimentAIProps {
   bullishCount: number;
@@ -24,11 +26,25 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
   overallSentiment
 }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [isMockData, setIsMockData] = useState<boolean>(false); // Add this line
+  const [dataSources, setDataSources] = useState<string[]>([]); // Add this line
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const { user } = useAuth();
   const { isPreviewMode } = usePreview();
+  const { analyses } = useWaveAnalysis(); // Get analyses directly
+  
+  // Format analyses for the API
+  const formattedAnalyses = React.useMemo(() => {
+    return Object.entries(analyses).reduce((acc, [symbol, analysis]) => {
+      acc[symbol] = {
+        analysis,
+        timestamp: Date.now()
+      };
+      return acc;
+    }, {});
+  }, [analyses]);
   
   const getAgeString = (timestamp: number): string => {
     const now = Date.now();
@@ -55,15 +71,24 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
     setError(null);
     
     try {
-      const sentimentAnalysis = await getAIMarketSentiment({
-        bullishCount,
-        bearishCount,
-        neutralCount,
-        overallSentiment
-      }, force);
+      // Pass both the count data AND the wave analyses
+      const result = await getAIMarketSentiment(
+        {
+          bullishCount,
+          bearishCount,
+          neutralCount,
+          overallSentiment
+        },
+        formattedAnalyses, // Use the memoized formatted analyses
+        force,
+        false // Don't skip API call by default - change to true if you want to skip API calls
+      );
       
-      setAnalysis(sentimentAnalysis);
-      setLastUpdated(force ? 'just now' : null);
+      setAnalysis(result.analysis);
+      setIsMockData(result.isMockData);
+      setDataSources(result.sourcesUsed);
+      setLastUpdated(force ? 'just now' : getAgeString(result.timestamp));
+      
     } catch (error) {
       console.error('Error fetching AI market sentiment:', error);
       setError('Failed to generate market analysis. Try again later.');
@@ -72,10 +97,10 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
     }
   };
 
-  // Load sentiment on initial render
+  // Load sentiment when component mounts or dependencies change
   useEffect(() => {
     fetchAIMarketSentiment();
-  }, [bullishCount, bearishCount, neutralCount]);
+  }, [bullishCount, bearishCount, neutralCount, JSON.stringify(formattedAnalyses)]);
 
   // If no user and in preview mode, show the blurred premium feature
   if (!user && isPreviewMode) {
@@ -112,10 +137,29 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
         <div className="flex justify-between items-center mb-2">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-medium">AI Market Insights</h3>
+            <h3 className="text-sm font-medium">AI Elliott Wave Market Insights</h3>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">AI</Badge>
+            
+            {/* Add mock data indicator */}
+            {isMockData && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center">
+                      <AlertCircle className="h-3 w-3 text-amber-500" />
+                      <span className="ml-1 text-xs text-amber-500">Mock data</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">Using simulated market data due to API limitations.</p>
+                    <p className="text-xs mt-1">Sources used: {dataSources.join(', ')}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            
             {lastUpdated && (
               <div className="text-xs text-muted-foreground">
                 Updated {lastUpdated}

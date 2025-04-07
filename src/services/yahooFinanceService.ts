@@ -54,16 +54,34 @@ const getApiBaseUrl = (): string => {
 };
 
 // Create the apiUrl function that properly adds /api
+/**
+ * Builds a proper API URL based on the current environment
+ * @param endpoint The API endpoint path (should start with /)
+ * @returns Full URL to the API endpoint
+ */
 export function buildApiUrl(endpoint: string): string {
-  const baseUrl = getApiBaseUrl();
-  // Clean up the endpoint
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+  // Base URL detection based on environment
+  let baseUrl: string;
   
-  // Ensure we add /api prefix if not already there
-  const apiPrefix = cleanEndpoint.startsWith('api/') ? '' : 'api/';
+  if (import.meta.env.DEV) {
+    // For local development
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      baseUrl = window.location.port === '5173' 
+        ? 'http://localhost:3001/api' // Standard Vite port pointing to local API
+        : `${window.location.origin}/api`; // Otherwise use same origin
+    } else {
+      baseUrl = `${window.location.origin}/api`;
+    }
+  } else {
+    // For production, always use relative URLs to avoid CORS issues
+    baseUrl = '/api';
+  }
+
+  // Make sure endpoint starts with / but baseUrl doesn't end with /
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   
-  // Combine parts and ensure proper slash handling
-  return `${baseUrl}/${apiPrefix}${cleanEndpoint}`.replace(/([^:]\/)\/+/g, '$1');
+  return `${cleanBaseUrl}${cleanEndpoint}`;
 }
 
 // Use the function to get the base URL

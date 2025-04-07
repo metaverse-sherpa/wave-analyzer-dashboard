@@ -1,11 +1,14 @@
 {
   "version": 1,
   "include": ["/*"],
-  "exclude": ["/api/*", "/assets/*", "/images/*"],
+  "exclude": [
+    "/assets/*",
+    "/build/*"
+  ],
   "routes": [
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "pattern": "/api/*",
+      "script": "api-backend"
     }
   ]
 }

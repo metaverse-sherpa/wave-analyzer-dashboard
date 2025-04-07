@@ -1,10 +1,10 @@
 import yahooFinance from 'yahoo-finance2';
 
-// Configure CORS headers
+// Update your corsHeaders constant
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': '*',  // In production, restrict to your domain
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
   'Content-Type': 'application/json'
 };
 
@@ -353,9 +353,17 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const headers = { ...corsHeaders };
-    const path = url.pathname.startsWith('/api') 
-      ? url.pathname.substring(4)
-      : url.pathname;
+    
+    // Better path handling for both direct Worker calls and Pages proxy
+    let path = url.pathname;
+    
+    // Handle both /api/something and /something paths
+    if (path.startsWith('/api/')) {
+      path = path.substring(4); // Remove /api prefix
+    }
+    
+    // Add a console log for debugging
+    console.log(`Processing request for path: ${path}, original URL: ${request.url}`);
 
     // Handle preflight requests
     if (request.method === 'OPTIONS') {
@@ -573,7 +581,142 @@ export default {
         }
       }
 
-      // Individual stock endpoint - add this before the "Handle unknown endpoints" section
+      // Move this more specific route BEFORE the general stock endpoint handler
+      // Stock insights endpoint - move this before the individual stock endpoint
+      if (path.match(/\/stocks\/[A-Za-z0-9\.-]+\/insights/)) {
+        try {
+          // Extract symbol from path
+          const matches = path.match(/\/stocks\/([A-Za-z0-9\.-]+)\/insights/);
+          if (!matches || !matches[1]) {
+            throw new Error('Invalid symbol in URL');
+          }
+          
+          const symbol = matches[1].toUpperCase();
+          console.log(`Processing insights request for symbol: ${symbol}`);
+          
+          // Check if we have cached insights for this symbol
+          const cacheKey = `insights_${symbol}`;
+          const cachedData = await getCachedData(cacheKey, env);
+          
+          if (cachedData) {
+            console.log(`Returning cached insights for ${symbol}`);
+            return new Response(JSON.stringify(cachedData), { headers });
+          }
+          
+          console.log(`Fetching fresh insights for ${symbol}`);
+          
+          try {
+            // Attempt to get quote summary with modules needed for insights
+            const quoteSummary = await yahooFinance.quoteSummary(symbol, {
+              modules: [
+                'price',
+                'summaryDetail', 
+                'financialData',
+                'recommendationTrend',
+                'upgradeDowngradeHistory',
+                'earnings',
+                'defaultKeyStatistics'
+              ]
+            });
+            
+            // Create our own insights structure similar to Yahoo Finance's
+            const formattedInsights = {
+              technicalInsights: {
+                rating: quoteSummary.financialData?.recommendationMean < 3 ? "BULLISH" : "BEARISH",
+                score: parseFloat((5 - (quoteSummary.financialData?.recommendationMean || 3)).toFixed(1))
+              },
+              insightsText: []
+            };
+            
+            // Add recommendation insights
+            if (quoteSummary.recommendationTrend?.trend && 
+                Array.isArray(quoteSummary.recommendationTrend.trend) && 
+                quoteSummary.recommendationTrend.trend.length > 0) {
+              
+              const trend = quoteSummary.recommendationTrend.trend[0]; // Most recent
+              
+              formattedInsights.insightsText.push({
+                text: `Analyst consensus for ${symbol}: ${trend.buy + trend.strongBuy} buy, ${trend.hold} hold, and ${trend.sell + trend.strongSell} sell recommendations.`,
+                score: (trend.buy + trend.strongBuy) / (trend.buy + trend.strongBuy + trend.hold + trend.sell + trend.strongSell),
+                period: "current"
+              });
+            }
+            
+            // Add price target insights
+            if (quoteSummary.financialData?.targetMeanPrice && 
+                quoteSummary.price?.regularMarketPrice) {
+              
+              const targetPrice = quoteSummary.financialData.targetMeanPrice;
+              const currentPrice = quoteSummary.price.regularMarketPrice;
+              const percentDiff = ((targetPrice / currentPrice) - 1) * 100;
+              const direction = percentDiff >= 0 ? "upside" : "downside";
+              
+              formattedInsights.insightsText.push({
+                text: `Analysts set average price target of $${targetPrice.toFixed(2)} for ${symbol}, suggesting ${Math.abs(percentDiff).toFixed(1)}% ${direction} potential.`,
+                score: percentDiff > 0 ? 0.7 : 0.3,
+                period: "12mo"
+              });
+            }
+            
+            // Add PE ratio context if available
+            if (quoteSummary.summaryDetail?.trailingPE) {
+              const pe = quoteSummary.summaryDetail.trailingPE;
+              let peContext = "in line with";
+              
+              if (pe > 30) peContext = "higher than";
+              else if (pe < 15) peContext = "lower than";
+              
+              formattedInsights.insightsText.push({
+                text: `${symbol}'s P/E ratio of ${pe.toFixed(2)} is ${peContext} typical market valuation.`,
+                score: 0.5,
+                period: "current"
+              });
+            }
+            
+            // Add market momentum insight
+            if (quoteSummary.price?.regularMarketChangePercent) {
+              const changePercent = quoteSummary.price.regularMarketChangePercent;
+              let momentum = "neutral";
+              
+              if (changePercent > 2) momentum = "strong positive";
+              else if (changePercent > 0.5) momentum = "positive";
+              else if (changePercent < -2) momentum = "strong negative";
+              else if (changePercent < -0.5) momentum = "negative";
+              
+              formattedInsights.insightsText.push({
+                text: `${symbol} is showing ${momentum} momentum with ${Math.abs(changePercent).toFixed(2)}% ${changePercent >= 0 ? 'gain' : 'loss'} today.`,
+                score: (changePercent + 5) / 10, // Convert to 0-1 scale centered around 0.5
+                period: "1d"
+              });
+            }
+            
+            // Cache the results for 2 hours
+            await setCachedData(cacheKey, formattedInsights, env, 2 * 60 * 60);
+            
+            console.log(`Successfully built insights for ${symbol} using quoteSummary data`);
+            return new Response(JSON.stringify(formattedInsights), { headers });
+            
+          } catch (error) {
+            console.error(`Error in insights endpoint: ${error.message}`);
+            return new Response(JSON.stringify({
+              error: 'Failed to fetch stock insights',
+              message: error.message
+            }), { 
+              status: 500, 
+              headers 
+            });
+          }
+        } catch (error) {
+          console.error(`Error processing insights request: ${error.message}`);
+          return new Response(JSON.stringify({
+            error: 'Failed to fetch insights',
+            message: error.message
+          }), { status: 500, headers });
+        }
+      }
+
+      // THEN keep the existing individual stock endpoint handler
+      // Individual stock endpoint - AFTER the insights endpoint
       if (path.startsWith('/stocks/') && !path.includes('/history') && !path.includes('/historical') && path !== '/stocks/top') {
         try {
           const symbol = path.split('/stocks/')[1].split('?')[0].toUpperCase();
@@ -702,6 +845,198 @@ export default {
         }
       }
 
+      // Add these handlers within your main fetch handler function
+
+      // Market news endpoint
+      if (path === '/market/news' || path.startsWith('/market/news?')) {
+        try {
+          // Fetch market news from Yahoo Finance
+          const newsData = await yahooFinance.search('Market', { newsCount: 5 });
+          
+          if (newsData && newsData.news && Array.isArray(newsData.news)) {
+            console.log(`Returning ${newsData.news.length} market news items`);
+            
+            // Format the news data
+            const formattedNews = newsData.news.map(item => ({
+              title: item.title,
+              publisher: item.publisher,
+              link: item.link,
+              publishedAt: item.providerPublishTime
+            }));
+            
+            return new Response(JSON.stringify(formattedNews), { headers });
+          } else {
+            throw new Error('No news data returned');
+          }
+        } catch (error) {
+          console.error(`Error fetching market news: ${error.message}`);
+          return new Response(JSON.stringify({
+            error: 'Failed to fetch market news',
+            message: error.message
+          }), { status: 500, headers });
+        }
+      }
+
+      // Stock insights endpoint - update this implementation
+      if (path.match(/\/stocks\/[A-Za-z0-9\.-]+\/insights/)) {
+        try {
+          // Extract symbol from path
+          const matches = path.match(/\/stocks\/([A-Za-z0-9\.-]+)\/insights/);
+          if (!matches || !matches[1]) {
+            throw new Error('Invalid symbol in URL');
+          }
+          
+          const symbol = matches[1].toUpperCase();
+          console.log(`Processing insights request for symbol: ${symbol}`);
+          
+          // Check cache first
+          const cacheKey = `insights_${symbol}`;
+          const cachedData = await getCachedData(cacheKey, env);
+          
+          if (cachedData) {
+            console.log(`Returning cached insights for ${symbol}`);
+            return new Response(JSON.stringify(cachedData), { headers });
+          }
+          
+          console.log(`Fetching insights from multiple sources for ${symbol}`);
+          
+          // Step 1: Get quote summary with multiple modules for comprehensive data
+          const quoteSummary = await yahooFinance.quoteSummary(symbol, {
+            modules: [
+              'price',
+              'summaryDetail', 
+              'financialData',
+              'recommendationTrend',
+              'upgradeDowngradeHistory',
+              'earnings',
+              'defaultKeyStatistics'
+            ]
+          });
+          
+          console.log(`Got quoteSummary data for ${symbol}`);
+          
+          // Step 2: Create insights structure similar to what Yahoo Finance would return
+          const formattedInsights = {
+            technicalInsights: {
+              // Generate technical rating based on price movements and analyst data
+              rating: generateTechnicalRating(quoteSummary),
+              score: calculateScore(quoteSummary)
+            },
+            insightsText: []
+          };
+          
+          // Step 3: Add recommendation insights
+          if (quoteSummary.recommendationTrend?.trend && 
+              Array.isArray(quoteSummary.recommendationTrend.trend) && 
+              quoteSummary.recommendationTrend.trend.length > 0) {
+            
+            const trend = quoteSummary.recommendationTrend.trend[0]; // Most recent
+            
+            formattedInsights.insightsText.push({
+              text: `Analyst consensus for ${symbol}: ${trend.buy} buy, ${trend.hold} hold, and ${trend.sell} sell recommendations.`,
+              score: calculateSentimentScore(trend),
+              period: "current"
+            });
+          }
+          
+          // Step 4: Add price target insights
+          if (quoteSummary.financialData?.targetMeanPrice && 
+              quoteSummary.price?.regularMarketPrice) {
+            
+            const targetPrice = quoteSummary.financialData.targetMeanPrice;
+            const currentPrice = quoteSummary.price.regularMarketPrice;
+            const percentDiff = ((targetPrice / currentPrice) - 1) * 100;
+            const direction = percentDiff >= 0 ? "upside" : "downside";
+            
+            formattedInsights.insightsText.push({
+              text: `Analysts set average price target of $${targetPrice.toFixed(2)} for ${symbol}, suggesting ${Math.abs(percentDiff).toFixed(1)}% ${direction} potential.`,
+              score: percentDiff > 0 ? 0.7 : 0.3,
+              period: "12mo"
+            });
+          }
+          
+          // Step 5: Add PE ratio context compared to industry
+          if (quoteSummary.summaryDetail?.trailingPE) {
+            const pe = quoteSummary.summaryDetail.trailingPE;
+            let peContext = "in line with";
+            
+            if (pe > 30) peContext = "higher than";
+            else if (pe < 15) peContext = "lower than";
+            
+            formattedInsights.insightsText.push({
+              text: `${symbol}'s P/E ratio of ${pe.toFixed(2)} is ${peContext} typical market valuation.`,
+              score: 0.5,
+              period: "current"
+            });
+          }
+          
+          // Step 6: Add recent upgrade/downgrade
+          if (quoteSummary.upgradeDowngradeHistory?.history && 
+              Array.isArray(quoteSummary.upgradeDowngradeHistory.history) && 
+              quoteSummary.upgradeDowngradeHistory.history.length > 0) {
+            
+            const latest = quoteSummary.upgradeDowngradeHistory.history[0];
+            if (latest && latest.firm && latest.toGrade) {
+              const date = new Date(latest.epochGradeDate * 1000);
+              const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              
+              formattedInsights.insightsText.push({
+                text: `On ${dateStr}, ${latest.firm} ${latest.action || 'rated'} ${symbol} as ${latest.toGrade}${latest.fromGrade ? ' from ' + latest.fromGrade : ''}.`,
+                score: getRatingScore(latest.toGrade),
+                period: "recent"
+              });
+            }
+          }
+          
+          // Step 7: Add market momentum insight
+          if (quoteSummary.price?.regularMarketChangePercent) {
+            const changePercent = quoteSummary.price.regularMarketChangePercent;
+            let momentum = "neutral";
+            
+            if (changePercent > 2) momentum = "strong positive";
+            else if (changePercent > 0.5) momentum = "positive";
+            else if (changePercent < -2) momentum = "strong negative";
+            else if (changePercent < -0.5) momentum = "negative";
+            
+            formattedInsights.insightsText.push({
+              text: `${symbol} is showing ${momentum} momentum with ${Math.abs(changePercent).toFixed(2)}% ${changePercent >= 0 ? 'gain' : 'loss'} today.`,
+              score: (changePercent + 5) / 10, // Convert to 0-1 scale centered around 0.5
+              period: "1d"
+            });
+          }
+          
+          // Cache the results for 2 hours
+          await setCachedData(cacheKey, formattedInsights, env, 2 * 60 * 60);
+          
+          console.log(`Successfully built insights for ${symbol} using quoteSummary data`);
+          return new Response(JSON.stringify(formattedInsights), { headers });
+          
+        } catch (error) {
+          console.error(`Error in insights endpoint: ${error.message}`, error.stack);
+          return new Response(JSON.stringify({
+            error: 'Failed to fetch stock insights',
+            message: error.message,
+            stack: error.stack
+          }), { 
+            status: 500, 
+            headers 
+          });
+        }
+      }
+
+      // Add this new endpoint before the 404 handler:
+
+      // Test endpoint for basic API functionality verification
+      if (path === '/test-api') {
+        return new Response(JSON.stringify({
+          status: 'ok',
+          message: 'API is functioning correctly',
+          timestamp: new Date().toISOString(),
+          path: path,
+          url: request.url
+        }), { headers });
+      }
+
       // Handle unknown endpoints
       return new Response(JSON.stringify({
         error: 'Not found',
@@ -731,12 +1066,15 @@ async function getCachedData(key, env) {
     try {
       const data = await env.CACHE_STORAGE.get(key);
       if (data) {
-        return JSON.parse(data);
+        try {
+          return JSON.parse(data);
+        } catch (jsonError) {
+          console.error(`Error parsing cached data for ${key}: ${jsonError.message}`);
+        }
       }
-    } catch (error) {
-      console.error(`KV cache error for ${key}: ${error.message}`);
+    } catch (kvError) {
+      console.error(`KV read error for ${key}: ${kvError.message}`);
     }
-    return null;
   }
   
   // Memory cache fallback
@@ -751,15 +1089,166 @@ async function setCachedData(key, data, env, ttlSeconds = 900) {
   // Use KV if available
   if (env && env.CACHE_STORAGE) {
     try {
-      await env.CACHE_STORAGE.put(key, JSON.stringify(data), {expirationTtl: ttlSeconds});
-    } catch (error) {
-      console.error(`KV cache write error for ${key}: ${error.message}`);
+      const serialized = JSON.stringify(data);
+      await env.CACHE_STORAGE.put(key, serialized, {expirationTtl: ttlSeconds});
+      console.log(`Cached ${key} in KV storage (${serialized.length} bytes)`);
+    } catch (kvError) {
+      console.error(`KV write error for ${key}: ${kvError.message}`);
+      // Fall back to memory cache on KV failure
+      setMemoryCache(key, data, ttlSeconds);
     }
   } else {
     // Memory cache fallback
-    CACHE[key] = {
-      data: data,
-      expires: Date.now() + (ttlSeconds * 1000)
-    };
+    setMemoryCache(key, data, ttlSeconds);
   }
+}
+
+function setMemoryCache(key, data, ttlSeconds) {
+  CACHE[key] = {
+    data: data,
+    expires: Date.now() + (ttlSeconds * 1000)
+  };
+  console.log(`Cached ${key} in memory cache (expires in ${ttlSeconds}s)`);
+  
+  // Periodically clean memory cache
+  cleanMemoryCache();
+}
+
+function cleanMemoryCache() {
+  const now = Date.now();
+  let removedCount = 0;
+  
+  for (const key in CACHE) {
+    if (CACHE[key].expires < now) {
+      delete CACHE[key];
+      removedCount++;
+    }
+  }
+  
+  if (removedCount > 0) {
+    console.log(`Cleaned up ${removedCount} expired items from memory cache`);
+  }
+}
+
+/**
+ * Generate technical rating based on available data
+ */
+function generateTechnicalRating(quoteSummary) {
+  try {
+    // Use multiple signals to determine the rating
+    let bullishSignals = 0;
+    let bearishSignals = 0;
+    
+    // Price momentum
+    if (quoteSummary.price?.regularMarketChangePercent > 0) bullishSignals++;
+    else bearishSignals++;
+    
+    // Target price
+    if (quoteSummary.financialData?.targetMeanPrice > quoteSummary.price?.regularMarketPrice) bullishSignals++;
+    else bearishSignals++;
+    
+    // Analyst recommendations
+    if (quoteSummary.recommendationTrend?.trend?.[0]) {
+      const trend = quoteSummary.recommendationTrend.trend[0];
+      if (trend.buy + trend.strongBuy > trend.sell + trend.strongSell) bullishSignals++;
+      else bearishSignals++;
+    }
+    
+    // PE ratio vs growth
+    if (quoteSummary.defaultKeyStatistics?.pegRatio && 
+        quoteSummary.defaultKeyStatistics.pegRatio < 1.5) bullishSignals++;
+    else bearishSignals++;
+    
+    // Determine the rating
+    if (bullishSignals >= 3) return "BULLISH";
+    else if (bearishSignals >= 3) return "BEARISH";
+    else if (bullishSignals > bearishSignals) return "NEUTRAL_BULLISH";
+    else if (bearishSignals > bullishSignals) return "NEUTRAL_BEARISH";
+    else return "NEUTRAL";
+    
+  } catch (err) {
+    console.log("Error generating technical rating:", err);
+    return "NEUTRAL"; // Default fallback
+  }
+}
+
+/**
+ * Calculate a numerical score for the stock (0-10)
+ */
+function calculateScore(quoteSummary) {
+  try {
+    // Start with a neutral score
+    let score = 5;
+    
+    // Adjust based on recommendation mean (1-5 scale)
+    if (quoteSummary.financialData?.recommendationMean) {
+      // Convert 1-5 scale (where 1 is strong buy) to 0-5 addition to our score
+      score += (5 - quoteSummary.financialData.recommendationMean);
+    }
+    
+    // Adjust based on price momentum (-2 to +2)
+    if (quoteSummary.price?.regularMarketChangePercent) {
+      // Add between -2 and +2 based on price change
+      score += Math.min(Math.max(quoteSummary.price.regularMarketChangePercent / 5, -2), 2);
+    }
+    
+    // Adjust based on target price potential (-1 to +1)
+    if (quoteSummary.financialData?.targetMeanPrice && quoteSummary.price?.regularMarketPrice) {
+      const targetPrice = quoteSummary.financialData.targetMeanPrice;
+      const currentPrice = quoteSummary.price.regularMarketPrice;
+      const percentDiff = ((targetPrice / currentPrice) - 1) * 100;
+      
+      // Add between -1 and +1 based on target price difference
+      score += Math.min(Math.max(percentDiff / 20, -1), 1);
+    }
+    
+    // Ensure score is between 0 and 10
+    return Math.min(Math.max(score, 0), 10).toFixed(1);
+    
+  } catch (err) {
+    console.log("Error calculating score:", err);
+    return 5; // Default neutral score
+  }
+}
+
+/**
+ * Calculate sentiment score from recommendation trend
+ */
+function calculateSentimentScore(trend) {
+  try {
+    if (!trend) return 0.5; // Neutral default
+    
+    const total = trend.strongBuy + trend.buy + trend.hold + trend.sell + trend.strongSell;
+    if (total === 0) return 0.5;
+    
+    // Calculate a score between 0-1 where 1 is very bullish
+    const score = (trend.strongBuy * 1 + trend.buy * 0.75 + trend.hold * 0.5 + 
+                   trend.sell * 0.25 + trend.strongSell * 0) / total;
+                   
+    return score;
+  } catch (err) {
+    return 0.5; // Neutral default
+  }
+}
+
+/**
+ * Get score based on analyst rating
+ */
+function getRatingScore(rating) {
+  const ratingScores = {
+    'Strong Buy': 0.9,
+    'Buy': 0.7,
+    'Outperform': 0.7,
+    'Overweight': 0.7,
+    'Neutral': 0.5,
+    'Hold': 0.5,
+    'Equal-Weight': 0.5,
+    'Market Perform': 0.5,
+    'Underperform': 0.3,
+    'Underweight': 0.3,
+    'Sell': 0.2,
+    'Strong Sell': 0.1
+  };
+  
+  return ratingScores[rating] || 0.5;
 }

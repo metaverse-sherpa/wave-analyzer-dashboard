@@ -16,9 +16,25 @@ export type AnalysisEvent = {
   message?: string;
 };
 
-// 1. Define a clear interface for the context value
+// Update the interface definitions near the top of the file
+interface WaveAnalysisWithTimestamp {
+  analysis: WaveAnalysisResult;
+  timestamp: number;
+}
+
+// Update the context interface to use the correct type
+export interface WaveAnalysisContextType {
+  analyses: Record<string, WaveAnalysisResult>;
+  allAnalyses: Record<string, WaveAnalysisWithTimestamp>;
+  loadAnalysisFromSupabase: (symbol: string) => Promise<WaveAnalysisResult | null>;
+  loadAllAnalysesFromSupabase: () => Promise<void>;
+  getAnalysis: (symbol: string, historicalData: StockHistoricalData[], forceRefresh?: boolean) => Promise<WaveAnalysisResult>;
+}
+
+// Update the WaveAnalysisContextValue interface to include allAnalyses
 interface WaveAnalysisContextValue {
   analyses: Record<string, WaveAnalysisResult>;
+  allAnalyses: Record<string, WaveAnalysisWithTimestamp>; // Add this line
   getAnalysis: (symbol: string, historicalData: StockHistoricalData[], force?: boolean, silent?: boolean) => Promise<WaveAnalysisResult | null>;
   preloadAnalyses: (symbols: string[]) => Promise<void>;
   clearAnalysis: (symbol?: string) => void;
@@ -26,13 +42,13 @@ interface WaveAnalysisContextValue {
   cancelAnalysis: (symbol: string) => void;
   cancelAllAnalyses: () => void;
   analysisEvents: AnalysisEvent[];
-  loadAllAnalysesFromSupabase: () => Promise<void>; // Add this line
+  loadAllAnalysesFromSupabase: () => Promise<void>;
 }
 
-// 2. Create the context with a proper default value
-// DON'T export this directly - only export the hook
+// Update the default context value to include allAnalyses
 const WaveAnalysisContext = createContext<WaveAnalysisContextValue>({
   analyses: {},
+  allAnalyses: {}, // Add this line
   getAnalysis: async () => null,
   preloadAnalyses: async () => {},
   clearAnalysis: () => {},
@@ -317,9 +333,25 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     }
   }, [loadAllAnalysesFromSupabase]);
 
-  // Create memoized context value
+  // Create a memoized version of allAnalyses to avoid re-renders
+  const allAnalyses = useMemo(() => {
+    const result: Record<string, WaveAnalysisWithTimestamp> = {};
+    
+    // Convert analyses to the expected format with analysis and timestamp
+    Object.entries(analyses).forEach(([symbol, analysis]) => {
+      result[symbol] = {
+        analysis,
+        timestamp: Date.now() // Use current timestamp as fallback
+      };
+    });
+    
+    return result;
+  }, [analyses]);
+  
+  // Update the context value to include allAnalyses
   const contextValue = useMemo(() => ({
     analyses,
+    allAnalyses, // Add this line
     getAnalysis,
     preloadAnalyses,
     clearAnalysis,
@@ -330,6 +362,7 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     loadAllAnalysesFromSupabase
   }), [
     analyses,
+    allAnalyses, // Add this to dependencies
     getAnalysis,
     preloadAnalyses,
     clearAnalysis,
@@ -340,6 +373,12 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     loadAllAnalysesFromSupabase
   ]);
   
+  // Remove this section as we're using the contextValue above
+  // const value: WaveAnalysisContextType = {
+  //   analyses,
+  //   allAnalyses: analyses,
+  // };
+
   return (
     <WaveAnalysisContext.Provider value={contextValue}>
       {children}
@@ -357,6 +396,7 @@ export const useWaveAnalysis = (): WaveAnalysisContextValue => {
     
     return {
       analyses: {},
+      allAnalyses: {}, // Add this line
       getAnalysis: async () => null,
       preloadAnalyses: async () => {},
       clearAnalysis: () => {},
