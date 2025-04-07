@@ -7,6 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from './ui/progress';
 import ReversalsList from './ReversalsList';
 import ReversalsLastUpdated from './ReversalsLastUpdated';
+import MarketSentimentAI from './MarketSentimentAI';
 
 // Keep this helper function at the top
 const getTimestampValue = (timestamp: any): number => {
@@ -238,6 +239,16 @@ const marketSentiment = useMemo(() => {
             <span>Bullish</span>
           </div>
         </div>
+      </div>
+
+      {/* Add AI Market Sentiment analysis here */}
+      <div className="mt-4">
+        <MarketSentimentAI 
+          bullishCount={marketSentiment.bullish}
+          bearishCount={marketSentiment.bearish}
+          neutralCount={marketSentiment.neutral}
+          overallSentiment={marketSentiment.overallSentiment}
+        />
       </div>
 
       {/* Three-column grid for Bullish, Bearish, and Reversals */}

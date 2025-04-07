@@ -13,6 +13,7 @@ const ALLOWED_KEYS = [
   'admin_dashboard_cache', // Used by admin dashboard
   'admin_dashboard_cache_timestamp', // Used by admin dashboard
   'authRedirect', // Used for redirecting after login
+  'previewMode', // Used for preview mode
 ];
 
 // Function to check if a key should be allowed
