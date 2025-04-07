@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { usePreview } from '@/context/PreviewContext';
@@ -9,18 +9,26 @@ interface SemiProtectedRouteProps {
 }
 
 const SemiProtectedRoute: React.FC<SemiProtectedRouteProps> = ({ children }) => {
-  const { user, loading } = useAuth();
+  // Remove the loading property from useAuth destructuring if it's not defined in your AuthContext
+  const { user } = useAuth();
   const { isPreviewMode, setIsPreviewMode, showLoginModal, setShowLoginModal, continueInPreview } = usePreview();
   const navigate = useNavigate();
+  // Add a local loading state if necessary
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   useEffect(() => {
-    // If not loading, not authenticated, and not in preview mode, show modal
-    if (!loading && !user && !isPreviewMode) {
-      setShowLoginModal(true);
-    } else {
-      setShowLoginModal(false);
+    // Check if user auth state is available
+    if (user !== undefined) {
+      setIsAuthChecking(false);
+      
+      // If not authenticated and not in preview mode, show modal
+      if (!user && !isPreviewMode) {
+        setShowLoginModal(true);
+      } else {
+        setShowLoginModal(false);
+      }
     }
-  }, [user, loading, isPreviewMode, setShowLoginModal]);
+  }, [user, isPreviewMode, setShowLoginModal]);
 
   const handleClose = () => {
     setShowLoginModal(false);
