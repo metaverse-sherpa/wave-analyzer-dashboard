@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: 'https://api-backend.metaversesherpa.workers.dev',
           changeOrigin: true,
+          // Keep the rewrite to match how the worker expects paths
           rewrite: (path) => path.replace(/^\/api/, '')
         }
       }

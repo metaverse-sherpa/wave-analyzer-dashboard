@@ -382,22 +382,52 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
         if (!response.ok) {
           const errorText = await response.text();
           console.error(`HTTP error ${response.status} for ${symbol}: ${errorText}`);
-          throw new Error(`HTTP error ${response.status} for ${symbol}`);
+          // Continue to next symbol instead of throwing
+          continue;
+        }
+        
+        // Store the response text first, then parse it as JSON
+        // This fixes the "body stream already read" error
+        const responseText = await response.text();
+        
+        // NEW: Check if response is HTML before attempting to parse as JSON
+        if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
+          console.error(`Received HTML response instead of JSON for ${symbol}`);
+          console.error(`HTML response: ${responseText.substring(0, 200)}...`);
+          // Continue to next symbol instead of throwing
+          continue;
         }
         
         let data;
         try {
-          data = await response.json();
+          data = JSON.parse(responseText); // Parse text instead of calling response.json()
         } catch (jsonError) {
           console.error(`Failed to parse JSON for ${symbol}:`, jsonError);
-          const responseText = await response.text();
           console.error(`Response text: ${responseText.substring(0, 200)}...`);
-          throw new Error(`Invalid JSON response for ${symbol}`);
+          // Continue to next symbol instead of throwing
+          continue;
         }
         
-        // Continue with the rest of your code...
+        // Process the data if it exists
+        if (data && data.technicalInsights) {
+          const rating = data.technicalInsights.rating || "NEUTRAL";
+          insights.push(`${symbol} technical rating: ${rating}`);
+          
+          // Add text insights if available
+          if (data.insightsText && Array.isArray(data.insightsText) && data.insightsText.length > 0) {
+            data.insightsText.slice(0, 1).forEach(insight => {
+              if (insight.text) {
+                insights.push(`${symbol}: ${insight.text}`);
+              }
+            });
+          }
+          
+          apiSuccessCount++;
+          sourcesUsed.push('technical insights');
+        }
       } catch (err) {
         console.warn(`Error fetching insights for ${symbol}:`, err);
+        // Just continue to the next symbol
       }
     }
     
@@ -412,20 +442,37 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
       });
       
       if (newsResponse.ok) {
-        const newsData = await newsResponse.json();
+        // Store the response text first, then parse it as JSON
+        const newsResponseText = await newsResponse.text();
         
-        // Add top 3 headlines
-        if (newsData && Array.isArray(newsData) && newsData.length > 0) {
-          insights.push("Latest Market Headlines:");
-          newsData.slice(0, 3).forEach(article => {
-            insights.push(`- ${article.title}`);
-          });
-          hasMarketNews = true;
-          sourcesUsed.push('market news');
+        // NEW: Check if response is HTML before attempting to parse as JSON
+        if (newsResponseText.trim().startsWith('<!DOCTYPE') || newsResponseText.trim().startsWith('<html')) {
+          console.error('Received HTML response instead of JSON for market news');
+          // Skip this source but don't throw an error
+        } else {
+          let newsData;
+          try {
+            newsData = JSON.parse(newsResponseText);
+          } catch (jsonError) {
+            console.error('Failed to parse news JSON:', jsonError);
+            console.error(`News response text: ${newsResponseText.substring(0, 200)}...`);
+            // Skip this source but don't throw an error
+          }
+          
+          // Add top 3 headlines if we got valid data
+          if (newsData && Array.isArray(newsData) && newsData.length > 0) {
+            insights.push("Latest Market Headlines:");
+            newsData.slice(0, 3).forEach(article => {
+              insights.push(`- ${article.title}`);
+            });
+            hasMarketNews = true;
+            sourcesUsed.push('market news');
+          }
         }
       }
     } catch (err) {
       console.warn('Error fetching market news:', err);
+      // Continue with what we have
     }
     
     // If we didn't get much data from the real API, use fallback
@@ -449,7 +496,13 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
     }
     
     // Fallback to mock data if nothing was retrieved
-    throw new Error('No insights retrieved');
+    console.log('No insights retrieved from API, using fallback mock data');
+    const mockData = generateMockInsights(symbols);
+    return {
+      content: mockData,
+      isMock: true,
+      sourcesUsed: ['mock data (no insights)']
+    };
     
   } catch (error) {
     console.error('Error fetching market insights:', error);

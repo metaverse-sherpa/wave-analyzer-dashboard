@@ -8,7 +8,11 @@
   "routes": [
     {
       "pattern": "/api/*",
-      "script": "api-backend"
+      "handler": "worker"
+    },
+    {
+      "pattern": "/*",
+      "handler": "static"
     }
   ]
 }
