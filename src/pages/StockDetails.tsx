@@ -386,7 +386,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           {/* Chart section */}
           <div className={`relative mb-8 ${isPreviewMode ? 'overflow-hidden' : ''}`}>
             {isPreviewMode && (
-              <div className="absolute inset-0 backdrop-blur-md flex flex-col items-center justify-center z-10 bg-background/30">
+              <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
                 <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
                   <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
                   <p className="mb-4">Sign in to view detailed stock charts with technical analysis.</p>
@@ -473,7 +473,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
                 <div className={`relative mb-8 ${isPreviewMode ? 'overflow-hidden' : ''}`}>
                   {isPreviewMode && (
-                    <div className="absolute inset-0 backdrop-blur-md flex flex-col items-center justify-center z-10 bg-background/30">
+                    <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
                       <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
                         <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
                         <p className="mb-4">Sign in to access AI-powered Elliott Wave analysis.</p>
