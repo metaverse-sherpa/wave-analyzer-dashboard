@@ -11,7 +11,7 @@ export const ReversalsContext = React.createContext<{
 }>({
   lastCacheUpdate: 0,
   refreshReversals: () => {
-    console.log('Default refresh function called - using global refresh');
+    //console.log('Default refresh function called - using global refresh');
     // Get symbols from localStorage or a simpler method
     const symbols = localStorage.getItem('symbols')?.split(',') || ['AAPL', 'MSFT', 'GOOG'];
     handleGlobalRefresh(symbols);
@@ -27,7 +27,7 @@ const ReversalsLastUpdated: React.FC = () => {
   
   // Add logging to debug
   const handleRefreshClick = () => {
-    console.log('Refresh button clicked - triggering refresh at', new Date().toLocaleTimeString());
+    //console.log('Refresh button clicked - triggering refresh at', new Date().toLocaleTimeString());
     refreshReversals(); // Call the actual refresh function from context
   };
   

@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { UserCircle, LogOut, Settings, Shield, LogIn } from "lucide-react";
+import { UserCircle, LogOut, Settings, Shield, LogIn, User } from "lucide-react";
 import AuthModal from './auth/AuthModal';
 import { toast } from '@/lib/toast';
 
@@ -71,6 +71,11 @@ const UserMenu: React.FC = () => {
             )}
           </div>
           <DropdownMenuSeparator />
+          
+          <DropdownMenuItem onClick={() => navigate('/profile')}>
+            <User className="mr-2 h-4 w-4" />
+            <span>Profile</span>
+          </DropdownMenuItem>
           
           {isAdmin && (
             <DropdownMenuItem onClick={() => navigate('/admin')}>

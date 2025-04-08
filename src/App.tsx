@@ -44,13 +44,11 @@ import {
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Index from "./pages/Index";
 import StockDetails from "./pages/StockDetails";
-import NotFound from "./pages/NotFound";
-import Dashboard from './components/Dashboard';
-import { WaveAnalysisProvider, useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { WaveAnalysisProvider } from '@/context/WaveAnalysisContext';
 import { HistoricalDataProvider } from '@/context/HistoricalDataContext';
 import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { KillSwitchProvider, useKillSwitch, KillSwitchContext } from './context/KillSwitchContext';
+import { KillSwitchContext } from './context/KillSwitchContext';
 import DataInitializer from './context/DataInitializer';
 import AdminDashboard from "./pages/Admin";
 import { toast } from "@/components/ui/use-toast";
@@ -61,11 +59,9 @@ import React from 'react';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import AuthCallback from './components/auth/AuthCallback';
-import Layout from './components/layout/Layout';
-import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
-import ProfilePage from './pages/ProfilePage'; // Add this import
+import ProfilePage from './pages/ProfilePage';
 import SemiProtectedRoute from './components/auth/SemiProtectedRoute';
 import { PreviewProvider } from '@/context/PreviewContext';
 

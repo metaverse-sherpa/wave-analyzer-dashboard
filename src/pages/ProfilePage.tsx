@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/lib/toast';
 import { Loader2 } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 
 interface Profile {
   username: string;
@@ -101,29 +102,38 @@ const ProfilePage = () => {
     try {
       setUploading(true);
       
-      // Generate unique file name - make sure userId is first for policy check
+      // Generate a unique filename
       const fileExt = avatarFile.name.split('.').pop();
-      const filePath = `avatars/${user.id}-${Date.now()}.${fileExt}`;
+      const uniqueId = uuidv4();
       
-      // Upload the file
+      // IMPORTANT: Path structure that matches the RLS policy we created
+      // Format: user_id/file_name.ext (must have user ID as the folder name)
+      const filePath = `${user.id}/${uniqueId}.${fileExt}`;
+      
+      // Upload to the new 'avatars' bucket instead of 'user-content'
       const { error: uploadError } = await supabase.storage
-        .from('user-content')
-        .upload(filePath, avatarFile);
+        .from('avatars')
+        .upload(filePath, avatarFile, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: avatarFile.type
+        });
       
       if (uploadError) {
-        console.error('Upload error:', uploadError);
+        console.error('Error uploading avatar:', uploadError);
+        toast.error(`Upload failed: ${uploadError.message}`);
         throw uploadError;
       }
       
-      // Get public URL
-      const { data } = supabase.storage
-        .from('user-content')
+      // Get public URL from the 'avatars' bucket
+      const { data: urlData } = supabase.storage
+        .from('avatars')
         .getPublicUrl(filePath);
       
-      return data.publicUrl;
-    } catch (error) {
+      return urlData.publicUrl;
+    } catch (error: any) {
       console.error('Error uploading avatar:', error);
-      toast.error('Failed to upload avatar');
+      toast.error(`Error uploading avatar: ${error?.message || 'Unknown error'}`);
       return null;
     } finally {
       setUploading(false);

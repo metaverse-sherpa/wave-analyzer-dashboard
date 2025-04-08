@@ -237,7 +237,7 @@ const UserManagement = () => {
   return (
     <Card className="w-full">
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <CardTitle className="text-xl">User Management</CardTitle>
             <CardDescription>
@@ -268,109 +268,71 @@ const UserManagement = () => {
             />
           </div>
           
-          {/* User table */}
-          <ScrollArea className="h-[400px] border rounded-md">
-            <Table>{/* No whitespace between Table and TableHeader */}
-              <TableHeader>
-                <TableRow>{/* Keep tags on same line or directly adjacent */}
-                  <TableHead className="w-[250px]">User</TableHead>
-                  <TableHead className="w-[200px]">Email</TableHead>
-                  <TableHead className="w-[100px]">Role</TableHead>
-                  <TableHead className="w-[120px]">Last Updated</TableHead>
-                  <TableHead className="text-right w-[120px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              {/* Adjacent closing/opening tags */}
-              <TableBody>{
-                loading ? 
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
-                    <RefreshCw className="h-6 w-6 animate-spin mx-auto" />
-                    <span className="mt-2 text-sm text-muted-foreground">Loading users...</span>
-                  </TableCell>
-                </TableRow> : 
-                filteredUsers.length === 0 ? 
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
-                    <span className="text-muted-foreground">
-                      {searchQuery ? 'No users found matching your search' : 'No users found'}
-                    </span>
-                  </TableCell>
-                </TableRow> : 
-                /* Map without adding whitespace */
-                filteredUsers.map(user => 
-                <TableRow key={user.id}>
-                  <TableCell>
-                    <div className="flex items-center space-x-3">
-                      <Avatar>
-                        <AvatarImage src={user.avatar_url || undefined} />
-                        <AvatarFallback>{getInitials(user)}</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        {/* Username with fixed tooltip */}
-                        <div className="font-medium truncate max-w-[150px] relative">
-                          <span className="truncate block hover:text-primary cursor-default" 
-                            title={user.username || 'No username'}>
+          {/* User list - redesigned for mobile */}
+          <ScrollArea className="h-[400px]">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center h-24 p-8">
+                <RefreshCw className="h-6 w-6 animate-spin mb-2" />
+                <span className="text-sm text-muted-foreground">Loading users...</span>
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <div className="text-center p-8">
+                <span className="text-muted-foreground">
+                  {searchQuery ? 'No users found matching your search' : 'No users found'}
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredUsers.map(user => (
+                  <div 
+                    key={user.id} 
+                    className="border rounded-md p-3 hover:border-primary transition-colors"
+                  >
+                    <div className="flex flex-row justify-between items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <Avatar className="h-9 w-9 hidden sm:flex">
+                          <AvatarImage src={user.avatar_url || undefined} />
+                          <AvatarFallback>{getInitials(user)}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate" title={user.username || 'No username'}>
                             {user.username || 'No username'}
-                          </span>
+                          </div>
+                          <div className="text-sm truncate text-muted-foreground" title={user.email || 'No email available'}>
+                            {user.email || 'No email available'}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground truncate max-w-[150px]"
-                          title={user.full_name || 'No name provided'}>
-                          {user.full_name || 'No name provided'}
+                      </div>
+                      <div className="flex items-center">
+                        <div className="flex items-center gap-2 bg-muted/30 px-3 py-1 rounded-full">
+                          <Checkbox
+                            id={`admin-${user.id}`}
+                            className="h-5 w-5"
+                            checked={user.role === 'admin'}
+                            disabled={updating === user.id || (isCurrentUser(user.id) && user.role === 'admin')}
+                            onCheckedChange={() => toggleAdminRole(user.id, user.role)}
+                          />
+                          <Label 
+                            htmlFor={`admin-${user.id}`}
+                            className={`text-sm font-medium select-none ${isCurrentUser(user.id) && user.role === 'admin' ? 'text-muted-foreground' : 'cursor-pointer'}`}
+                          >
+                            Admin
+                            {isCurrentUser(user.id) && user.role === 'admin' && (
+                              <span className="ml-1 text-xs text-muted-foreground hidden sm:inline">(you)</span>
+                            )}
+                          </Label>
                         </div>
                       </div>
                     </div>
-                  </TableCell>
-                  <TableCell className="max-w-[200px]">
-                    <div className="relative">
-                      <div className="font-medium text-sm truncate overflow-x-auto no-scrollbar whitespace-nowrap hover:text-primary cursor-default"
-                        title={user.email || 'No email available'}>
-                        {user.email || 'No email available'}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge 
-                      variant={user.role === 'admin' ? 'default' : 'secondary'}
-                      className="capitalize"
-                    >
-                      {user.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(user.updated_at).toLocaleDateString()}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end space-x-2">
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`admin-${user.id}`}
-                          checked={user.role === 'admin'}
-                          disabled={updating === user.id || (isCurrentUser(user.id) && user.role === 'admin')}
-                          onCheckedChange={() => toggleAdminRole(user.id, user.role)}
-                        />
-                        <Label 
-                          htmlFor={`admin-${user.id}`}
-                          className={`text-sm font-medium leading-none ${isCurrentUser(user.id) && user.role === 'admin' ? 'text-muted-foreground' : 'cursor-pointer'}`}
-                        >
-                          Admin
-                          {isCurrentUser(user.id) && user.role === 'admin' && (
-                            <span className="ml-1 text-xs text-muted-foreground">(you)</span>
-                          )}
-                        </Label>
-                      </div>
-                    </div>
-                  </TableCell>
-                </TableRow>)
-              }</TableBody>
-            </Table>
+                  </div>
+                ))}
+              </div>
+            )}
           </ScrollArea>
           
-          {/* Pagination */}
+          {/* Pagination - simplified for mobile */}
           {totalPages > 1 && (
-            <Pagination>
+            <Pagination className="pt-2">
               <PaginationContent>
                 <PaginationItem>
                   <PaginationPrevious 
@@ -379,18 +341,18 @@ const UserManagement = () => {
                   />
                 </PaginationItem>
                 
-                {/* Generate page links */}
+                {/* Show limited page numbers on mobile */}
                 {Array.from({ length: totalPages }, (_, i) => i + 1)
                   .filter(page => 
                     page === 1 || 
                     page === totalPages || 
-                    (page >= currentPage - 1 && page <= currentPage + 1)
+                    page === currentPage ||
+                    (window.innerWidth > 640 && (page === currentPage - 1 || page === currentPage + 1))
                   )
                   .map((page, index, array) => (
                     <React.Fragment key={page}>
                       {index > 0 && array[index - 1] !== page - 1 && (
-                        <PaginationItem>
-                          {/* Fix: Replace disabled prop with className to disable */}
+                        <PaginationItem className="hidden sm:flex">
                           <span className="px-4 py-2 text-sm text-muted-foreground">...</span>
                         </PaginationItem>
                       )}

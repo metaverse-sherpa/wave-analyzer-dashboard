@@ -1314,20 +1314,10 @@ useEffect(() => {
             </Button>
           </Link>
           <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-          <Badge variant="secondary" className="ml-2">System Administrator</Badge>
+          {/* System Administrator badge removed */}
         </div>
         
-        <div>
-          <Button 
-            variant="outline" 
-            onClick={() => loadCacheData(true)} // Force refresh parameter
-            className="mr-2"
-            disabled={isRefreshing}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh Data
-          </Button>
-        </div>
+        {/* Refresh Data button removed */}
       </div>
       
       {/* Main dashboard in two columns */}
@@ -1420,29 +1410,29 @@ useEffect(() => {
         {/* Right column - Tabs */}
         <div className="col-span-1 lg:col-span-2">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="historical">
+            <TabsList className="flex flex-col sm:flex-row w-full">
+              <TabsTrigger value="historical" className="flex-1 justify-start">
                 <Clock className="h-4 w-4 mr-2" />
                 Historical Data Cache
               </TabsTrigger>
-              <TabsTrigger value="waves">
+              <TabsTrigger value="waves" className="flex-1 justify-start">
                 <BarChart3 className="h-4 w-4 mr-2" />
                 Wave Analysis Cache
               </TabsTrigger>
-              <TabsTrigger value="users">
+              <TabsTrigger value="users" className="flex-1 justify-start">
                 <Users className="h-4 w-4 mr-2" />
                 User Management
               </TabsTrigger>
             </TabsList>
             
-            <TabsContent value="waves" className="border rounded-md p-4 min-h-[500px]">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium flex-shrink-0">
+            <TabsContent value="waves" className="border rounded-md p-2 sm:p-4 min-h-[500px]">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 space-y-2 sm:space-y-0">
+                <h3 className="text-lg font-medium">
                   Wave Analysis Data ({cacheStats.waveEntryCount})
                 </h3>
                 
                 {/* Add search box for wave analysis tab */}
-                <div className="relative flex-1 max-w-sm ml-4">
+                <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-sm sm:ml-4">
                   <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input 
                     placeholder="Search by symbol..." 

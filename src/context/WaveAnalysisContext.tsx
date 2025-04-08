@@ -399,11 +399,6 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     loadAllAnalysesFromSupabase
   ]);
   
-  // Remove this section as we're using the contextValue above
-  // const value: WaveAnalysisContextType = {
-  //   analyses,
-  //   allAnalyses: analyses,
-  // };
 
   return (
     <WaveAnalysisContext.Provider value={contextValue}>

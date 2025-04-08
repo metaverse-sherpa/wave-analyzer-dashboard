@@ -347,10 +347,22 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         {/* Header with back button, stock info, and radio buttons all in one row */}
         {!loading && stockData && (
           <div className="flex flex-col space-y-2 mb-4">
-            {/* Top row: Back button and stock name */}
+            {/* Back button - separate row on mobile, hidden on desktop */}
+            <div className="flex sm:hidden items-center">
+              <Button 
+                variant="ghost"
+                className="flex items-center"
+                onClick={handleBackClick}
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+            </div>
+
+            {/* Top row: Back button on desktop and stock name */}
             <div className="flex items-center justify-between">
-              {/* Left side: Back button */}
-              <div className="flex items-center">
+              {/* Left side: Back button - visible only on desktop */}
+              <div className="hidden sm:flex items-center">
                 <Button 
                   variant="ghost"
                   className="flex items-center"
@@ -361,15 +373,15 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 </Button>
               </div>
 
-              {/* Center: Stock name and symbol - reduced font size */}
-              <div className="flex-grow text-center">
-                <h1 className="text-xl md:text-2xl font-bold truncate px-2">
+              {/* Center: Stock name and symbol - centered on mobile, left-aligned on desktop */}
+              <div className="flex-grow text-center sm:text-left">
+                <h1 className="text-xl md:text-2xl font-bold truncate px-2 sm:px-0">
                   {stockData.name || stockData.shortName} ({stockData.symbol})
                 </h1>
               </div>
 
-              {/* Right side: Placeholder to maintain centering */}
-              <div className="flex items-center invisible">
+              {/* Right side: Placeholder to maintain centering - only on desktop */}
+              <div className="hidden sm:flex items-center invisible">
                 <Button variant="ghost" className="opacity-0">Back</Button>
               </div>
             </div>
