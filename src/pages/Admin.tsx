@@ -536,7 +536,8 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
       setHistoryLoadProgress({
         total: symbolsToProcess.length,
         current: 0,
-        inProgress: true
+        inProgress: true,
+        currentSymbol: undefined
       });
       
       // Start with an empty state to ensure we only show freshly loaded data
@@ -717,11 +718,7 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
               
             // Notify the user with toast message
             invalidFavorites.forEach(symbol => {
-              toast({
-                title: "Invalid favorite removed",
-                description: `${symbol} was removed from favorites as no data was found.`,
-                variant: "destructive"
-              });
+              toast.error(`${symbol} was removed from favorites as no data was found.`);
             });
             
             console.log(`Removed ${invalidFavorites.length} invalid favorites:`, invalidFavorites);

@@ -1112,18 +1112,13 @@ useEffect(() => {
           points: ohlcData.length - chartPaddingDays // Exclude projection points
         });
         
-        // Now check if waves are in range, but only warn about it
+        // Now check if waves are in range, but just silently handle it without logging
         const outOfRangeWaves = waves.filter(w => 
           (w.startTimestamp && getTimestampValue(w.startTimestamp) < dataStart) || 
           (w.endTimestamp && getTimestampValue(w.endTimestamp) > dataEnd)
         );
         
-        if (outOfRangeWaves.length > 0) {
-          // Don't trigger state changes here, just log information for debugging
-          console.info("Some waves might be outside optimal chart range:", 
-            outOfRangeWaves.map(w => w.number)
-          );
-        }
+        // Removed console.info message about waves outside chart range
       }
     }
   }
