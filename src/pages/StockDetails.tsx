@@ -3,8 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge"; // Add this import
-import { ArrowLeft, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-react";
 import StockDetailChart from "@/components/StockDetailChart";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { 
   fetchHistoricalData, 
   fetchTopStocks 
@@ -117,6 +119,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     correctivePattern: false
   });
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'all' | 'current'>('current');
   const { getAnalysis } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
@@ -341,45 +344,79 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   return (
     <ErrorBoundary>
       <div className="container mx-auto px-4 py-6">
-        {/* Header with back button and stock info in same row */}
+        {/* Header with back button, stock info, and radio buttons all in one row */}
         {!loading && stockData && (
-          <div className="flex items-center justify-between mb-6">
-            {/* Left side: Stock info */}
-            <div className="flex items-center gap-4">
-              <div>
-                <h1 className="text-2xl font-bold">
+          <div className="flex flex-col space-y-2 mb-4">
+            {/* Top row: Back button and stock name */}
+            <div className="flex items-center justify-between">
+              {/* Left side: Back button */}
+              <div className="flex items-center">
+                <Button 
+                  variant="ghost"
+                  className="flex items-center"
+                  onClick={handleBackClick}
+                >
+                  <ArrowLeft className="h-4 w-4 mr-1" />
+                  Back
+                </Button>
+              </div>
+
+              {/* Center: Stock name and symbol - reduced font size */}
+              <div className="flex-grow text-center">
+                <h1 className="text-xl md:text-2xl font-bold truncate px-2">
                   {stockData.name || stockData.shortName} ({stockData.symbol})
                 </h1>
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="text-lg font-mono">{formattedPrice}</div>
-                  <div className={`flex items-center ${isPositive ? "text-bullish" : "text-bearish"}`}>
-                    {isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-                    <span>{formattedChange} ({formattedPercent})</span>
-                  </div>
-                </div>
+              </div>
+
+              {/* Right side: Placeholder to maintain centering */}
+              <div className="flex items-center invisible">
+                <Button variant="ghost" className="opacity-0">Back</Button>
               </div>
             </div>
             
-            {/* Right side: Back button */}
-            <Button 
-              variant="ghost"
-              className="flex items-center gap-2"
-              onClick={handleBackClick}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Dashboard
-            </Button>
+            {/* Bottom row: Stock price and change percentage - row that stacks on mobile */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between sm:pl-14 pl-4">
+              {/* Left side: Stock price and change percentage */}
+              <div className="flex items-center">
+                <span className="text-lg font-mono">{formattedPrice}</span>
+                <span className={`flex items-center ml-2 ${isPositive ? "text-bullish" : "text-bearish"}`}>
+                  {isPositive ? <ArrowUpRight className="w-4 h-4 mr-1" /> : <ArrowDownRight className="w-4 h-4 mr-1" />}
+                  <span>{formattedChange} ({formattedPercent})</span>
+                </span>
+              </div>
+              
+              {/* Right side: Current/All radio buttons (moved to new row on mobile) */}
+              <RadioGroup 
+                defaultValue="current" 
+                onValueChange={(value) => setViewMode(value as 'all' | 'current')}
+                className="flex space-x-4 items-center mt-2 sm:mt-0"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="current" id="current-wave" />
+                  <Label htmlFor="current-wave" className="cursor-pointer">Current</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="all" id="all-waves" />
+                  <Label htmlFor="all-waves" className="cursor-pointer">All</Label>
+                </div>
+              </RadioGroup>
+            </div>
           </div>
         )}
 
         {/* Show loading skeleton if data is still loading */}
         {loading && (
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <Skeleton className="h-8 w-48 mb-2" />
+          <div className="flex flex-col space-y-2 mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-9 w-16" />
+                <Skeleton className="h-8 w-48" />
+              </div>
+              <Skeleton className="h-8 w-32" />
+            </div>
+            <div className="flex items-center pl-14">
               <Skeleton className="h-6 w-32" />
             </div>
-            <Skeleton className="h-10 w-40" />
           </div>
         )}
 
@@ -413,96 +450,104 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                   onClearSelection={() => setSelectedWave(null)}
                   livePrice={livePrice} // Pass the live price
                   invalidWaves={analysis.invalidWaves} // Add this line
+                  viewMode={viewMode} // Add the viewMode prop here
                 />
               ) : null}
             </div>
           </div>
 
-          {/* Analysis sections in two columns */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Elliott Wave Analysis */}
-            <Card>
-              <CardContent className="pt-6">
-                <h3 className="text-lg font-medium mb-4">Elliott Wave Analysis</h3>
-                {loading ? (
-                  <Skeleton className="h-24 w-full" />
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <h4 className="text-sm font-medium">Recent Wave Sequence</h4> {/* Updated label */}
-                      <Badge variant="outline">
-                        {analysis?.waves.length || 0} waves detected (showing most recent 7)
-                      </Badge>
+          {/* AI Analysis - Moved here to come directly below the chart for mobile */}
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
+              <div className="relative mb-4">
+                {(!user && isPreviewMode) && (
+                  <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
+                    <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
+                      <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
+                      <p className="mb-4">Sign in to access AI-powered Elliott Wave analysis.</p>
+                      <Link to={`/login?redirect=${encodeURIComponent(window.location.pathname)}`}>
+                        <Button>Sign In Now</Button>
+                      </Link>
                     </div>
-                    
-                    {analysis?.waves && analysis.waves.length > 0 ? (
-                      <div>
-                        <p className="text-sm text-muted-foreground mb-3">
-                          {getWavePatternDescription(analysis.waves) || 
-                            "Analyzing detected wave patterns and market positions."}
-                        </p>
-                        
-                        {/* Add WaveSequencePagination here */}
-                        <div className="mt-4">
-                          <WaveSequencePagination 
-                            waves={analysis?.waves || []}
-                            invalidWaves={analysis?.invalidWaves || []} // Add this line
-                            selectedWave={selectedWave} // Pass the same selected wave here
-                            currentWave={analysis.currentWave} // Add this prop
-                            fibTargets={analysis.fibTargets}   // Add this prop
-                            onWaveSelect={(wave) => {
-                              // Compare startTimestamp instead of id
-                              if (selectedWave && selectedWave.startTimestamp === wave.startTimestamp) {
-                                setSelectedWave(null);
-                              } else {
-                                setSelectedWave(wave);
-                              }
-                            }} 
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-4 border rounded-md text-center">
-                        No wave patterns detected
-                      </div>
-                    )}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+                
+                <div className={(!user && isPreviewMode) ? "blur-premium" : ""}>
+                  {analysis && (
+                    <AIAnalysis 
+                      symbol={symbol}
+                      analysis={analysis}
+                      historicalData={historicalData}
+                    />
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-            {/* AI Analysis */}
-            <Card>
-              <CardContent className="pt-6">
-                <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
-                <div className="relative mb-8">
-                  {(!user && isPreviewMode) && ( // Same double-condition check
-                    <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
-                      <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
-                        <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
-                        <p className="mb-4">Sign in to access AI-powered Elliott Wave analysis.</p>
-                        <Link to={`/login?redirect=${encodeURIComponent(window.location.pathname)}`}>
-                          <Button>Sign In Now</Button>
-                        </Link>
+          {/* Elliott Wave Analysis - Now will appear after AI Analysis on mobile */}
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="text-lg font-medium mb-4">Elliott Wave Analysis</h3>
+              {loading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-sm font-medium">Recent Wave Sequence</h4> {/* Updated label */}
+                    <Badge variant="outline">
+                      {analysis?.waves.length || 0} waves detected (showing most recent 7)
+                    </Badge>
+                  </div>
+                  
+                  {analysis?.waves && analysis.waves.length > 0 ? (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-3">
+                        {getWavePatternDescription(analysis.waves) || 
+                          "Analyzing detected wave patterns and market positions."}
+                      </p>
+                      
+                      {/* Add WaveSequencePagination here */}
+                      <div className="mt-4">
+                        <WaveSequencePagination 
+                          waves={analysis?.waves || []}
+                          invalidWaves={analysis?.invalidWaves || []} // Add this line
+                          selectedWave={selectedWave} // Pass the same selected wave here
+                          currentWave={analysis.currentWave} // Add this prop
+                          fibTargets={analysis.fibTargets}   // Add this prop
+                          onWaveSelect={(wave) => {
+                            // Compare startTimestamp instead of id
+                            if (selectedWave && selectedWave.startTimestamp === wave.startTimestamp) {
+                              setSelectedWave(null);
+                            } else {
+                              setSelectedWave(wave);
+                            }
+                          }} 
+                        />
                       </div>
                     </div>
+                  ) : (
+                    <div className="p-4 border rounded-md text-center">
+                      No wave patterns detected
+                    </div>
                   )}
-                  
-                  <div className={(!user && isPreviewMode) ? "blur-premium" : ""}> {/* Same blur class application */}
-                    {analysis && (
-                      <AIAnalysis 
-                        symbol={symbol}
-                        analysis={analysis}
-                        historicalData={historicalData}
-                      />
-                    )}
-                  </div>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-          
-          {/* Remove the duplicate Elliott Wave Analysis section */}
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Add WaveInvalidations component */}
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="text-lg font-medium mb-4">Wave Invalidations</h3>
+              {loading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : (
+                <WaveInvalidations invalidWaves={analysis.invalidWaves} />
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </ErrorBoundary>
@@ -640,6 +685,36 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalDat
       ) : (
         <div className="p-4 bg-muted rounded-md text-center">
           No AI analysis available for {symbol}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Define the WaveInvalidations props
+interface WaveInvalidationsProps {
+  invalidWaves: Wave[];
+}
+
+// Add the WaveInvalidations component
+const WaveInvalidations: React.FC<WaveInvalidationsProps> = ({ invalidWaves }) => {
+  return (
+    <div className="space-y-4">
+      {invalidWaves.length > 0 ? (
+        invalidWaves.map((wave, index) => (
+          <div key={index} className="flex items-center space-x-2">
+            <AlertCircle className="text-red-500" />
+            <div>
+              <p className="text-sm font-medium">Wave {wave.number} invalidated</p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(wave.invalidationTimestamp).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="p-4 bg-muted rounded-md text-center">
+          No invalid waves detected
         </div>
       )}
     </div>

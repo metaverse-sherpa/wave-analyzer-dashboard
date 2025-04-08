@@ -172,6 +172,7 @@ interface StockDetailChartProps {
   selectedWave?: Wave | null;
   onClearSelection?: () => void;
   livePrice?: number;
+  viewMode?: 'all' | 'current'; // Add this prop
 }
 
 // Define OHLCDataPoint interface
@@ -202,12 +203,13 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   selectedWave,
   onClearSelection,
   livePrice, // Use the prop passed from the parent component
-  invalidWaves
+  invalidWaves,
+  viewMode
 }) => {
   const { settings } = useAdminSettings();
   const chartPaddingDays = settings.chartPaddingDays;
   
-  const [viewMode, setViewMode] = useState<'all' | 'current'>('current');
+  // Change useState to useRef for the chart reference
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [chartLoaded, setChartLoaded] = useState(false);
   
@@ -789,7 +791,23 @@ const chartData = {
           
           // For intermediate points, draw a straight line
           // Calculate progress from start to current time
-          const totalTimespan = ohlcData[ohlcData.length - chartPaddingDays].timestamp - 
+          // Add defensive checks to prevent errors with undefined values
+          if (startIndex < 0 || startIndex >= ohlcData.length || 
+              index < 0 || index >= ohlcData.length ||
+              ohlcData.length - chartPaddingDays < 0 || 
+              ohlcData.length - chartPaddingDays >= ohlcData.length) {
+            return null; // Skip this point if indices are invalid
+          }
+          
+          // Ensure we have valid timestamps before calculation
+          const endPointIndex = ohlcData.length - chartPaddingDays;
+          if (!ohlcData[startIndex] || !ohlcData[startIndex].timestamp || 
+              !ohlcData[endPointIndex] || !ohlcData[endPointIndex].timestamp ||
+              !d.timestamp) {
+            return null; // Skip this point if timestamps are missing
+          }
+          
+          const totalTimespan = ohlcData[endPointIndex].timestamp - 
                                ohlcData[startIndex].timestamp;
           const currentProgress = d.timestamp - ohlcData[startIndex].timestamp;
           const progress = totalTimespan > 0 ? (currentProgress / totalTimespan) : 0;
@@ -1187,29 +1205,8 @@ useEffect(() => {
 
 return (
   <div className="w-full h-[500px] relative">
-    {/* Minimal header */}
-    <div className="flex justify-between items-center mb-4">
-      <h3 className="text-lg font-semibold">{symbol} - Elliott Wave Analysis</h3>
-      
-      {/* Keep the view mode toggle */}
-      <RadioGroup 
-        value={viewMode} 
-        onValueChange={(value) => setViewMode(value as 'all' | 'current')}
-        className="flex space-x-4 items-center"
-      >
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="current" id="current-wave" />
-          <Label htmlFor="current-wave" className="cursor-pointer">Current</Label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <RadioGroupItem value="all" id="all-waves" />
-          <Label htmlFor="all-waves" className="cursor-pointer">All</Label>
-        </div>
-      </RadioGroup>
-    </div>
-    
-    {/* Clean chart container */}
-    <div className="relative h-[400px] bg-[#1a1a1a] rounded-md p-4">
+    {/* Clean chart container - removed title */}
+    <div className="relative h-[500px] bg-[#1a1a1a] rounded-md p-4">
       <Line 
         data={safeChartData as any} // Use 'as any' to bypass type checking
         options={options}
@@ -1222,16 +1219,6 @@ return (
         </div>
       )}
     </div>
-    
-    {/* Keep the invalidation details section for reference but make it minimal */}
-    {invalidWaves && invalidWaves.length > 0 && (
-      <div className="mt-4 p-3 border border-red-500/20 rounded-lg bg-red-500/5">
-        <h4 className="text-sm font-medium text-red-400">Wave Invalidations</h4>
-        <div className="text-xs text-muted-foreground mt-1">
-          {invalidWaves.length} invalidation point{invalidWaves.length !== 1 ? 's' : ''} detected
-        </div>
-      </div>
-    )}
   </div>
 );
 };

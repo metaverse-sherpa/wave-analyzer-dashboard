@@ -319,8 +319,8 @@ const marketSentiment = useMemo(() => {
         />
       </div>
 
-      {/* Three-column grid for Bullish, Bearish, and Reversals */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Modified grid for responsiveness - stack on mobile, 3 columns on larger screens */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Bullish Section */}
         <div className="bg-secondary rounded-lg p-4">
           <div className="text-muted-foreground text-sm mb-1">
