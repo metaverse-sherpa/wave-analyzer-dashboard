@@ -68,6 +68,31 @@ type SelectedDataType =
   | { type: 'historical'; key: string; data: HistoricalDataEntry }
   | null;
 
+// Add this function before the AdminDashboard component
+const fetchTopStocks = async (limit: number): Promise<{symbol: string}[]> => {
+  try {
+    const apiUrl = buildApiUrl(`/stocks/top?limit=${limit}`);
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+      throw new Error(`API returned status ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Handle both array response and object with data property
+    const stocks = Array.isArray(data) ? data : (data.data || []);
+    
+    // Make sure we have the expected format
+    return stocks.map((stock: any) => ({
+      symbol: typeof stock === 'string' ? stock : (stock.symbol || '')
+    })).filter((stock: {symbol: string}) => !!stock.symbol);
+  } catch (error) {
+    console.error('Error fetching top stocks:', error);
+    return [];
+  }
+};
+
 const AdminDashboard = () => {
   // State declarations
   const [cacheData, setCacheData] = useState<{
@@ -84,12 +109,14 @@ const AdminDashboard = () => {
   const [analysisProgress, setAnalysisProgress] = useState({
     total: 0,
     current: 0,
-    inProgress: false
+    inProgress: false,
+    currentSymbol: undefined as string | undefined
   });
   const [historyLoadProgress, setHistoryLoadProgress] = useState({
     total: 0,
     current: 0,
-    inProgress: false
+    inProgress: false,
+    currentSymbol: undefined as string | undefined
   });
   const [apiStatus, setApiStatus] = useState<'online' | 'offline' | 'checking' | 'degraded'>('checking');
   const [activeTab, setActiveTab] = useState<string>("historical");
@@ -348,41 +375,47 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
       setAnalysisProgress({
         total: stocksToAnalyze.length,
         current: 0,
-        inProgress: true
+        inProgress: true,
+        currentSymbol: undefined
       });
+      
+      // Start with an empty state to ensure we only show freshly analyzed stocks
+      setWaveAnalyses({});
       
       // Process stocks one by one with a small delay between them
       let completed = 0;
       
-      for (const symbol of stocksToAnalyze) {
-        console.log(`Analyzing ${symbol}...`);
-        try {
-          // Use the cached historical data - this will get from Supabase now
-          const historicalData = await getHistoricalData(symbol, '1d');
-          
-          // Require at least 50 data points for analysis
-          if (!historicalData || historicalData.length < 50) {
-            console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
-            continue; // Skip this stock without incrementing completed
-          }
-          
-          // Start the analysis
-          const analysisPromise = getAnalysis(symbol, historicalData, true, true);
-          
-          // IMPORTANT: Don't await immediately to allow UI updates
-          // Instead, use the promise's completion to update state
-
-          // Update progress and UI immediately before analysis completes
-          completed++;
-          setAnalysisProgress(prev => ({
-            ...prev,
-            current: completed
-          }));
-          
-          // Handle analysis result once it's complete
-          analysisPromise.then(analysis => {
+      // Use a smaller batch size for more frequent UI updates
+      const batchSize = 1; // Process one at a time for smoother UI updates
+      for (let i = 0; i < stocksToAnalyze.length; i += batchSize) {
+        const batch = stocksToAnalyze.slice(i, i + batchSize);
+        
+        // Process each stock in the batch
+        for (const symbol of batch) {
+          try {
+            // Update the UI to show which stock is currently being processed
+            setAnalysisProgress(prev => ({
+              ...prev,
+              currentSymbol: symbol
+            }));
+            
+            console.log(`Analyzing ${symbol}...`);
+            
+            // Use the cached historical data - this will get from Supabase now
+            const historicalData = await getHistoricalData(symbol, '1d');
+            
+            // Require at least 50 data points for analysis
+            if (!historicalData || historicalData.length < 50) {
+              console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
+              continue; // Skip this stock without incrementing completed
+            }
+            
+            // Start the analysis
+            const analysis = await getAnalysis(symbol, historicalData, true, true);
+            
+            // If we have valid analysis results, update the state immediately
             if (analysis && analysis.waves) {
-              // Update the waveAnalyses state incrementally
+              // Update the waveAnalyses state incrementally in real-time
               setWaveAnalyses(prev => ({
                 ...prev,
                 [`${symbol}_1d`]: {
@@ -391,22 +424,28 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
                   isLoaded: true // Mark as loaded
                 }
               }));
+              
+              completed++;
             }
-          }).catch(err => {
-            console.error(`Error processing analysis result for ${symbol}:`, err);
-          });
+          } catch (err) {
+            console.error(`Failed to analyze ${symbol}`, err);
+          } finally {
+            // Update progress regardless of success or failure
+            setAnalysisProgress(prev => ({
+              ...prev,
+              current: prev.current + 1
+            }));
+          }
           
-          // Small delay between stocks to prevent performance issues
-          await new Promise(r => setTimeout(r, 300));
-        } catch (err) {
-          console.error(`Failed to analyze ${symbol}`, err);
+          // Small delay between stocks to allow UI to update
+          await new Promise(r => setTimeout(r, 100));
         }
       }
       
-      // Wait for all analyses to complete before showing final toast
+      // Final success message
       toast.success(`Wave analysis completed for ${completed} stocks`);
 
-      // Add this block to update localStorage cache
+      // Update localStorage cache
       const cacheData = {
         waves: waveAnalyses,
         historical: historicalData,
@@ -423,41 +462,12 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
       setAnalysisProgress({
         total: 0,
         current: 0,
-        inProgress: false
+        inProgress: false,
+        currentSymbol: undefined
       });
       setIsRefreshing(false);
     }
   }, [getAnalysis, getHistoricalData, loadCacheData, supabase, stockCount]);
-
-  // Update this function in Admin.tsx to handle API responses without mock fallbacks
-const fetchTopStocks = useCallback(async (limit: number) => {
-  try {
-    console.log(`DEBUG: Fetching top stocks with limit: ${limit}`);
-    
-    const url = buildApiUrl(`/stocks/top?limit=${limit}`);
-    console.log(`Requesting URL: ${url}`);
-    
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`API returned status ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    // Defensive check to ensure we have an array
-    if (!Array.isArray(data)) {
-      throw new Error('API returned non-array data: ' + JSON.stringify(data).substring(0, 100));
-    }
-    
-    console.log(`DEBUG: API returned ${data.length} stocks (requested ${limit})`);
-    setTopStocks(data);
-    return data;
-  } catch (error) {
-    console.error('Error fetching top stocks:', error);
-    toast.error(`Failed to fetch top stocks: ${error.message}`);
-    throw error; // Re-throw to handle in caller
-  }
-}, []);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
@@ -486,12 +496,15 @@ const fetchTopStocks = useCallback(async (limit: number) => {
         console.warn('Could not retrieve favorites:', favError);
       }
       
+      // Track which favorites are invalid to remove later
+      let invalidFavorites: string[] = [];
+      let validFavorites: string[] = [];
+      
       // Create an array of all stock symbols we want to fetch, with favorites prioritized
       let symbolsToProcess: string[] = [];
 
       // Add favorites first (if available)
       if (favoritesData?.data && Array.isArray(favoritesData.data)) {
-        // Only take favorites up to the stockCount limit
         symbolsToProcess = favoritesData.data
           .slice(0, stockCount)
           .map(symbol => String(symbol));
@@ -526,20 +539,27 @@ const fetchTopStocks = useCallback(async (limit: number) => {
         inProgress: true
       });
       
+      // Start with an empty state to ensure we only show freshly loaded data
+      setHistoricalData({});
+      
       // Process the limited list of symbols
       let completed = 0;
       let failed = 0;
       let errors = [];
       
-      // Rest of function remains the same, but use symbolsToProcess instead of symbols
-      const batchSize = 3;
+      // Use a smaller batch size for more frequent UI updates
+      const batchSize = 1; // Process one at a time for smoother UI updates
       for (let i = 0; i < symbolsToProcess.length; i += batchSize) {
         const batch = symbolsToProcess.slice(i, i + batchSize);
         
         // Process each stock in the batch concurrently
         await Promise.all(batch.map(async (symbol) => {
           try {
-            console.log(`Fetching historical data for ${symbol}...`);
+            // Update the UI to show which stock is currently being processed
+            setHistoryLoadProgress(prev => ({
+              ...prev,
+              currentSymbol: symbol
+            }));
             
             // Update the currentApiCall state to show in UI
             const proxyUrl = buildApiUrl(`/stocks/historical/${symbol}?timeframe=2y&interval=1d`);
@@ -574,12 +594,18 @@ const fetchTopStocks = useCallback(async (limit: number) => {
               throw new Error(`API returned error: ${apiData.error} - ${apiData.message || ''}`);
             }
             
-            // Validate the data - now throw error for insufficient data
+            // Validate the data
             if (!apiData || !Array.isArray(apiData) || apiData.length < 50) {
               throw new Error(`Insufficient data for ${symbol}: ${apiData?.length || 0} points`);
             }
             
-            console.log(`DEBUG: API returned ${apiData.length} points for ${symbol}`);
+            // Check if this is a favorite stock
+            const isFavorite = favoritesData?.data && Array.isArray(favoritesData.data) && 
+                              favoritesData.data.includes(symbol);
+            
+            if (isFavorite) {
+              validFavorites.push(symbol);
+            }
             
             // Ensure proper timestamp format
             const formattedData = apiData.map(item => {
@@ -618,15 +644,18 @@ const fetchTopStocks = useCallback(async (limit: number) => {
                 is_string: false
               }, { onConflict: 'key' });
             
-            // Update the local state incrementally
-            setHistoricalData(prev => ({
-              ...prev,
-              [symbol]: {
-                data: formattedData,
-                timestamp: Date.now(),
-                isLoaded: true // Mark as loaded
-              }
-            }));
+            // Update the local state incrementally in real-time with a function updater to ensure proper state merging
+            setHistoricalData(prev => {
+              const newData = {
+                ...prev,
+                [`${symbol}_1d`]: {
+                  data: formattedData,
+                  timestamp: Date.now(),
+                  isLoaded: true // Mark as loaded
+                }
+              };
+              return newData;
+            });
             
             completed++;
             
@@ -635,11 +664,20 @@ const fetchTopStocks = useCallback(async (limit: number) => {
             console.error(`Failed to load data for ${symbol}:`, error);
             errors.push(`${symbol}: ${error.message}`);
             failed++;
+            
+            // Check if this is a favorite stock
+            const isFavorite = favoritesData?.data && Array.isArray(favoritesData.data) && 
+                              favoritesData.data.includes(symbol);
+            
+            if (isFavorite) {
+              invalidFavorites.push(symbol);
+              // Don't add to validFavorites
+            }
           } finally {
             // Update progress tracking
             setHistoryLoadProgress(prev => ({
               ...prev,
-              current: completed + failed
+              current: prev.current + 1
             }));
             
             // Clear the current API call when done with this symbol
@@ -647,15 +685,53 @@ const fetchTopStocks = useCallback(async (limit: number) => {
           }
         }));
         
-        // Small delay between batches to allow UI to remain responsive
-        await new Promise(resolve => setTimeout(resolve, 800));
+        // Small delay between stocks to allow UI to update and be responsive
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      // Refresh the cache display
-      console.log('Historical data load complete, refreshing cache display...');
-      await loadCacheData(true); // Force refresh to ensure we see the latest data
+      // If we found any invalid favorites, remove them from the favorites list
+      if (invalidFavorites.length > 0) {
+        try {
+          // Get the current favorites list
+          const { data: currentFavs } = await supabase
+            .from('cache')
+            .select('data')
+            .eq('key', 'favorite_stocks')
+            .single();
+            
+          if (currentFavs?.data && Array.isArray(currentFavs.data)) {
+            // Filter out the invalid favorites
+            const updatedFavorites = currentFavs.data.filter(
+              fav => !invalidFavorites.includes(String(fav))
+            );
+            
+            // Update the favorites in Supabase
+            await supabase
+              .from('cache')
+              .upsert({
+                key: 'favorite_stocks',
+                data: updatedFavorites,
+                timestamp: Date.now(),
+                is_string: false
+              }, { onConflict: 'key' });
+              
+            // Notify the user with toast message
+            invalidFavorites.forEach(symbol => {
+              toast({
+                title: "Invalid favorite removed",
+                description: `${symbol} was removed from favorites as no data was found.`,
+                variant: "destructive"
+              });
+            });
+            
+            console.log(`Removed ${invalidFavorites.length} invalid favorites:`, invalidFavorites);
+          }
+        } catch (err) {
+          console.error("Error updating favorites list:", err);
+        }
+      }
       
-      // Show final status
+      // Final success message
       if (failed > 0) {
         toast.error(`Failed to load data for ${failed} stocks. Check console for details.`);
         // Display error details in the console in a readable format
@@ -671,7 +747,8 @@ const fetchTopStocks = useCallback(async (limit: number) => {
       setHistoryLoadProgress({
         total: 0,
         current: 0,
-        inProgress: false
+        inProgress: false,
+        currentSymbol: undefined
       });
       setCurrentApiCall(null);
       setIsRefreshing(false);
@@ -1329,6 +1406,9 @@ useEffect(() => {
                   <Badge variant="outline" className="flex items-center gap-1 ml-4 flex-shrink-0">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Processing {analysisProgress.current}/{analysisProgress.total}
+                    {analysisProgress.currentSymbol && (
+                      <span className="ml-1 font-semibold">{analysisProgress.currentSymbol}</span>
+                    )}
                   </Badge>
                 )}
               </div>
@@ -1347,7 +1427,8 @@ useEffect(() => {
               )}
               
               <ScrollArea className="h-[500px]">
-                {isRefreshing ? (
+                {/* Only show loading spinner when isRefreshing is true but NOT when actively analyzing waves */}
+                {isRefreshing && !analysisProgress.inProgress ? (
                   <div className="p-4 text-center text-muted-foreground">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                     Updating wave analysis data...
@@ -1355,7 +1436,9 @@ useEffect(() => {
                 ) : Object.keys(filteredWaveAnalyses || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
                     {Object.keys(waveAnalyses).length === 0 ? (
-                      "No wave analysis cache data found"
+                      analysisProgress.inProgress ? 
+                        "Analyzing data... stocks will appear as they're processed" :
+                        "No wave analysis cache found"
                     ) : (
                       `No results found for "${waveSearchQuery}"`
                     )}
@@ -1433,6 +1516,9 @@ useEffect(() => {
                   <Badge variant="outline" className="flex items-center gap-1 ml-4 flex-shrink-0">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Loading {historyLoadProgress.current}/{historyLoadProgress.total}
+                    {historyLoadProgress.currentSymbol && (
+                      <span className="ml-1 font-semibold">{historyLoadProgress.currentSymbol}</span>
+                    )}
                   </Badge>
                 )}
               </div>
@@ -1451,7 +1537,8 @@ useEffect(() => {
               )}
               
               <ScrollArea className="h-[500px]">
-                {isRefreshing ? (
+                {/* Only show loading spinner when isRefreshing is true but NOT when actively loading historical data */}
+                {isRefreshing && !historyLoadProgress.inProgress ? (
                   <div className="p-4 text-center text-muted-foreground">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                     Updating historical data...
@@ -1459,7 +1546,9 @@ useEffect(() => {
                 ) : Object.keys(filteredHistoricalData || {}).length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
                     {Object.keys(historicalData).length === 0 ? (
-                      "No historical data cache found"
+                      historyLoadProgress.inProgress ? 
+                        "Loading data... stocks will appear as they're processed" :
+                        "No historical data cache found"
                     ) : (
                       `No results found for "${historicalSearchQuery}"`
                     )}
