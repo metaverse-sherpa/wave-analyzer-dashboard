@@ -557,13 +557,13 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
                     <span className="text-xs text-muted-foreground flex items-center">
                       {candidate.isBearish ? (
                         // Bearish badge
-                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
                           <ArrowUp className="h-3 w-3 mr-1" />
                           Bullish +{candidate.exceededBy}% past {candidate.targetLevel}
                         </Badge>
                       ) : (
                         // Bullish badge
-                        <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200">
+                        <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200 text-[10px]">
                           <ArrowDown className="h-3 w-3 mr-1" />
                           Bearish -{candidate.exceededBy}% past {candidate.targetLevel}
                         </Badge>

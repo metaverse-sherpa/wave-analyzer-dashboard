@@ -666,13 +666,67 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
             errors.push(`${symbol}: ${error.message}`);
             failed++;
             
-            // Check if this is a favorite stock
+            // Check if this is a favorite stock - make case-insensitive comparison
             const isFavorite = favoritesData?.data && Array.isArray(favoritesData.data) && 
-                              favoritesData.data.includes(symbol);
+                              favoritesData.data.some(fav => 
+                                String(fav).toLowerCase() === symbol.toLowerCase()
+                              );
+            
+            // For HTTP 500 errors, always add to invalidFavorites if it's a favorite
+            const isServerError = error.message && (
+              error.message.includes("500") || 
+              error.message.includes("API returned status 500")
+            );
             
             if (isFavorite) {
+              console.log(`Adding ${symbol} to invalidFavorites list - is server error: ${isServerError}`);
               invalidFavorites.push(symbol);
-              // Don't add to validFavorites
+              
+              // IMPORTANT: Immediately remove from favorites when error occurs
+              try {
+                // Get the current favorites list right now
+                const { data: currentFavs } = await supabase
+                  .from('cache')
+                  .select('data')
+                  .eq('key', 'favorite_stocks')
+                  .single();
+                  
+                if (currentFavs?.data && Array.isArray(currentFavs.data)) {
+                  // Filter out this specific invalid favorite - ensure exact string comparison
+                  const updatedFavorites = currentFavs.data.filter(
+                    fav => String(fav).toLowerCase() !== symbol.toLowerCase()
+                  );
+                  
+                  console.log(`Removing ${symbol} from favorites: before=${currentFavs.data.length}, after=${updatedFavorites.length}`);
+                  
+                  // Only update if something changed
+                  if (updatedFavorites.length < currentFavs.data.length) {
+                    // Update the favorites in Supabase immediately
+                    await supabase
+                      .from('cache')
+                      .update({
+                        data: updatedFavorites,
+                        timestamp: Date.now(),
+                      })
+                      .eq('key', 'favorite_stocks');
+                      
+                    // Show toast notification with the correct Sonner format
+                    toast(`${symbol} removed from favorites`, {
+                      description: "The stock was removed because it was not found in Yahoo Finance",
+                    });
+                    
+                    // Find any FavoritesManager components and refresh them
+                    const evt = new CustomEvent('refresh-favorites');
+                    window.dispatchEvent(evt);
+                    
+                    console.log(`Immediately removed ${symbol} from favorites due to error`);
+                  } else {
+                    console.log(`No change in favorites list when removing ${symbol}`);
+                  }
+                }
+              } catch (favError) {
+                console.error(`Error trying to immediately remove ${symbol} from favorites:`, favError);
+              }
             }
           } finally {
             // Update progress tracking

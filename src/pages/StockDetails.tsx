@@ -347,8 +347,10 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             {/* Left side: Stock info */}
             <div className="flex items-center gap-4">
               <div>
-                <h1 className="text-2xl font-bold">{stockData.shortName} ({stockData.symbol})</h1>
-                <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold">
+                  {stockData.name || stockData.shortName} ({stockData.symbol})
+                </h1>
+                <div className="flex items-center gap-2 mt-1">
                   <div className="text-lg font-mono">{formattedPrice}</div>
                   <div className={`flex items-center ${isPositive ? "text-bullish" : "text-bearish"}`}>
                     {isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}

@@ -17,12 +17,16 @@ export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesC
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Create a refresh counter to force reloads
+  const [refreshCounter, setRefreshCounter] = useState(0);
 
-  // Load favorites from Supabase on component mount
-  useEffect(() => {
-    loadFavorites();
-  }, []);
+  // Add a function to force refresh of favorites
+  const refreshFavorites = () => {
+    setRefreshCounter(prev => prev + 1);
+  };
 
+  // Make loadFavorites public so we can call it from outside
   const loadFavorites = async () => {
     setIsLoading(true);
     try {
@@ -52,6 +56,25 @@ export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesC
     }
   };
 
+  // Load favorites from Supabase on component mount and when refreshCounter changes
+  useEffect(() => {
+    loadFavorites();
+  }, [refreshCounter]); // Add refreshCounter to the dependency array
+
+  // Listen for custom refresh event from other components
+  useEffect(() => {
+    const handleRefreshEvent = () => {
+      console.log('Favorites refresh event received');
+      refreshFavorites();
+    };
+    
+    window.addEventListener('refresh-favorites', handleRefreshEvent);
+    
+    return () => {
+      window.removeEventListener('refresh-favorites', handleRefreshEvent);
+    };
+  }, []);  // Empty dependency array means this only runs on mount/unmount
+
   const saveFavorites = async (updatedFavorites: string[]) => {
     try {
       const { error } = await supabase
@@ -67,7 +90,11 @@ export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesC
       if (error) throw error;
       
       setFavorites(updatedFavorites);
-      onFavoritesChange?.();
+      
+      // Call the callback if provided to notify parent components
+      if (onFavoritesChange) {
+        onFavoritesChange();
+      }
     } catch (error) {
       console.error('Error saving favorites:', error);
       toast.error('Failed to save favorite stocks');
@@ -159,28 +186,41 @@ export const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onFavoritesC
       <ScrollArea className="h-[120px] border rounded-md p-2">
         <div className="flex flex-wrap gap-2 pb-1">
           {isLoading ? (
-            <div className="text-sm text-muted-foreground p-2">Loading favorites...</div>
+            <div className="w-full text-center py-4 text-muted-foreground">Loading favorites...</div>
           ) : filteredFavorites.length === 0 ? (
-            <div className="text-sm text-muted-foreground p-2">
-              {favorites.length === 0 
-                ? "No favorites added yet" 
-                : `No results found for "${searchQuery}"`}
+            <div className="w-full text-center py-4 text-muted-foreground">
+              {searchQuery ? `No favorites matching "${searchQuery}"` : 'No favorite stocks yet'}
             </div>
           ) : (
-            filteredFavorites.map(stock => (
-              <Badge key={stock} variant="secondary" className="group">
+            filteredFavorites.map((stock) => (
+              <Badge key={stock} variant="secondary" className="flex items-center gap-1 py-1">
                 {stock}
-                <button 
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-4 w-4 ml-1 hover:bg-destructive/20 rounded-full" 
                   onClick={() => handleRemoveStock(stock)}
-                  className="ml-1 rounded-full hover:bg-muted p-0.5 transition-colors"
                 >
                   <X className="h-3 w-3" />
-                </button>
+                </Button>
               </Badge>
             ))
           )}
         </div>
       </ScrollArea>
+      
+      {/* Add refresh button to manually refresh the list */}
+      <Button 
+        variant="outline" 
+        size="sm" 
+        onClick={refreshFavorites}
+        className="w-full text-xs mt-1"
+      >
+        Refresh Favorites
+      </Button>
     </div>
   );
 };
+
+// Export the component instance with the public loadFavorites method
+export default FavoritesManager;

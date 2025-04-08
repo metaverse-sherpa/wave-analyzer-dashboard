@@ -1048,16 +1048,18 @@ useEffect(() => {
         points: ohlcData.length
       });
       
+      // Silently track out-of-range waves without logging warnings
       const outOfRangeWaves = waves.filter(w => 
         w.startTimestamp < dataStart || 
         (w.endTimestamp && w.endTimestamp > dataEnd)
       );
       
-      if (outOfRangeWaves.length > 0) {
-        console.warn("Some waves fall outside chart range:", 
-          outOfRangeWaves.map(w => w.number)
-        );
-      }
+      // We're intentionally not logging this warning anymore
+      // if (outOfRangeWaves.length > 0) {
+      //   console.warn("Some waves fall outside chart range:", 
+      //     outOfRangeWaves.map(w => w.number)
+      //   );
+      // }
     }
   }
 }, [waves, ohlcData]);
@@ -1106,19 +1108,13 @@ useEffect(() => {
       const dataEnd = ohlcData[ohlcData.length - (chartPaddingDays + 1)]?.timestamp; // Exclude future projection points
       
       if (dataStart && dataEnd) {
-        console.log("Chart data range:", {
-          start: new Date(dataStart).toLocaleDateString(),
-          end: new Date(dataEnd).toLocaleDateString(),
-          points: ohlcData.length - chartPaddingDays // Exclude projection points
-        });
-        
-        // Now check if waves are in range, but just silently handle it without logging
+        // Silently check if waves are in range without logging warnings
         const outOfRangeWaves = waves.filter(w => 
           (w.startTimestamp && getTimestampValue(w.startTimestamp) < dataStart) || 
           (w.endTimestamp && getTimestampValue(w.endTimestamp) > dataEnd)
         );
         
-        // Removed console.info message about waves outside chart range
+        // Simply track this internally without logging to console
       }
     }
   }

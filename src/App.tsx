@@ -306,7 +306,9 @@ const App = () => {
                       }}
                     />
                     
-                    {/* Your emergency buttons */}
+                    {/* Add the toast components */}
+                    <Toaster />
+                    <Sonner position="top-right" />
                   </AdminSettingsProvider>
                 </WaveAnalysisProvider>
               </HistoricalDataProvider>
