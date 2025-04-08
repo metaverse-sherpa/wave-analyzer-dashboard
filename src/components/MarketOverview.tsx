@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
-import { ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from './ui/progress';
 import ReversalsList from './ReversalsList';
 import ReversalsLastUpdated from './ReversalsLastUpdated';
 import MarketSentimentAI from './MarketSentimentAI';
+import { Badge } from '@/components/ui/badge';
 
 // Keep this helper function at the top
 const getTimestampValue = (timestamp: any): number => {
@@ -51,6 +52,9 @@ const MarketOverview: React.FC = () => {
   const { analyses } = useWaveAnalysis();
   const [showMoreBullish, setShowMoreBullish] = useState(false);
   const [showMoreBearish, setShowMoreBearish] = useState(false);
+  // Add state for wave filters
+  const [bullishWaveFilter, setBullishWaveFilter] = useState<string | number | null>(null);
+  const [bearishWaveFilter, setBearishWaveFilter] = useState<string | number | null>(null);
   
   // Use a ref to track initialization
   const initialized = useRef(false);
@@ -81,6 +85,7 @@ const MarketOverview: React.FC = () => {
     Object.entries(analyses).forEach(([key, analysis]) => {
       try {
         // Extract the symbol from the key - just use the key directly as it seems to be the symbol
+        
         const symbol = key;
         
         // Skip if no analysis or it's in an unexpected format
@@ -122,7 +127,70 @@ const MarketOverview: React.FC = () => {
     return categorized;
   }, [analyses]);
 
-  // Fix the market sentiment calculation to align with the categorized stocks counts
+  // Get available wave numbers for both bullish and bearish
+  const availableWaves = useMemo(() => {
+    const bullish = new Set<string | number>();
+    const bearish = new Set<string | number>();
+    
+    categorizedStocks.bullish.forEach(stock => {
+      bullish.add(stock.wave);
+    });
+    
+    categorizedStocks.bearish.forEach(stock => {
+      bearish.add(stock.wave);
+    });
+    
+    // Convert to arrays and sort numerically/alphabetically
+    const sortWaves = (waves: (string | number)[]) => {
+      return waves.sort((a, b) => {
+        if (typeof a === 'number' && typeof b === 'number') {
+          return a - b;
+        }
+        return String(a).localeCompare(String(b));
+      });
+    };
+    
+    return {
+      bullish: sortWaves(Array.from(bullish)),
+      bearish: sortWaves(Array.from(bearish))
+    };
+  }, [categorizedStocks]);
+
+  // Filter the stocks based on selected wave
+  const filteredStocks = useMemo(() => {
+    return {
+      bullish: bullishWaveFilter 
+        ? categorizedStocks.bullish.filter(stock => stock.wave === bullishWaveFilter)
+        : categorizedStocks.bullish,
+      bearish: bearishWaveFilter
+        ? categorizedStocks.bearish.filter(stock => stock.wave === bearishWaveFilter)
+        : categorizedStocks.bearish
+    };
+  }, [categorizedStocks, bullishWaveFilter, bearishWaveFilter]);
+
+  // Format waves for display (with commas between items)
+  const formatWaves = (waves: (string | number)[]): JSX.Element[] => {
+    return waves.map((wave, index) => (
+      <React.Fragment key={wave}>
+        {index > 0 && ", "}
+        <span 
+          className="cursor-pointer hover:underline"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (waves === availableWaves.bullish) {
+              setBullishWaveFilter(bullishWaveFilter === wave ? null : wave);
+              setBearishWaveFilter(null); // Clear the other filter
+            } else {
+              setBearishWaveFilter(bearishWaveFilter === wave ? null : wave);
+              setBullishWaveFilter(null); // Clear the other filter
+            }
+          }}
+        >
+          {wave}
+        </span>
+      </React.Fragment>
+    ));
+  };
 
 const marketSentiment = useMemo(() => {
   // Instead of processing the wave analysis details, let's use our categorized stocks directly
@@ -165,7 +233,7 @@ const marketSentiment = useMemo(() => {
     neutralPercentage,
     overallSentiment
   };
-}, [categorizedStocks]); // Only depend on categorizedStocks, not analyses
+}, [categorizedStocks]);
   
   // Navigate to stock details page
   const goToStockDetails = (symbol: string) => {
@@ -255,21 +323,36 @@ const marketSentiment = useMemo(() => {
       <div className="grid grid-cols-3 gap-4">
         {/* Bullish Section */}
         <div className="bg-secondary rounded-lg p-4">
-          <div className="text-muted-foreground text-sm mb-1">Bullish (Waves 1, 3, 5, B)</div>
+          <div className="text-muted-foreground text-sm mb-1">
+            Bullish (Waves {availableWaves.bullish.length > 0 ? 
+              <>{formatWaves(availableWaves.bullish)}</> : 
+              "None"}
+            )
+            {bullishWaveFilter && (
+              <Badge variant="outline" className="ml-2 py-0">
+                <span className="mr-1">Showing Wave {bullishWaveFilter}</span>
+                <X 
+                  className="h-3 w-3 cursor-pointer" 
+                  onClick={() => setBullishWaveFilter(null)} 
+                />
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
               <ArrowUpRight className="mr-1 text-green-500" />
               <span className="text-xl font-mono">{marketSentiment.bullishPercentage}%</span>
             </div>
             <div className="text-xs text-muted-foreground">
-              {categorizedStocks.bullish.length} stocks
+              {filteredStocks.bullish.length} stocks
+              {bullishWaveFilter && ` in Wave ${bullishWaveFilter}`}
             </div>
           </div>
           
           <div className="space-y-1">
-            {categorizedStocks.bullish.length > 0 ? (
+            {filteredStocks.bullish.length > 0 ? (
               <>
-                {categorizedStocks.bullish.slice(0, showMoreBullish ? undefined : 5).map(stock => (
+                {filteredStocks.bullish.slice(0, showMoreBullish ? undefined : 5).map(stock => (
                   <div key={stock.symbol} className="flex items-center justify-between">
                     <Button 
                       variant="link"
@@ -287,7 +370,7 @@ const marketSentiment = useMemo(() => {
                 ))}
                 
                 {/* Show more/less button */}
-                {categorizedStocks.bullish.length > 5 && (
+                {filteredStocks.bullish.length > 5 && (
                   <Button 
                     variant="ghost"
                     size="sm"
@@ -297,7 +380,7 @@ const marketSentiment = useMemo(() => {
                     {showMoreBullish ? (
                       <>Show Less <ChevronUp className="ml-1 h-3 w-3" /></>
                     ) : (
-                      <>Show {categorizedStocks.bullish.length - 5} More <ChevronDown className="ml-1 h-3 w-3" /></>
+                      <>Show {filteredStocks.bullish.length - 5} More <ChevronDown className="ml-1 h-3 w-3" /></>
                     )}
                   </Button>
                 )}
@@ -305,6 +388,7 @@ const marketSentiment = useMemo(() => {
             ) : (
               <div className="py-2 text-center text-muted-foreground text-sm">
                 No bullish stocks found
+                {bullishWaveFilter && ` for Wave ${bullishWaveFilter}`}
               </div>
             )}
           </div>
@@ -312,21 +396,36 @@ const marketSentiment = useMemo(() => {
         
         {/* Bearish Section */}
         <div className="bg-secondary rounded-lg p-4">
-          <div className="text-muted-foreground text-sm mb-1">Bearish (Waves 2, 4, A, C)</div>
+          <div className="text-muted-foreground text-sm mb-1">
+            Bearish (Waves {availableWaves.bearish.length > 0 ? 
+              <>{formatWaves(availableWaves.bearish)}</> : 
+              "None"}
+            )
+            {bearishWaveFilter && (
+              <Badge variant="outline" className="ml-2 py-0">
+                <span className="mr-1">Showing Wave {bearishWaveFilter}</span>
+                <X 
+                  className="h-3 w-3 cursor-pointer" 
+                  onClick={() => setBearishWaveFilter(null)} 
+                />
+              </Badge>
+            )}
+          </div>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
               <ArrowDownRight className="mr-1 text-red-500" />
               <span className="text-xl font-mono">{marketSentiment.bearishPercentage}%</span>
             </div>
             <div className="text-xs text-muted-foreground">
-              {categorizedStocks.bearish.length} stocks
+              {filteredStocks.bearish.length} stocks
+              {bearishWaveFilter && ` in Wave ${bearishWaveFilter}`}
             </div>
           </div>
           
           <div className="space-y-1">
-            {categorizedStocks.bearish.length > 0 ? (
+            {filteredStocks.bearish.length > 0 ? (
               <>
-                {categorizedStocks.bearish.slice(0, showMoreBearish ? undefined : 5).map(stock => (
+                {filteredStocks.bearish.slice(0, showMoreBearish ? undefined : 5).map(stock => (
                   <div key={stock.symbol} className="flex items-center justify-between">
                     <Button 
                       variant="link"
@@ -344,7 +443,7 @@ const marketSentiment = useMemo(() => {
                 ))}
                 
                 {/* Show more/less button */}
-                {categorizedStocks.bearish.length > 5 && (
+                {filteredStocks.bearish.length > 5 && (
                   <Button 
                     variant="ghost"
                     size="sm"
@@ -354,7 +453,7 @@ const marketSentiment = useMemo(() => {
                     {showMoreBearish ? (
                       <>Show Less <ChevronUp className="ml-1 h-3 w-3" /></>
                     ) : (
-                      <>Show {categorizedStocks.bearish.length - 5} More <ChevronDown className="ml-1 h-3 w-3" /></>
+                      <>Show {filteredStocks.bearish.length - 5} More <ChevronDown className="ml-1 h-3 w-3" /></>
                     )}
                   </Button>
                 )}
@@ -362,6 +461,7 @@ const marketSentiment = useMemo(() => {
             ) : (
               <div className="py-2 text-center text-muted-foreground text-sm">
                 No bearish stocks found
+                {bearishWaveFilter && ` for Wave ${bearishWaveFilter}`}
               </div>
             )}
           </div>

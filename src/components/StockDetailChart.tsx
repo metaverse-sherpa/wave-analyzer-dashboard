@@ -624,9 +624,12 @@ const chartData = {
           borderColor: isInvalidated ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.5)',
           borderWidth: isInvalidated ? 2 : 1,
           pointRadius: (ctx: any) => {
-            // Only show points at start of wave
-            return ctx.dataIndex === effectiveStartIndex ? 
-              (isInvalidated ? 6 : 4) : 0;
+            // Only show points at start of wave if it's not a completed Wave 5
+            // For completed waves, especially Wave 5, we don't want a point at the start
+            if (ctx.dataIndex === effectiveStartIndex) {
+              return isInvalidated ? 6 : (wave.number === 5 && wave.isComplete ? 0 : 4);
+            }
+            return 0;
           },
           pointHoverRadius: isInvalidated ? 8 : 6,
           pointStyle: isInvalidated ? 'crossRot' : 'circle',
@@ -634,11 +637,16 @@ const chartData = {
           datalabels: {
             // The issue is with your display condition - it's too restrictive
             display: (ctx: any) => {
-              // Always show labels for invalidated waves, regardless of end point
-              if (isInvalidated) return true;
+              // Always show labels for invalidated waves at the start point
+              if (isInvalidated) return ctx.dataIndex === effectiveStartIndex;
               
-              // For valid waves, only show at the end point if it exists
-              return wave.endPrice && ctx.dataIndex === effectiveEndIndex;
+              // For valid completed waves, show at the end point
+              if (wave.isComplete && wave.endPrice) {
+                return ctx.dataIndex === effectiveEndIndex;
+              }
+              
+              // For waves without end points or incomplete waves, show at start
+              return ctx.dataIndex === effectiveStartIndex;
             },
             formatter: (value: any, ctx: any) => {
               // Only show X for invalidated waves and only at the start point
@@ -804,32 +812,23 @@ const chartData = {
       tension: 0, // Straight line
       z: 10,
       datalabels: {
-        // Only show at start point and current price point
+        // Only show at the current price point (end of the wave), not at the start
         display: (ctx: any) => {
           const startIndex = ohlcData.findIndex(d => 
             d.timestamp >= getTimestampValue(currentWave.startTimestamp)
           );
           
-          // Show at the wave start
-          if (ctx.dataIndex === startIndex) return true;
+          // Don't show label at the wave start anymore
+          if (ctx.dataIndex === startIndex) return false;
           
-          // Also show at the current price point
+          // Instead, show it at the current price point (end of the wave)
           if (ctx.dataIndex === ohlcData.length - chartPaddingDays) return true;
           
           return false;
         },
         formatter: (value: any, ctx: any) => {
-          const startIndex = ohlcData.findIndex(d => 
-            d.timestamp >= getTimestampValue(currentWave.startTimestamp)
-          );
-          
-          // At wave start, show the wave number
-          if (ctx.dataIndex === startIndex) {
-            return `${currentWave.number}`;
-          }
-          
-          // At current price, show nothing (price is shown by current price line)
-          return '';
+          // At current price point, show the wave number
+          return `${currentWave.number}`;
         },
         color: 'white',
         backgroundColor: getWaveColor(currentWave.number, true),
