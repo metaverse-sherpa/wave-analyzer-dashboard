@@ -77,6 +77,32 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     setAnalyses(newAnalyses);
   }, []);
 
+  // Add this function to verify if cached analysis data is valid
+  const isWaveAnalysisValid = (analysis: WaveAnalysisResult | null | undefined): boolean => {
+    if (!analysis) return false;
+    
+    // Check for required properties
+    if (!analysis.waves || !Array.isArray(analysis.waves)) return false;
+    if (analysis.currentWave === undefined || analysis.currentWave === null) return false;
+    
+    // Check at least one wave has proper timestamps
+    if (analysis.waves.length > 0) {
+      const someValidWaves = analysis.waves.some(wave => 
+        wave && 
+        wave.startTimestamp !== undefined && 
+        wave.startTimestamp !== null &&
+        typeof wave.startPrice === 'number'
+      );
+      
+      if (!someValidWaves) return false;
+    }
+    
+    return true;
+  }
+
+  // Add this constant to define when cached analyses should expire
+  const ANALYSIS_CACHE_EXPIRY_MS = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+
   // Function to add an event
   const addEvent = useCallback((event: AnalysisEvent) => {
     setAnalysisEvents(prev => [event, ...prev].slice(0, 100)); // Keep last 100 events

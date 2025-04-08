@@ -112,8 +112,22 @@ ChartJS.register(
 ChartJS.register(ChartDataLabels);
 
 // Helper functions
-function getTimestampValue(timestamp: string | number): number {
+function getTimestampValue(timestamp: string | number | undefined): number {
+  if (timestamp === undefined || timestamp === null) {
+    console.warn('Undefined timestamp detected');
+    return Date.now(); // Return current time as fallback
+  }
   return typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp;
+}
+
+// Add this helper function to safely get a timestamp value
+function safeGetTimestampValue(timestamp: string | number | undefined): number {
+  if (timestamp === undefined || timestamp === null) {
+    // Return a default timestamp (e.g., current time) when missing
+    console.warn('Missing timestamp in wave data, using fallback');
+    return Date.now();
+  }
+  return getTimestampValue(timestamp);
 }
 
 // The getWaveColor function is returning white for non-current waves:

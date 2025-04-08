@@ -391,3 +391,67 @@ export async function getAllWaveAnalyses(): Promise<Record<string, any>> {
     return {};
   }
 }
+
+/**
+ * Checks if a cached item has expired
+ * @param timestamp The timestamp when the item was cached
+ * @param duration The duration in milliseconds the item should be valid
+ * @returns boolean indicating if the item has expired
+ */
+export function isCacheExpired(timestamp: number, duration?: number): boolean {
+  const now = Date.now();
+  const defaultDuration = 12 * 60 * 60 * 1000; // 12 hours in milliseconds
+  const effectiveDuration = duration || defaultDuration;
+  
+  return now - timestamp > effectiveDuration;
+}
+
+/**
+ * Gets data from Supabase cache with validation
+ * @param key The cache key
+ * @param validateFn Optional function to validate the data before returning
+ * @returns The cached data or null if invalid/expired
+ */
+export async function getFromCacheWithValidation<T>(
+  key: string, 
+  validateFn?: (data: any) => boolean
+): Promise<T | null> {
+  try {
+    // Query the cache table
+    const { data, error } = await supabase
+      .from('cache')
+      .select('*')
+      .eq('key', key)
+      .single();
+    
+    if (error || !data) {
+      console.log(`No cache entry found for ${key}`);
+      return null;
+    }
+    
+    // Check if the cache has expired
+    if (isCacheExpired(data.timestamp, data.duration)) {
+      console.log(`Cache expired for ${key} (${new Date(data.timestamp).toLocaleString()})`);
+      // Delete the expired cache entry
+      await supabase.from('cache').delete().eq('key', key);
+      return null;
+    }
+    
+    const cachedData = data.is_string && data.data && data.data.stringData
+      ? JSON.parse(data.data.stringData)
+      : data.data;
+    
+    // Validate the data if a validation function was provided
+    if (validateFn && !validateFn(cachedData)) {
+      console.warn(`Cache data for ${key} failed validation, treating as invalid`);
+      // Delete the invalid cache entry
+      await supabase.from('cache').delete().eq('key', key);
+      return null;
+    }
+    
+    return cachedData as T;
+  } catch (error) {
+    console.error(`Error retrieving ${key} from cache with validation:`, error);
+    return null;
+  }
+}

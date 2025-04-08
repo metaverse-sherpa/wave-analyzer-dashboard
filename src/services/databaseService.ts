@@ -2,6 +2,10 @@ import { WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
 import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { toast } from "@/lib/toast";
 
+// Import the validation functions from cacheService
+import { getFromCacheWithValidation, isCacheExpired } from '@/services/cacheService';
+import { supabase } from '@/lib/supabase';
+
 // Update cache duration to 24 hours (in milliseconds)
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -155,6 +159,72 @@ export const getAllAnalyses = (): Record<string, { analysis: WaveAnalysisResult,
   } catch (error) {
     console.error('Error retrieving all analyses:', error);
     return {};
+  }
+};
+
+// Add this function to validate wave analysis data
+export const isWaveAnalysisDataValid = (data: any): boolean => {
+  if (!data) return false;
+  
+  // For WaveAnalysisResult objects
+  if ('waves' in data) {
+    // Direct analysis object
+    return Array.isArray(data.waves) && 
+           data.currentWave !== undefined && 
+           data.fibTargets !== undefined;
+  }
+  
+  // For stored analysis objects with timestamp
+  if ('analysis' in data && 'timestamp' in data) {
+    const { analysis } = data;
+    return analysis && 
+           Array.isArray(analysis.waves) && 
+           analysis.currentWave !== undefined &&
+           analysis.fibTargets !== undefined;
+  }
+  
+  return false;
+};
+
+/**
+ * Retrieves wave analysis from Supabase with validation
+ * @param symbol The stock symbol
+ * @param timeframe The timeframe (e.g., '1d')
+ * @returns The wave analysis with timestamp or null if not found/invalid
+ */
+export const retrieveWaveAnalysisFromSupabase = async (
+  symbol: string,
+  timeframe: string
+): Promise<{ analysis: WaveAnalysisResult; timestamp: number } | null> => {
+  try {
+    const key = `${WAVE_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
+    
+    // Use the validation function when retrieving from cache
+    const data = await getFromCacheWithValidation<WaveAnalysisResult>(
+      key, 
+      isWaveAnalysisDataValid
+    );
+    
+    if (!data) {
+      return null;
+    }
+    
+    // Get the timestamp from the cache entry
+    const { data: cacheEntry } = await supabase
+      .from('cache')
+      .select('timestamp')
+      .eq('key', key)
+      .single();
+      
+    const timestamp = cacheEntry?.timestamp || Date.now();
+    
+    return {
+      analysis: data,
+      timestamp
+    };
+  } catch (error) {
+    console.error(`Error retrieving wave analysis for ${symbol} from Supabase:`, error);
+    return null;
   }
 };
 

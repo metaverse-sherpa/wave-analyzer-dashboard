@@ -339,12 +339,11 @@ async function retry<T>(
  */
 async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsResult> {
   try {
-    // Take at most 10 symbols to avoid excessive API calls
-    const limitedSymbols = symbols.slice(0, 10);
+    // Process all symbols with intelligent batching
     const insights: string[] = [];
     const sourcesUsed: string[] = [];
     
-    console.log(`Fetching insights for ${limitedSymbols.length} symbols`);
+    console.log(`Fetching insights for ${symbols.length} symbols`);
     
     // First check if API is even available before proceeding
     try {
@@ -365,17 +364,24 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
     
     // Try to fetch real insights but be ready to fallback
     let apiSuccessCount = 0;
+    let apiFailureCount = 0;
     
-    // Batch process to avoid hitting rate limits
-    for (const symbol of limitedSymbols) {
+    // Process all symbols but with intelligent batching to prevent API overload
+    // Divide symbols into batches of priority and regular symbols
+    const prioritySymbols = symbols.slice(0, 10); // First 10 are priority
+    const remainingSymbols = symbols.slice(10);
+    
+    console.log(`Processing ${prioritySymbols.length} priority symbols first`);
+    
+    // Process priority symbols first to ensure we get some results quickly
+    for (const symbol of prioritySymbols) {
       try {
-        console.log(`Fetching insights for ${symbol}`);
+        console.log(`Fetching insights for priority symbol ${symbol}`);
         const insightUrl = `/api/stocks/${symbol}/insights`;
-        console.log(`Using URL: ${insightUrl}`);
         
         // Add more extensive error handling
         const response = await fetch(insightUrl, { 
-          signal: AbortSignal.timeout(10000), // Increase timeout to 10 seconds
+          signal: AbortSignal.timeout(10000), // 10 seconds timeout
           headers: { 'Cache-Control': 'no-cache' }
         });
         
@@ -387,10 +393,9 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
         }
         
         // Store the response text first, then parse it as JSON
-        // This fixes the "body stream already read" error
         const responseText = await response.text();
         
-        // NEW: Check if response is HTML before attempting to parse as JSON
+        // Check if response is HTML before attempting to parse as JSON
         if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
           console.error(`Received HTML response instead of JSON for ${symbol}`);
           console.error(`HTML response: ${responseText.substring(0, 200)}...`);
@@ -425,11 +430,95 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
           apiSuccessCount++;
           sourcesUsed.push('technical insights');
         }
+        
+        // Add a small delay between priority requests
+        await new Promise(resolve => setTimeout(resolve, 200));
       } catch (err) {
-        console.warn(`Error fetching insights for ${symbol}:`, err);
-        // Just continue to the next symbol
+        console.warn(`Error fetching insights for priority symbol ${symbol}:`, err);
+        apiFailureCount++;
       }
     }
+    
+    console.log(`Completed processing priority symbols with ${apiSuccessCount} successes and ${apiFailureCount} failures`);
+    console.log(`Now processing ${remainingSymbols.length} remaining symbols`);
+    
+    // Determine optimal batch size based on initial API performance
+    const batchSize = apiFailureCount > 0 ? 5 : 10; // Use smaller batches if we had failures
+    
+    // Process remaining symbols in batches
+    for (let i = 0; i < remainingSymbols.length; i += batchSize) {
+      const batch = remainingSymbols.slice(i, i + batchSize);
+      const batchPromises = batch.map(async (symbol) => {
+        try {
+          console.log(`Fetching insights for ${symbol} (batch ${Math.floor(i/batchSize) + 1})`);
+          const insightUrl = `/api/stocks/${symbol}/insights`;
+          
+          const response = await fetch(insightUrl, { 
+            signal: AbortSignal.timeout(8000), // Slightly shorter timeout for batch requests
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+          }
+          
+          // Store the response text first, then parse it as JSON
+          const responseText = await response.text();
+          
+          // Check if response is HTML before attempting to parse as JSON
+          if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
+            throw new Error('Received HTML response instead of JSON');
+          }
+          
+          const data = JSON.parse(responseText);
+          
+          // Process the data if it exists
+          if (data && data.technicalInsights) {
+            return {
+              symbol,
+              rating: data.technicalInsights.rating || "NEUTRAL",
+              insightText: data.insightsText && data.insightsText[0]?.text || null,
+              success: true
+            };
+          }
+          
+          return { symbol, success: false };
+        } catch (err) {
+          console.warn(`Error fetching insights for ${symbol}:`, err);
+          return { symbol, success: false };
+        }
+      });
+      
+      // Wait for all batch requests to complete
+      const batchResults = await Promise.allSettled(batchPromises);
+      
+      // Process batch results
+      batchResults.forEach(result => {
+        if (result.status === 'fulfilled' && result.value.success) {
+          const { symbol, rating, insightText } = result.value;
+          insights.push(`${symbol} technical rating: ${rating}`);
+          
+          if (insightText) {
+            insights.push(`${symbol}: ${insightText}`);
+          }
+          
+          apiSuccessCount++;
+        } else if (result.status === 'fulfilled') {
+          apiFailureCount++;
+        } else {
+          apiFailureCount++;
+        }
+      });
+      
+      // Add a delay between batches to avoid rate limiting
+      if (i + batchSize < remainingSymbols.length) {
+        console.log(`Completed batch ${Math.floor(i/batchSize) + 1}, waiting before next batch...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    console.log(`Completed processing all ${symbols.length} symbols`);
+    console.log(`Final results: ${apiSuccessCount} successes and ${apiFailureCount} failures`);
     
     // Also fetch general market news with HTTPS
     let hasMarketNews = false;
@@ -445,7 +534,7 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
         // Store the response text first, then parse it as JSON
         const newsResponseText = await newsResponse.text();
         
-        // NEW: Check if response is HTML before attempting to parse as JSON
+        // Check if response is HTML before attempting to parse as JSON
         if (newsResponseText.trim().startsWith('<!DOCTYPE') || newsResponseText.trim().startsWith('<html')) {
           console.error('Received HTML response instead of JSON for market news');
           // Skip this source but don't throw an error
@@ -488,6 +577,10 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
     
     // If we got any insights at all, return them
     if (insights.length > 0) {
+      // Add a summary line at the beginning
+      const summaryLine = `Analysis includes data from ${apiSuccessCount} stocks of ${symbols.length} total`;
+      insights.unshift(summaryLine);
+      
       return {
         content: insights.join('\n'),
         isMock: false,
