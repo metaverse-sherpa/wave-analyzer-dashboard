@@ -1452,6 +1452,14 @@ useEffect(() => {
                         timestamp?: number;
                       };
                       
+                      // Extract the current wave number if available
+                      let currentWave: string | number | undefined = undefined;
+                      if (data.analysis?.waves && data.analysis.waves.length > 0) {
+                        // Get the last wave in the array as the current one
+                        const lastWave = data.analysis.waves[data.analysis.waves.length - 1];
+                        currentWave = lastWave.number;
+                      }
+                      
                       // Create a properly typed wave data object
                       const waveData: WaveAnalysisEntry = {
                         analysis: {
@@ -1486,6 +1494,8 @@ useEffect(() => {
                             setModalOpen(true);
                           }}
                           getAgeString={getAgeString}
+                          // Pass the current wave number to the DataCard
+                          waveNumber={currentWave}
                         />
                       );
                     })}
@@ -1817,6 +1827,7 @@ interface DataCardProps {
   onDelete: (key: string, type: 'waves' | 'historical') => void;
   onClick: () => void;
   getAgeString: (timestamp: number) => string;
+  waveNumber?: string | number; // Add this line
 }
 
 // Fix the DataCard component by removing the embedded key prop
@@ -1826,13 +1837,21 @@ const DataCard = ({
   type, 
   onDelete, 
   onClick,
-  getAgeString 
+  getAgeString,
+  waveNumber // Add this line
 }: DataCardProps) => (
   <Card className="cursor-pointer hover:bg-accent/5 transition-colors">
     <CardContent className="p-3 flex items-center justify-between">
       <div className="flex-1" onClick={onClick}>
         <div className="flex flex-col">
-          <span className="font-medium text-sm">{itemKey}</span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm">{itemKey}</span>
+            {waveNumber !== undefined && (
+              <Badge variant="outline" className="text-xs py-0 h-5">
+                Wave {waveNumber}
+              </Badge>
+            )}
+          </div>
           <span className="text-xs text-muted-foreground">
             Updated {getAgeString(data.timestamp)}
           </span>
