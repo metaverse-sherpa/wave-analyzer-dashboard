@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, RefreshCw, AlertCircle } from "lucide-react";
+import { Sparkles, RefreshCw, AlertCircle, Globe } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,22 +26,25 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
   overallSentiment
 }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
-  const [isMockData, setIsMockData] = useState<boolean>(false); // Add this line
-  const [dataSources, setDataSources] = useState<string[]>([]); // Add this line
+  const [isMockData, setIsMockData] = useState<boolean>(false);
+  const [dataSources, setDataSources] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const { user } = useAuth();
   const { isPreviewMode } = usePreview();
-  const { analyses } = useWaveAnalysis(); // Get analyses directly
+  const { analyses } = useWaveAnalysis();
   
-  // Format analyses for the API
+  // Format analyses for the API - focus on major indexes
   const formattedAnalyses = React.useMemo(() => {
     return Object.entries(analyses).reduce((acc, [symbol, analysis]) => {
-      acc[symbol] = {
-        analysis,
-        timestamp: Date.now()
-      };
+      // Only include major indexes and remove file format
+      if (symbol.startsWith("^")) {
+        acc[symbol.split('_')[0]] = {
+          analysis,
+          timestamp: Date.now()
+        };
+      }
       return acc;
     }, {});
   }, [analyses]);
@@ -71,7 +74,7 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
     setError(null);
     
     try {
-      // Pass both the count data AND the wave analyses
+      // Pass market data and focused analysis of major indexes
       const result = await getAIMarketSentiment(
         {
           bullishCount,
@@ -79,9 +82,9 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
           neutralCount,
           overallSentiment
         },
-        formattedAnalyses, // Use the memoized formatted analyses
+        formattedAnalyses,
         force,
-        false // Don't skip API call by default - change to true if you want to skip API calls
+        false
       );
       
       setAnalysis(result.analysis);
@@ -100,7 +103,7 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
   // Load sentiment when component mounts or dependencies change
   useEffect(() => {
     fetchAIMarketSentiment();
-  }, [bullishCount, bearishCount, neutralCount, JSON.stringify(formattedAnalyses)]);
+  }, [bullishCount, bearishCount, neutralCount]);
 
   // If no user and in preview mode, show the blurred premium feature
   if (!user && isPreviewMode) {
@@ -136,13 +139,12 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
       <CardContent className="p-4">
         <div className="flex justify-between items-center mb-2">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-medium">AI Elliott Wave Market Insights</h3>
+            <Globe className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-medium">AI Global Market Insights</h3>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">AI</Badge>
             
-            {/* Add mock data indicator */}
             {isMockData && (
               <TooltipProvider>
                 <Tooltip>

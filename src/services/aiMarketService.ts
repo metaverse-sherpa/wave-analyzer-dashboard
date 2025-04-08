@@ -1,7 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import { StockHistoricalData, WaveAnalysisResult } from '@/types/shared';
 import { calculateAverageReturn, identifyLeadingSectors } from '@/utils/marketAnalysisUtils';
-import { buildApiUrl } from '@/services/yahooFinanceService'; // Import this utility
+import { buildApiUrl } from '@/services/yahooFinanceService';
+import { MAJOR_INDEXES, getIndexSymbols } from '@/config/marketIndexes';
 
 export interface MarketSentimentResult {
   analysis: string;     // The actual AI analysis
@@ -333,25 +334,28 @@ async function retry<T>(
 }
 
 /**
- * Fetches market insights from Yahoo Finance for the provided symbols
- * @param symbols Array of stock symbols to get insights for
+ * Fetches market insights specifically for major market indexes
  * @returns Object with content, isMock flag, and sources used
  */
-async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsResult> {
+async function fetchMarketInsights(additionalSymbols: string[] = []): Promise<MarketInsightsResult> {
   try {
-    // Process all symbols with intelligent batching
+    // Get all major index symbols
+    const indexSymbols = getIndexSymbols();
+    
+    // Combine with any additional symbols (limited to 5 to keep focused)
+    const allSymbols = [...indexSymbols, ...additionalSymbols.slice(0, 5)];
+    
     const insights: string[] = [];
     const sourcesUsed: string[] = [];
     
-    console.log(`Fetching insights for ${symbols.length} symbols`);
+    console.log(`Fetching insights for ${allSymbols.length} market indexes`);
     
-    // First check if API is even available before proceeding
+    // Check API availability
     try {
-      // Simple health check with timeout and better error handling
       const healthCheck = await fetch('/api/health', { 
         method: 'GET',
         headers: { 'Cache-Control': 'no-cache' },
-        signal: AbortSignal.timeout(5000) // 5s timeout
+        signal: AbortSignal.timeout(5000)
       });
       
       if (!healthCheck.ok) {
@@ -362,196 +366,35 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
       throw new Error('API unavailable');
     }
     
-    // Try to fetch real insights but be ready to fallback
+    // Track API success/failure
     let apiSuccessCount = 0;
     let apiFailureCount = 0;
     
-    // Process all symbols but with intelligent batching to prevent API overload
-    // Divide symbols into batches of priority and regular symbols
-    const prioritySymbols = symbols.slice(0, 10); // First 10 are priority
-    const remainingSymbols = symbols.slice(10);
+    // Process index symbols with priority
+    const indexNames = Object.fromEntries(
+      MAJOR_INDEXES.map(index => [index.symbol, index.name])
+    );
     
-    console.log(`Processing ${prioritySymbols.length} priority symbols first`);
-    
-    // Process priority symbols first to ensure we get some results quickly
-    for (const symbol of prioritySymbols) {
-      try {
-        console.log(`Fetching insights for priority symbol ${symbol}`);
-        const insightUrl = `/api/stocks/${symbol}/insights`;
-        
-        // Add more extensive error handling
-        const response = await fetch(insightUrl, { 
-          signal: AbortSignal.timeout(10000), // 10 seconds timeout
-          headers: { 'Cache-Control': 'no-cache' }
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`HTTP error ${response.status} for ${symbol}: ${errorText}`);
-          // Continue to next symbol instead of throwing
-          continue;
-        }
-        
-        // Store the response text first, then parse it as JSON
-        const responseText = await response.text();
-        
-        // Check if response is HTML before attempting to parse as JSON
-        if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
-          console.error(`Received HTML response instead of JSON for ${symbol}`);
-          console.error(`HTML response: ${responseText.substring(0, 200)}...`);
-          // Continue to next symbol instead of throwing
-          continue;
-        }
-        
-        let data;
-        try {
-          data = JSON.parse(responseText); // Parse text instead of calling response.json()
-        } catch (jsonError) {
-          console.error(`Failed to parse JSON for ${symbol}:`, jsonError);
-          console.error(`Response text: ${responseText.substring(0, 200)}...`);
-          // Continue to next symbol instead of throwing
-          continue;
-        }
-        
-        // Process the data if it exists
-        if (data && data.technicalInsights) {
-          const rating = data.technicalInsights.rating || "NEUTRAL";
-          insights.push(`${symbol} technical rating: ${rating}`);
-          
-          // Add text insights if available
-          if (data.insightsText && Array.isArray(data.insightsText) && data.insightsText.length > 0) {
-            data.insightsText.slice(0, 1).forEach(insight => {
-              if (insight.text) {
-                insights.push(`${symbol}: ${insight.text}`);
-              }
-            });
-          }
-          
-          apiSuccessCount++;
-          sourcesUsed.push('technical insights');
-        }
-        
-        // Add a small delay between priority requests
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (err) {
-        console.warn(`Error fetching insights for priority symbol ${symbol}:`, err);
-        apiFailureCount++;
-      }
-    }
-    
-    console.log(`Completed processing priority symbols with ${apiSuccessCount} successes and ${apiFailureCount} failures`);
-    console.log(`Now processing ${remainingSymbols.length} remaining symbols`);
-    
-    // Determine optimal batch size based on initial API performance
-    const batchSize = apiFailureCount > 0 ? 5 : 10; // Use smaller batches if we had failures
-    
-    // Process remaining symbols in batches
-    for (let i = 0; i < remainingSymbols.length; i += batchSize) {
-      const batch = remainingSymbols.slice(i, i + batchSize);
-      const batchPromises = batch.map(async (symbol) => {
-        try {
-          console.log(`Fetching insights for ${symbol} (batch ${Math.floor(i/batchSize) + 1})`);
-          const insightUrl = `/api/stocks/${symbol}/insights`;
-          
-          const response = await fetch(insightUrl, { 
-            signal: AbortSignal.timeout(8000), // Slightly shorter timeout for batch requests
-            headers: { 'Cache-Control': 'no-cache' }
-          });
-          
-          if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
-          }
-          
-          // Store the response text first, then parse it as JSON
-          const responseText = await response.text();
-          
-          // Check if response is HTML before attempting to parse as JSON
-          if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
-            throw new Error('Received HTML response instead of JSON');
-          }
-          
-          const data = JSON.parse(responseText);
-          
-          // Process the data if it exists
-          if (data && data.technicalInsights) {
-            return {
-              symbol,
-              rating: data.technicalInsights.rating || "NEUTRAL",
-              insightText: data.insightsText && data.insightsText[0]?.text || null,
-              success: true
-            };
-          }
-          
-          return { symbol, success: false };
-        } catch (err) {
-          console.warn(`Error fetching insights for ${symbol}:`, err);
-          return { symbol, success: false };
-        }
-      });
-      
-      // Wait for all batch requests to complete
-      const batchResults = await Promise.allSettled(batchPromises);
-      
-      // Process batch results
-      batchResults.forEach(result => {
-        if (result.status === 'fulfilled' && result.value.success) {
-          const { symbol, rating, insightText } = result.value;
-          insights.push(`${symbol} technical rating: ${rating}`);
-          
-          if (insightText) {
-            insights.push(`${symbol}: ${insightText}`);
-          }
-          
-          apiSuccessCount++;
-        } else if (result.status === 'fulfilled') {
-          apiFailureCount++;
-        } else {
-          apiFailureCount++;
-        }
-      });
-      
-      // Add a delay between batches to avoid rate limiting
-      if (i + batchSize < remainingSymbols.length) {
-        console.log(`Completed batch ${Math.floor(i/batchSize) + 1}, waiting before next batch...`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-    
-    console.log(`Completed processing all ${symbols.length} symbols`);
-    console.log(`Final results: ${apiSuccessCount} successes and ${apiFailureCount} failures`);
-    
-    // Also fetch general market news with HTTPS
+    // First get market news - this is the highest priority
     let hasMarketNews = false;
     try {
       const marketNewsUrl = buildSafeApiUrl('/market/news');
       
       const newsResponse = await fetch(marketNewsUrl, { 
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(8000),
         headers: { 'Cache-Control': 'no-cache' }
       });
       
       if (newsResponse.ok) {
-        // Store the response text first, then parse it as JSON
         const newsResponseText = await newsResponse.text();
         
-        // Check if response is HTML before attempting to parse as JSON
-        if (newsResponseText.trim().startsWith('<!DOCTYPE') || newsResponseText.trim().startsWith('<html')) {
-          console.error('Received HTML response instead of JSON for market news');
-          // Skip this source but don't throw an error
-        } else {
-          let newsData;
-          try {
-            newsData = JSON.parse(newsResponseText);
-          } catch (jsonError) {
-            console.error('Failed to parse news JSON:', jsonError);
-            console.error(`News response text: ${newsResponseText.substring(0, 200)}...`);
-            // Skip this source but don't throw an error
-          }
+        if (!newsResponseText.trim().startsWith('<!DOCTYPE') && !newsResponseText.trim().startsWith('<html')) {
+          const newsData = JSON.parse(newsResponseText);
           
-          // Add top 3 headlines if we got valid data
+          // Add top headlines
           if (newsData && Array.isArray(newsData) && newsData.length > 0) {
-            insights.push("Latest Market Headlines:");
-            newsData.slice(0, 3).forEach(article => {
+            insights.push("📰 Latest Market Headlines:");
+            newsData.slice(0, 5).forEach(article => {
               insights.push(`- ${article.title}`);
             });
             hasMarketNews = true;
@@ -561,24 +404,122 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
       }
     } catch (err) {
       console.warn('Error fetching market news:', err);
-      // Continue with what we have
+    }
+    
+    // Group indexes by region for better organization
+    const regionGroups = {
+      'US': allSymbols.filter(symbol => 
+        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'US')),
+      'Europe': allSymbols.filter(symbol => 
+        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'Europe')),
+      'Asia': allSymbols.filter(symbol => 
+        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'Asia')),
+      'Global': allSymbols.filter(symbol => 
+        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'Global')),
+      'Other': allSymbols.filter(symbol => 
+        !MAJOR_INDEXES.some(idx => idx.symbol === symbol))
+    };
+    
+    // Process each region
+    for (const [region, symbols] of Object.entries(regionGroups)) {
+      if (symbols.length === 0) continue;
+      
+      // Add region header
+      if (region !== 'Other') {
+        insights.push(`\n📊 ${region} Markets:`);
+      }
+      
+      // Process each symbol in this region
+      for (const symbol of symbols) {
+        try {
+          console.log(`Fetching insights for ${symbol} (${indexNames[symbol] || 'Additional Symbol'})`);
+          const insightUrl = `/api/stocks/${symbol}/insights`;
+          
+          const response = await fetch(insightUrl, { 
+            signal: AbortSignal.timeout(10000),
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+          
+          if (!response.ok) {
+            continue;
+          }
+          
+          const responseText = await response.text();
+          
+          if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
+            continue;
+          }
+          
+          const data = JSON.parse(responseText);
+          
+          // Process the data
+          if (data && data.technicalInsights) {
+            const rating = data.technicalInsights.rating || "NEUTRAL";
+            const name = indexNames[symbol] || symbol;
+            
+            insights.push(`${name}: ${rating} outlook`);
+            
+            // Add text insights if available
+            if (data.insightsText && Array.isArray(data.insightsText) && data.insightsText.length > 0) {
+              const insight = data.insightsText[0];
+              if (insight && insight.text) {
+                insights.push(`  "${insight.text}"`);
+              }
+            }
+            
+            apiSuccessCount++;
+            
+            if (!sourcesUsed.includes('technical insights')) {
+              sourcesUsed.push('technical insights');
+            }
+          }
+          
+          // Add a small delay between requests
+          await new Promise(resolve => setTimeout(resolve, 300));
+        } catch (err) {
+          console.warn(`Error fetching insights for ${symbol}:`, err);
+          apiFailureCount++;
+        }
+      }
+    }
+    
+    // Add a section for recent performance
+    insights.push("\n📈 Recent Performance:");
+    try {
+      // Try to get S&P 500 change
+      const sp500Url = `/api/stocks/%5EGSPC/quote`;
+      const sp500Response = await fetch(sp500Url, {
+        signal: AbortSignal.timeout(5000),
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      
+      if (sp500Response.ok) {
+        const sp500Data = await sp500Response.json();
+        if (sp500Data && sp500Data.regularMarketChangePercent) {
+          const changePercent = sp500Data.regularMarketChangePercent;
+          insights.push(`S&P 500: ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`);
+          sourcesUsed.push('market data');
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching S&P 500 data:', err);
     }
     
     // If we didn't get much data from the real API, use fallback
     if (apiSuccessCount < 2 && !hasMarketNews) {
       console.warn('Insufficient real insights, using fallback data');
-      const mockData = generateMockInsights(symbols);
+      const mockData = generateMockIndexInsights();
       return {
         content: mockData,
         isMock: true,
-        sourcesUsed: ['mock data']
+        sourcesUsed: ['mock index data']
       };
     }
     
     // If we got any insights at all, return them
     if (insights.length > 0) {
       // Add a summary line at the beginning
-      const summaryLine = `Analysis includes data from ${apiSuccessCount} stocks of ${symbols.length} total`;
+      const summaryLine = `Analysis includes data from ${apiSuccessCount} major market indexes`;
       insights.unshift(summaryLine);
       
       return {
@@ -590,7 +531,7 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
     
     // Fallback to mock data if nothing was retrieved
     console.log('No insights retrieved from API, using fallback mock data');
-    const mockData = generateMockInsights(symbols);
+    const mockData = generateMockIndexInsights();
     return {
       content: mockData,
       isMock: true,
@@ -599,13 +540,58 @@ async function fetchMarketInsights(symbols: string[]): Promise<MarketInsightsRes
     
   } catch (error) {
     console.error('Error fetching market insights:', error);
-    const mockData = generateMockInsights(symbols);
+    const mockData = generateMockIndexInsights();
     return {
       content: mockData,
       isMock: true,
       sourcesUsed: ['mock data (error fallback)']
     };
   }
+}
+
+/**
+ * Generates mock insights for market indexes when real API is unavailable
+ * @returns String with mock insights for major indexes
+ */
+function generateMockIndexInsights(): string {
+  const mockInsights: string[] = [];
+  
+  mockInsights.push("Analysis based on simulated market data");
+  
+  mockInsights.push("\n📰 Latest Market Headlines:");
+  mockInsights.push("- Fed signals potential rate changes ahead based on inflation data");
+  mockInsights.push("- Major tech stocks lead market rally despite economic concerns");
+  mockInsights.push("- Earnings season shows mixed results across sectors");
+  mockInsights.push("- Global trade tensions increase market volatility");
+  mockInsights.push("- Energy sector performance tied to geopolitical developments");
+  
+  mockInsights.push("\n📊 US Markets:");
+  mockInsights.push("S&P 500: NEUTRAL outlook");
+  mockInsights.push("  \"Trading in a consolidation pattern with key resistance at recent highs\"");
+  mockInsights.push("Dow Jones: BEARISH outlook");
+  mockInsights.push("  \"Industrial stocks show weakening momentum with potential for further downside\"");
+  mockInsights.push("NASDAQ: BULLISH outlook");
+  mockInsights.push("  \"Technology sector continues to show strength, leading the broader market higher\"");
+  mockInsights.push("VIX: Elevated volatility levels indicating market uncertainty");
+  
+  mockInsights.push("\n📊 European Markets:");
+  mockInsights.push("FTSE 100: NEUTRAL outlook");
+  mockInsights.push("  \"UK stocks struggling with economic headwinds but offering value\"");
+  mockInsights.push("DAX: BEARISH outlook");
+  mockInsights.push("  \"German manufacturing concerns weighing on market sentiment\"");
+  
+  mockInsights.push("\n📊 Asian Markets:");
+  mockInsights.push("Nikkei 225: BULLISH outlook");
+  mockInsights.push("  \"Japanese equities showing relative strength compared to other regions\"");
+  mockInsights.push("Hang Seng: NEUTRAL outlook");
+  mockInsights.push("  \"Chinese economic data presenting mixed signals for market direction\"");
+  
+  mockInsights.push("\n📈 Recent Performance:");
+  mockInsights.push("S&P 500: +0.25%");
+  mockInsights.push("NASDAQ: +0.73%");
+  mockInsights.push("Dow Jones: -0.14%");
+  
+  return mockInsights.join('\n');
 }
 
 /**
