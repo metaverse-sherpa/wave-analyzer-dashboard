@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -12,11 +12,47 @@ import { Button } from "@/components/ui/button";
 import { UserCircle, LogOut, Settings, Shield, LogIn, User } from "lucide-react";
 import AuthModal from './auth/AuthModal';
 import { toast } from '@/lib/toast';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { supabase } from '@/lib/supabase';
 
 const UserMenu: React.FC = () => {
   const { user, isLoading, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  // Fetch the user's profile to get the custom avatar URL
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!user) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('id', user.id)
+          .single();
+        
+        if (error) {
+          console.error('Error fetching profile:', error);
+          return;
+        }
+
+        // Use the custom avatar from the profile if available
+        if (data?.avatar_url) {
+          setAvatarUrl(data.avatar_url);
+        } 
+        // Fall back to auth metadata avatar if profile avatar is not available
+        else if (user.user_metadata?.avatar_url) {
+          setAvatarUrl(user.user_metadata.avatar_url);
+        }
+      } catch (error) {
+        console.error('Error fetching avatar:', error);
+      }
+    };
+
+    fetchUserProfile();
+  }, [user]);
 
   const handleSignOut = async () => {
     const { error } = await signOut();
@@ -52,15 +88,39 @@ const UserMenu: React.FC = () => {
     );
   }
 
+  // Get user's initials for the avatar fallback
+  const getUserInitials = () => {
+    if (user.user_metadata?.full_name) {
+      return user.user_metadata.full_name
+        .split(' ')
+        .map(name => name[0])
+        .join('')
+        .toUpperCase()
+        .substring(0, 2);
+    }
+    return user.email?.charAt(0).toUpperCase() || 'U';
+  };
+
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="relative rounded-full">
-            <UserCircle className="h-5 w-5" />
-            {isAdmin && (
-              <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-primary"></span>
-            )}
+          <Button variant="ghost" size="sm" className="relative rounded-full p-0 h-8 w-8">
+            <Avatar className="h-8 w-8">
+              {avatarUrl ? (
+                <AvatarImage 
+                  src={avatarUrl} 
+                  alt="Profile" 
+                />
+              ) : (
+                <AvatarFallback>
+                  {getUserInitials()}
+                </AvatarFallback>
+              )}
+              {isAdmin && (
+                <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-primary"></span>
+              )}
+            </Avatar>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
