@@ -19,6 +19,15 @@ interface TelegramContextType {
   showConfirm: (message: string) => Promise<boolean>;
   expandApp: () => void;
   sendAnalyticsEvent: (eventName: string, eventData?: Record<string, any>) => void;
+  sendMessage: (chatId: string|number, text: string) => Promise<any>;
+  setCommands: (commands: BotCommand[]) => Promise<boolean>;
+  handleGroupMessage: (message: any) => void;
+}
+
+// Bot command interface
+interface BotCommand {
+  command: string;
+  description: string;
 }
 
 // Create context with default values
@@ -33,16 +42,23 @@ const TelegramContext = createContext<TelegramContextType>({
   showConfirm: async () => false,
   expandApp: () => {},
   sendAnalyticsEvent: () => {},
+  sendMessage: async () => ({}),
+  setCommands: async () => false,
+  handleGroupMessage: () => {},
 });
 
 interface TelegramProviderProps {
   children: ReactNode;
+  botToken?: string; // Optional bot token for group chat functionality
 }
 
-export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) => {
+export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, botToken }) => {
   const [isTelegram, setIsTelegram] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [telegramUser, setTelegramUser] = useState(null);
+
+  // Bot API base URL
+  const BOT_API_BASE = 'https://api.telegram.org/bot';
 
   useEffect(() => {
     // Check if we're running inside Telegram
@@ -79,7 +95,12 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
     };
 
     initTelegram();
-  }, []);
+
+    // Set up bot commands if token is provided
+    if (botToken) {
+      setDefaultBotCommands();
+    }
+  }, [botToken]);
 
   // Helper functions to interact with Telegram WebApp
   const showBackButton = (show: boolean) => {
@@ -175,6 +196,98 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
     }
   };
 
+  // Bot functionality for group chats
+  const sendMessage = async (chatId: string|number, text: string) => {
+    if (!botToken) {
+      console.error('Bot token not provided');
+      return null;
+    }
+
+    try {
+      const response = await fetch(`${BOT_API_BASE}${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: text,
+          parse_mode: 'HTML'
+        })
+      });
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error sending message:', error);
+      return null;
+    }
+  };
+
+  const setCommands = async (commands: BotCommand[]): Promise<boolean> => {
+    if (!botToken) {
+      console.error('Bot token not provided');
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${BOT_API_BASE}${botToken}/setMyCommands`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ commands })
+      });
+
+      const result = await response.json();
+      return result.ok;
+    } catch (error) {
+      console.error('Error setting commands:', error);
+      return false;
+    }
+  };
+
+  // Set default commands for the bot
+  const setDefaultBotCommands = async () => {
+    const defaultCommands: BotCommand[] = [
+      { command: '/start', description: 'Start the bot' },
+      { command: '/help', description: 'Show help information' },
+      { command: '/analyze', description: 'Analyze the current chart' },
+    ];
+
+    await setCommands(defaultCommands);
+  };
+
+  // Handle incoming group messages
+  const handleGroupMessage = (message: any) => {
+    if (!message || !botToken) return;
+
+    // Extract chat ID and message text
+    const chatId = message.chat?.id;
+    const messageText = message.text;
+    const userId = message.from?.id;
+
+    if (!chatId || !messageText) return;
+
+    // Process commands
+    if (messageText.startsWith('/')) {
+      const command = messageText.split(' ')[0].toLowerCase();
+      
+      switch (command) {
+        case '/start':
+          sendMessage(chatId, 'Hello! I am the Wave Analyzer bot. Use /help to see available commands.');
+          break;
+        case '/help':
+          sendMessage(chatId, 'Available commands:\n/start - Start the bot\n/help - Show this help message\n/analyze - Analyze the current chart');
+          break;
+        case '/analyze':
+          sendMessage(chatId, 'To analyze a chart, please use the Wave Analyzer Mini App.');
+          break;
+        default:
+          sendMessage(chatId, 'Unknown command. Use /help to see available commands.');
+      }
+    }
+  };
+
   const value = {
     isTelegram,
     telegramUser,
@@ -186,6 +299,9 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children }) 
     showConfirm,
     expandApp,
     sendAnalyticsEvent,
+    sendMessage,
+    setCommands,
+    handleGroupMessage,
   };
 
   return (
