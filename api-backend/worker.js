@@ -25,6 +25,10 @@ const SCREENER_TYPES = [
   'portfolio_anchors'
 ];
 
+// Add this near the top with other constants
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_MINI_APP_URL = 'https://wave-analyzer-dashboard.pages.dev/telegram';
+
 // HTML documentation to serve at the root path
 const API_DOCUMENTATION = `
 <!DOCTYPE html>
@@ -1044,7 +1048,18 @@ export default {
         }
       }
 
-      // Add this new endpoint before the 404 handler:
+      // Add this new route handler in your fetch function
+      if (path === '/telegram/webhook') {
+        console.log("Received request to Telegram webhook endpoint");
+        return handleTelegramWebhook({ json: async () => {
+          try {
+            return await request.json();
+          } catch (e) {
+            console.error("Failed to parse JSON:", e);
+            return {};
+          }
+        }, env });
+      }
 
       // Test endpoint for basic API functionality verification
       if (path === '/test-api') {
@@ -1271,4 +1286,177 @@ function getRatingScore(rating) {
   };
   
   return ratingScores[rating] || 0.5;
+}
+
+// Add improved Telegram webhook handler to replace the existing implementation
+async function handleTelegramWebhook(request) {
+  try {
+    console.log("Telegram webhook handler called");
+    
+    // Parse the incoming request JSON
+    let payload;
+    try {
+      payload = await request.json();
+      console.log("Parsed webhook payload:", JSON.stringify(payload));
+    } catch (error) {
+      console.error("Failed to parse webhook payload:", error);
+      return new Response("Invalid JSON", { status: 200 }); // Return 200 to avoid retries
+    }
+    
+    // Get the token from environment
+    const token = TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      console.error("Telegram bot token not configured");
+      return new Response("Telegram bot token not configured", { status: 200 }); // Return 200 to avoid retries
+    }
+    
+    // Extract message details
+    if (!payload.message) {
+      console.log("No message in webhook payload");
+      return new Response("OK - no message", { status: 200 });
+    }
+    
+    const chatId = payload.message.chat.id;
+    const text = payload.message.text || '';
+    const username = payload.message.from ? 
+      (payload.message.from.username || payload.message.from.first_name || 'there') : 
+      'there';
+    
+    console.log(`Received message "${text}" from ${username} in chat ${chatId}`);
+    
+    // Process commands
+    if (text.startsWith('/start')) {
+      return await sendTelegramMessage(token, chatId, 
+        `👋 Welcome to the Wave Analyzer Bot, ${username}!\n\n` +
+        "I can help you analyze stocks and market indices using Elliott Wave theory.\n\n" +
+        "🔍 Use our Mini App for full functionality:\n" +
+        "👉 /analyze - Open the Wave Analyzer Mini App\n" +
+        "📊 /market - Get current market overview",
+        {
+          parse_mode: "Markdown",
+          reply_markup: JSON.stringify({
+            inline_keyboard: [
+              [
+                {
+                  text: "🔍 Open Wave Analyzer",
+                  web_app: { url: "https://wave-analyzer-dashboard.pages.dev/telegram" }
+                }
+              ]
+            ]
+          })
+        }
+      );
+    }
+    else if (text.startsWith('/help')) {
+      return await sendTelegramMessage(token, chatId,
+        "📚 *Wave Analyzer Bot Help*\n\n" +
+        "Available commands:\n" +
+        "/analyze - Open the Wave Analyzer Mini App\n" +
+        "/market - Get current market overview\n" +
+        "/symbol [TICKER] - Get analysis for specific symbol\n" +
+        "/help - Show this help message\n\n" +
+        "Visit our website for more features: https://wave-analyzer-dashboard.pages.dev",
+        { parse_mode: "Markdown" }
+      );
+    }
+    else if (text.startsWith('/analyze')) {
+      return await sendTelegramMessage(token, chatId,
+        "📊 *Wave Analyzer*\n\n" +
+        "Click below to open the Wave Analyzer Mini App:",
+        {
+          parse_mode: "Markdown",
+          reply_markup: JSON.stringify({
+            inline_keyboard: [
+              [
+                {
+                  text: "🔍 Open Wave Analyzer",
+                  web_app: { url: "https://wave-analyzer-dashboard.pages.dev/telegram" }
+                }
+              ]
+            ]
+          })
+        }
+      );
+    }
+    else if (text.startsWith('/market')) {
+      return await sendTelegramMessage(token, chatId,
+        "📈 *Market Overview*\n\n" +
+        "Getting the latest market data...\n\n" +
+        "For a complete analysis, please use our Mini App by clicking /analyze",
+        { parse_mode: "Markdown" }
+      );
+    }
+    else {
+      // For all other messages, prompt them to use commands
+      return await sendTelegramMessage(token, chatId,
+        "I'm here to help with Elliott Wave analysis! Try /start or /help to see what I can do."
+      );
+    }
+  } catch (error) {
+    console.error("Error handling Telegram webhook:", error);
+    // Always return 200 OK to prevent Telegram from retrying
+    return new Response(JSON.stringify({ 
+      status: "error", 
+      message: `Error processed: ${error.message}` 
+    }), { 
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+}
+
+// Fix the sendTelegramMessage function
+async function sendTelegramMessage(token, chatId, text, options = {}) {
+  try {
+    console.log(`Sending message to chat ${chatId}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+    
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    
+    const formData = {
+      chat_id: chatId,
+      text: text,
+      ...options
+    };
+    
+    console.log("Sending to Telegram API:", JSON.stringify(formData));
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(formData)
+    });
+    
+    const result = await response.json();
+    console.log("Telegram API response:", JSON.stringify(result));
+    
+    if (!result.ok) {
+      console.error("Telegram API error:", result.description);
+      return new Response(JSON.stringify({
+        status: "error",
+        message: result.description
+      }), {
+        status: 200, // Still return 200 to Telegram
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    
+    // Return a success response to Telegram
+    return new Response(JSON.stringify({ 
+      status: "success"
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (error) {
+    console.error("Error sending Telegram message:", error);
+    return new Response(JSON.stringify({ 
+      status: "error", 
+      message: `Error: ${error.message}` 
+    }), { 
+      status: 200, // Still return 200 to Telegram
+      headers: { "Content-Type": "application/json" }
+    });
+  }
 }

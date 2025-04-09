@@ -372,7 +372,7 @@ async function fetchMarketInsights(additionalSymbols: string[] = []): Promise<Ma
     
     // Process index symbols with priority
     const indexNames = Object.fromEntries(
-      MAJOR_INDEXES.map(index => [index.symbol, index.name])
+      MAJOR_INDEXES_ARRAY.map(index => [index.symbol, index.name])
     );
     
     // First get market news - this is the highest priority
@@ -409,15 +409,15 @@ async function fetchMarketInsights(additionalSymbols: string[] = []): Promise<Ma
     // Group indexes by region for better organization
     const regionGroups = {
       'US': allSymbols.filter(symbol => 
-        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'US')),
+        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'US')),
       'Europe': allSymbols.filter(symbol => 
-        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'Europe')),
+        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Europe')),
       'Asia': allSymbols.filter(symbol => 
-        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'Asia')),
+        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Asia')),
       'Global': allSymbols.filter(symbol => 
-        MAJOR_INDEXES.find(idx => idx.symbol === symbol && idx.region === 'Global')),
+        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Global')),
       'Other': allSymbols.filter(symbol => 
-        !MAJOR_INDEXES.some(idx => idx.symbol === symbol))
+        !MAJOR_INDEXES_ARRAY.some(idx => idx.symbol === symbol))
     };
     
     // Process each region
@@ -629,4 +629,31 @@ function generateMockInsights(symbols: string[]): string {
   mockInsights.push("- Earnings season shows mixed results across sectors");
   
   return mockInsights.join('\n');
+}
+
+// Convert MAJOR_INDEXES to the format expected by the methods
+// This adapter converts the object format to an array format
+const MAJOR_INDEXES_ARRAY = Object.entries(MAJOR_INDEXES).map(([name, symbol]) => ({
+  name,
+  symbol,
+  region: 'US' // Default region
+}));
+
+// Update function that uses map (around line 375)
+// Replace the call to MAJOR_INDEXES.map with MAJOR_INDEXES_ARRAY.map
+function getIndexesForPrompt() {
+  // Return the formatted indexes
+  return MAJOR_INDEXES_ARRAY.map(index => [index.symbol, index.name]);
+}
+
+// Update the functions that use find (around line 412-420)
+function getRegionForIndex(symbol) {
+  // Replace MAJOR_INDEXES.find with MAJOR_INDEXES_ARRAY.find
+  const isUS = MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'US');
+  const isEurope = MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Europe');
+  const isAsia = MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Asia');
+  const isGlobal = MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Global');
+  const isIndex = MAJOR_INDEXES_ARRAY.some(idx => idx.symbol === symbol);
+  
+  // Rest of the function
 }

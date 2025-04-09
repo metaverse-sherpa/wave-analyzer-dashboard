@@ -64,6 +64,8 @@ import SignupPage from './pages/SignupPage';
 import ProfilePage from './pages/ProfilePage';
 import SemiProtectedRoute from './components/auth/SemiProtectedRoute';
 import { PreviewProvider } from '@/context/PreviewContext';
+import { TelegramProvider } from './context/TelegramContext';
+import TelegramEntryPoint from './pages/TelegramEntryPoint';
 
 // Initialize it before your app renders
 if (process.env.NODE_ENV === 'development') {
@@ -248,41 +250,44 @@ const App = () => {
                     <AnalysisStatusTracker />
                     <AuthProvider>
                       <PreviewProvider>
-                        <Router>
-                          <Routes>
-                            {/* Public routes - accessible without authentication */}
-                            <Route path="/" element={<Index />} />
-                            <Route path="/stocks/:symbol" element={
-                              <SemiProtectedRoute>
-                                <StockDetails />
-                              </SemiProtectedRoute>
-                            } />
-                            
-                            {/* Auth callback route */}
-                            <Route path="/auth/callback" element={<AuthCallback />} />
-                            
-                            {/* Login/Signup routes */}
-                            <Route path="/login" element={<LoginPage />} />
-                            <Route path="/signup" element={<SignupPage />} />
-                            
-                            {/* Protected routes - require login */}
-                            <Route path="/profile" element={
-                              <ProtectedRoute>
-                                <ProfilePage />
-                              </ProtectedRoute>
-                            } />
-                            
-                            {/* Admin routes - require admin role */}
-                            <Route path="/admin" element={
-                              <ProtectedRoute requireAdmin>
-                                <AdminDashboard />
-                              </ProtectedRoute>
-                            } />
-                            
-                            {/* Fallback route */}
-                            <Route path="*" element={<Navigate to="/" replace />} />
-                          </Routes>
-                        </Router>
+                        <TelegramProvider>
+                          <Router>
+                            <Routes>
+                              {/* Public routes - accessible without authentication */}
+                              <Route path="/" element={<Index />} />
+                              <Route path="/telegram" element={<TelegramEntryPoint />} />
+                              <Route path="/stocks/:symbol" element={
+                                <SemiProtectedRoute>
+                                  <StockDetails />
+                                </SemiProtectedRoute>
+                              } />
+                              
+                              {/* Auth callback route */}
+                              <Route path="/auth/callback" element={<AuthCallback />} />
+                              
+                              {/* Login/Signup routes */}
+                              <Route path="/login" element={<LoginPage />} />
+                              <Route path="/signup" element={<SignupPage />} />
+                              
+                              {/* Protected routes - require login */}
+                              <Route path="/profile" element={
+                                <ProtectedRoute>
+                                  <ProfilePage />
+                                </ProtectedRoute>
+                              } />
+                              
+                              {/* Admin routes - require admin role */}
+                              <Route path="/admin" element={
+                                <ProtectedRoute requireAdmin>
+                                  <AdminDashboard />
+                                </ProtectedRoute>
+                              } />
+                              
+                              {/* Fallback route */}
+                              <Route path="*" element={<Navigate to="/" replace />} />
+                            </Routes>
+                          </Router>
+                        </TelegramProvider>
                       </PreviewProvider>
                     </AuthProvider>
                     <DataInitializer 

@@ -9,6 +9,17 @@ import {
 import LoginForm from './LoginForm';
 import SignupForm from './SignupForm';
 
+// Define props interfaces for the child components
+interface LoginFormProps {
+  onSuccess: () => void;
+  onToggleMode: () => void;
+}
+
+interface SignupFormProps {
+  onSuccess: () => void;
+  onToggleMode: () => void;
+}
+
 interface AuthModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;

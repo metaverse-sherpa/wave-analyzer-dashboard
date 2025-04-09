@@ -35,6 +35,8 @@ import { getElliottWaveAnalysis } from '@/api/deepseekApi';
 import { apiUrl } from '@/utils/apiConfig'; // Add this import at the top
 import { useAuth } from '@/context/AuthContext'; // Add this import
 import { usePreview } from '@/context/PreviewContext'; // Add import
+import TelegramLayout from '@/components/layout/TelegramLayout';
+import { useTelegram } from '@/context/TelegramContext';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -97,6 +99,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   
   const { user } = useAuth();
   const { isPreviewMode } = usePreview(); // Add this near your other hooks
+  const { isTelegram } = useTelegram(); // Add this line to get Telegram context
   
   // Load basic data even for non-authenticated users
   useEffect(() => {
@@ -341,28 +344,15 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   
   const isPositive = regularMarketChange >= 0;
   
-  return (
+  const stockDetailsContent = (
     <ErrorBoundary>
       <div className="container mx-auto px-4 py-6">
         {/* Header with back button, stock info, and radio buttons all in one row */}
         {!loading && stockData && (
           <div className="flex flex-col space-y-2 mb-4">
             {/* Back button - separate row on mobile, hidden on desktop */}
-            <div className="flex sm:hidden items-center">
-              <Button 
-                variant="ghost"
-                className="flex items-center"
-                onClick={handleBackClick}
-              >
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Back
-              </Button>
-            </div>
-
-            {/* Top row: Back button on desktop and stock name */}
-            <div className="flex items-center justify-between">
-              {/* Left side: Back button - visible only on desktop */}
-              <div className="hidden sm:flex items-center">
+            {!isTelegram && ( // Don't show back button if in Telegram - use Telegram's native back button
+              <div className="flex sm:hidden items-center">
                 <Button 
                   variant="ghost"
                   className="flex items-center"
@@ -372,22 +362,41 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                   Back
                 </Button>
               </div>
+            )}
+
+            {/* Top row: Back button on desktop and stock name */}
+            <div className="flex items-center justify-between">
+              {/* Left side: Back button - visible only on desktop */}
+              {!isTelegram && ( // Don't show back button if in Telegram
+                <div className="hidden sm:flex items-center">
+                  <Button 
+                    variant="ghost"
+                    className="flex items-center"
+                    onClick={handleBackClick}
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-1" />
+                    Back
+                  </Button>
+                </div>
+              )}
 
               {/* Center: Stock name and symbol - centered on mobile, left-aligned on desktop */}
-              <div className="flex-grow text-center sm:text-left">
+              <div className={`flex-grow ${isTelegram ? 'text-center' : 'text-center sm:text-left'}`}>
                 <h1 className="text-xl md:text-2xl font-bold truncate px-2 sm:px-0">
                   {stockData.name || stockData.shortName} ({stockData.symbol})
                 </h1>
               </div>
 
               {/* Right side: Placeholder to maintain centering - only on desktop */}
-              <div className="hidden sm:flex items-center invisible">
-                <Button variant="ghost" className="opacity-0">Back</Button>
-              </div>
+              {!isTelegram && (
+                <div className="hidden sm:flex items-center invisible">
+                  <Button variant="ghost" className="opacity-0">Back</Button>
+                </div>
+              )}
             </div>
             
             {/* Bottom row: Stock price and change percentage - row that stacks on mobile */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between sm:pl-14 pl-4">
+            <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${isTelegram ? 'pl-4' : 'sm:pl-14 pl-4'}`}>
               {/* Left side: Stock price and change percentage */}
               <div className="flex items-center">
                 <span className="text-lg font-mono">{formattedPrice}</span>
@@ -564,6 +573,18 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
       </div>
     </ErrorBoundary>
   );
+  
+  // If running in Telegram, use the TelegramLayout
+  if (isTelegram) {
+    return (
+      <TelegramLayout title={symbol} showBackButton={true}>
+        {stockDetailsContent}
+      </TelegramLayout>
+    );
+  }
+  
+  // Otherwise use regular layout
+  return stockDetailsContent;
 };
 
 // Define the AIAnalysis props

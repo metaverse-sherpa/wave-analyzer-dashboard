@@ -1,0 +1,25 @@
+{
+  "name": "Wave Analyzer Dashboard",
+  "short_name": "WaveAnalyzer",
+  "description": "Stock market wave pattern analysis tool",
+  "start_url": "/telegram",
+  "theme_color": "#2678b6",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "lang": "en-US",
+  "dir": "ltr",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/og-image.png",
+      "sizes": "1200x630",
+      "type": "image/png"
+    }
+  ]
+}

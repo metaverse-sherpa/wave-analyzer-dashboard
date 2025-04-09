@@ -1,102 +1,60 @@
-/**
- * Configuration file for major market indexes to track for market sentiment analysis
- */
+// Configuration for market indexes
 
 export interface MarketIndex {
   symbol: string;
   name: string;
-  region: 'US' | 'Europe' | 'Asia' | 'Global';
-  description: string;
+  description?: string;
 }
 
-/**
- * List of major stock market indexes to analyze for market sentiment
- */
-export const MAJOR_INDEXES: MarketIndex[] = [
-  // US Indexes
+export const marketIndexes: MarketIndex[] = [
   {
-    symbol: "^DJI",
-    name: "Dow Jones Industrial Average",
-    region: "US",
-    description: "Price-weighted average of 30 significant stocks traded on the NYSE and NASDAQ"
+    symbol: 'SPY',
+    name: 'S&P 500',
+    description: 'Standard & Poor\'s 500 Index'
   },
   {
-    symbol: "^GSPC",
-    name: "S&P 500",
-    region: "US",
-    description: "Market-capitalization-weighted index of the 500 largest U.S. publicly traded companies"
+    symbol: 'QQQ',
+    name: 'Nasdaq-100',
+    description: 'Invesco QQQ Trust (tracks NASDAQ-100 Index)'
   },
   {
-    symbol: "^IXIC",
-    name: "NASDAQ Composite",
-    region: "US",
-    description: "Market-capitalization-weighted index of over 3,000 equities listed on the Nasdaq stock exchange"
+    symbol: 'DIA',
+    name: 'Dow Jones',
+    description: 'SPDR Dow Jones Industrial Average ETF'
   },
   {
-    symbol: "^RUT",
-    name: "Russell 2000",
-    region: "US",
-    description: "Small-cap stock market index of the smallest 2,000 stocks in the Russell 3000 Index"
+    symbol: 'IWM',
+    name: 'Russell 2000',
+    description: 'iShares Russell 2000 ETF'
   },
   {
-    symbol: "^VIX",
-    name: "CBOE Volatility Index",
-    region: "US",
-    description: "Real-time market index representing the market's expectations for volatility"
-  },
-  
-  // European Indexes
-  {
-    symbol: "^FTSE",
-    name: "FTSE 100",
-    region: "Europe",
-    description: "Share index of the 100 companies listed on the London Stock Exchange with the highest market capitalization"
+    symbol: 'VTI',
+    name: 'Total Market',
+    description: 'Vanguard Total Stock Market ETF'
   },
   {
-    symbol: "^GDAXI",
-    name: "DAX",
-    region: "Europe",
-    description: "Blue chip stock market index consisting of the 40 major German companies trading on the Frankfurt Stock Exchange"
-  },
-  {
-    symbol: "^FCHI",
-    name: "CAC 40",
-    region: "Europe",
-    description: "Benchmark French stock market index, representing a capitalization-weighted measure of the 40 most significant stocks"
-  },
-  
-  // Asian Indexes
-  {
-    symbol: "^N225",
-    name: "Nikkei 225",
-    region: "Asia",
-    description: "Stock market index for the Tokyo Stock Exchange, price-weighted index of Japan's top 225 companies"
-  },
-  {
-    symbol: "^HSI",
-    name: "Hang Seng Index",
-    region: "Asia",
-    description: "Market capitalization-weighted index of the largest companies that trade on the Hong Kong Exchange"
-  },
-  {
-    symbol: "000001.SS",
-    name: "Shanghai Composite",
-    region: "Asia",
-    description: "Stock market index of all stocks traded at the Shanghai Stock Exchange"
-  },
-  
-  // Global Indexes
-  {
-    symbol: "^MSCI",
-    name: "MSCI World Index",
-    region: "Global",
-    description: "Market cap weighted stock market index of 1,586 companies throughout the world"
+    symbol: 'EFA',
+    name: 'Intl Developed',
+    description: 'iShares MSCI EAFE ETF (International Developed Markets)'
   }
 ];
 
-/**
- * Get symbols of all market indexes
- */
+// Add MAJOR_INDEXES constant that aiMarketService.ts is trying to import
+export const MAJOR_INDEXES = {
+  'S&P 500': 'SPY',
+  'NASDAQ': 'QQQ',
+  'Dow Jones': 'DIA',
+  'Russell 2000': 'IWM'
+};
+
+// Add getIndexSymbols function that aiMarketService.ts is trying to import
 export function getIndexSymbols(): string[] {
-  return MAJOR_INDEXES.map(index => index.symbol);
+  return Object.values(MAJOR_INDEXES);
 }
+
+// Function to get a market index by symbol
+export function getMarketIndexBySymbol(symbol: string): MarketIndex | undefined {
+  return marketIndexes.find(index => index.symbol === symbol);
+}
+
+export default marketIndexes;
