@@ -9,20 +9,16 @@ import {
 import LoginForm from './LoginForm';
 import SignupForm from './SignupForm';
 
-// Define props interfaces for the child components
-interface LoginFormProps {
-  onSuccess: () => void;
-  onToggleMode: () => void;
-}
-
-interface SignupFormProps {
-  onSuccess: () => void;
-  onToggleMode: () => void;
+// Define props interfaces for the components
+interface AuthFormProps {
+  onSuccess?: () => void;
+  onToggleMode?: () => void;
 }
 
 interface AuthModalProps {
   isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange?: (open: boolean) => void;
+  onClose?: () => void;
   mode?: 'login' | 'signup';
   onAuth?: () => void;
 }
@@ -30,6 +26,7 @@ interface AuthModalProps {
 const AuthModal: React.FC<AuthModalProps> = ({ 
   isOpen, 
   onOpenChange, 
+  onClose,
   mode = 'login',
   onAuth
 }) => {
@@ -41,11 +38,18 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleSuccess = () => {
     if (onAuth) onAuth();
-    onOpenChange(false);
+    if (onOpenChange) onOpenChange(false);
+    if (onClose) onClose();
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <Dialog 
+      open={isOpen} 
+      onOpenChange={(open) => {
+        if (onOpenChange) onOpenChange(open);
+        if (!open && onClose) onClose();
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-center">

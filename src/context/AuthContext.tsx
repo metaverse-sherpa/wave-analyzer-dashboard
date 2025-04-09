@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { type Session, type User, type AuthError } from '@supabase/supabase-js';
 import { toast } from '@/lib/toast';
+import { useTelegram } from './TelegramContext';
 
 type AuthContextType = {
   user: User | null;
@@ -10,14 +11,35 @@ type AuthContextType = {
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signUp: (email: string, password: string) => Promise<{ error: AuthError | null, data: any }>;
-  signOut: () => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  signOut: () => Promise<{ error: AuthError | null }>;
+  signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   handleAuthCallback: () => Promise<{ error: string | null }>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+// Create a wrapper component to avoid useContext in component body error
+const AuthProviderWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isTelegram, telegramUser } = useTelegram();
+  
+  return (
+    <AuthProviderInner isTelegram={isTelegram} telegramUser={telegramUser}>
+      {children}
+    </AuthProviderInner>
+  );
+};
+
+interface AuthProviderInnerProps {
+  children: React.ReactNode;
+  isTelegram: boolean;
+  telegramUser: any;
+}
+
+const AuthProviderInner: React.FC<AuthProviderInnerProps> = ({ 
+  children, 
+  isTelegram, 
+  telegramUser 
+}) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,13 +74,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkUserRole = async (userId: string) => {
     try {
+      // Fixed: Check for admin role in the profiles table
       const { data, error } = await supabase
-        .from('users')
+        .from('profiles')
         .select('role')
         .eq('id', userId)
         .single();
 
       if (error) throw error;
+      
+      // User is admin if role field equals 'admin'
       setIsAdmin(data?.role === 'admin');
     } catch (error) {
       console.error('Error checking user role:', error);
@@ -107,7 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data?.user) {
         // Create user profile
         const { error: profileError } = await supabase
-          .from('users')
+          .from('profiles')
           .insert({
             id: data.user.id,
             email: data.user.email,
@@ -130,14 +155,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    toast.success("You've been logged out");
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("Sign out error:", error);
+        toast.error(`Logout failed: ${error.message}`);
+      } else {
+        toast.success("You've been logged out");
+      }
+      return { error };
+    } catch (err) {
+      console.error("Unexpected error during sign out:", err);
+      const error = { message: 'An unexpected error occurred', name: 'AuthError' } as AuthError;
+      return { error };
+    }
   };
 
   const signInWithGoogle = async () => {
+    // In Telegram mini app, don't use Google auth
+    if (isTelegram) {
+      console.log("Google auth not supported in Telegram Mini App");
+      toast.error('Google authentication is not supported in Telegram Mini Apps');
+      return { 
+        error: { 
+          message: "Google authentication is not supported in Telegram Mini Apps", 
+          name: 'AuthError'
+        } as AuthError 
+      };
+    }
+    
     // Use the redirect method to avoid popup blockers
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`
@@ -148,31 +197,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error("Google sign in error:", error);
         toast.error(`Google login failed: ${error.message}`);
       }
+      
+      return { error: error || null };
     } catch (err) {
       console.error("Unexpected error during Google sign in:", err);
       toast.error('Unable to login with Google');
+      const error = { message: 'An unexpected error occurred', name: 'AuthError' } as AuthError;
+      return { error };
     }
   };
 
   const handleAuthCallback = async () => {
     try {
-      // Get auth parameters from URL
-      const { data, error } = await supabase.auth.getSession();
-      
+      const { error } = await supabase.auth.getSession();
       if (error) {
-        console.error("Auth callback error:", error);
+        console.error("Error getting session:", error);
         return { error: error.message };
       }
-      
-      if (!data.session) {
-        console.error("No session found in callback");
-        return { error: "Authentication failed. No session returned." };
-      }
-      
       return { error: null };
     } catch (err) {
-      console.error("Error in auth callback:", err);
-      return { error: err instanceof Error ? err.message : 'Authentication callback failed' };
+      console.error("Error handling auth callback:", err);
+      return { error: 'Failed to process authentication' };
     }
   };
 
@@ -189,6 +234,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return <AuthProviderWrapper>{children}</AuthProviderWrapper>;
 };
 
 export const useAuth = () => {

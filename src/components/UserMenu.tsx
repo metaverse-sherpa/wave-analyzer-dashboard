@@ -55,12 +55,18 @@ const UserMenu: React.FC = () => {
   }, [user]);
 
   const handleSignOut = async () => {
-    const { error } = await signOut();
-    if (error) {
-      toast.error('Failed to sign out');
-    } else {
-      toast.success('Signed out successfully');
+    try {
+      const { error } = await signOut();
+      
+      if (error) {
+        toast.error(`Sign out failed: ${error.message}`);
+        return;
+      }
+      
       navigate('/');
+    } catch (err) {
+      console.error('Error signing out:', err);
+      toast.error('Failed to sign out');
     }
   };
 
