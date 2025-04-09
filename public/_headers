@@ -1,19 +1,37 @@
 /*
-  Cache-Control: no-cache
-  Content-Security-Policy: default-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me wss://*.telegram.org wss://telegram.org https://* data: blob:; img-src 'self' https://* data: blob:
-  Access-Control-Allow-Origin: https://web.telegram.org
-  Access-Control-Allow-Methods: GET, POST, OPTIONS
-  Access-Control-Allow-Headers: Content-Type, Authorization, Telegram-Widget-Version
-  Access-Control-Expose-Headers: Content-Length, X-Content-Type-Options
-  X-Frame-Options: ALLOW-FROM https://web.telegram.org
-  Referrer-Policy: no-referrer-when-downgrade
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me wss://*.telegram.org wss://telegram.org https://*.telegram-cdn.org https://api-backend.metaversesherpa.workers.dev https://api.deepseek.com https://api.openai.com https://*.supabase.co https://cloudflareinsights.com https://* data: blob:; img-src 'self' https://* data: blob:
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  X-XSS-Protection: 1; mode=block
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
 
-/telegram/*
-  Cache-Control: no-cache
-  Content-Security-Policy: default-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me wss://*.telegram.org wss://telegram.org https://* data: blob:; img-src 'self' https://* data: blob:
-  Access-Control-Allow-Origin: https://web.telegram.org
+# For specific routes
+/api/*
+  Access-Control-Allow-Origin: *
   Access-Control-Allow-Methods: GET, POST, OPTIONS
-  Access-Control-Allow-Headers: Content-Type, Authorization, Telegram-Widget-Version
-  Access-Control-Expose-Headers: Content-Length, X-Content-Type-Options
-  X-Frame-Options: ALLOW-FROM https://web.telegram.org
-  Referrer-Policy: no-referrer-when-downgrade
+  Access-Control-Allow-Headers: Content-Type, Authorization, X-Api-Key
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/favicon.ico
+  Cache-Control: public, max-age=86400
+
+/telegram
+  Access-Control-Allow-Origin: https://*.telegram.org https://*.telegram.me
+  Access-Control-Allow-Methods: GET, POST
+  Access-Control-Allow-Headers: Content-Type
+  Content-Security-Policy: default-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me wss://*.telegram.org wss://telegram.org https://*.supabase.co https://cloudflareinsights.com https://api-backend.metaversesherpa.workers.dev https://api.deepseek.com https://api.openai.com https://* data: blob:; img-src 'self' https://* data: blob:
+
+/api/telegram/*
+  Access-Control-Allow-Origin: https://*.telegram.org https://*.telegram.me
+  Content-Security-Policy: connect-src 'self' https://*.telegram.org https://*.telegram-cdn.org wss://*.telegram.org https://api-backend.metaversesherpa.workers.dev https://api.deepseek.com https://api.openai.com https://*.supabase.co https://cloudflareinsights.com blob: data: 'unsafe-inline' 'unsafe-eval';
+
+/telegram.html
+  X-Frame-Options: ALLOWALL
+  Content-Security-Policy: default-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me wss://*.telegram.org wss://telegram.org https://*.supabase.co https://cloudflareinsights.com https://api-backend.metaversesherpa.workers.dev https://api.deepseek.com https://api.openai.com https://* data: blob:; img-src 'self' https://* data: blob:
+
+/*.html
+  Content-Security-Policy: default-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' *.telegram.org telegram.org *.telegram.me telegram.me wss://*.telegram.org wss://telegram.org https://*.telegram-cdn.org https://api-backend.metaversesherpa.workers.dev https://api.deepseek.com https://api.openai.com https://*.supabase.co https://cloudflareinsights.com https://* data: blob:; img-src 'self' https://* data: blob:

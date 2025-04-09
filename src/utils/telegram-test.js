@@ -4,6 +4,9 @@
  * This script helps simulate the Telegram environment for local testing.
  * It creates a mock of the Telegram WebApp object that's normally injected 
  * by the Telegram client.
+ * 
+ * It also handles common error messages seen in Telegram Mini App development,
+ * such as CSP-related TrustedScript errors and wallet injection errors.
  */
 
 // Create a mock Telegram WebApp object

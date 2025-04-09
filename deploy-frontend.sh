@@ -28,7 +28,7 @@ EOF
 # Add Telegram Mini App headers for security
 cat > dist/_headers << EOF
 /*
-  Content-Security-Policy: connect-src 'self' https://*.telegram.org https://*.telegram-cdn.org wss://*.telegram.org https://api-backend.metaversesherpa.workers.dev https://api.deepseek.com https://api.openai.com blob: data: 'unsafe-inline' 'unsafe-eval';
+  Content-Security-Policy: connect-src 'self' https://*.telegram.org https://*.telegram-cdn.org wss://*.telegram.org https://api-backend.metaversesherpa.workers.dev https://api.deepseek.com https://api.openai.com https://*.supabase.co https://cloudflareinsights.com blob: data: 'unsafe-inline' 'unsafe-eval';
   X-Frame-Options: ALLOW-FROM https://web.telegram.org
 EOF
 
