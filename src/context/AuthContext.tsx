@@ -72,9 +72,83 @@ const AuthProviderInner: React.FC<AuthProviderInnerProps> = ({
     };
   }, []);
 
+  // Add a secure Telegram authentication flow
+  useEffect(() => {
+    // Only run this effect when we have Telegram user data but no Supabase session
+    if (isTelegram && telegramUser && !user) {
+      const authenticateTelegramUser = async () => {
+        try {
+          console.log("Authenticating Telegram user:", telegramUser.id);
+          
+          // Look up the Telegram user ID in your profiles table to find associated account
+          const { data: profileData, error: profileError } = await supabase
+            .from('telegram_users')
+            .select('user_id, is_verified')
+            .eq('telegram_id', telegramUser.id)
+            .single();
+            
+          if (profileError || !profileData) {
+            console.log("Telegram user not linked to any account");
+            // User needs to authenticate - don't set user state
+            return;
+          }
+          
+          // Verify this is a properly authenticated user
+          if (!profileData.is_verified) {
+            console.log("Telegram user not verified");
+            return;
+          }
+          
+          // Get user data from the associated account
+          const { data: userData, error: userError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', profileData.user_id)
+            .single();
+            
+          if (userError || !userData) {
+            console.log("Could not find associated user profile");
+            return;
+          }
+          
+          // Create a custom user object that marks this as a Telegram auth
+          // This should NOT have admin privileges by default
+          const telegramAuthUser = {
+            id: userData.id,
+            email: userData.email,
+            aud: 'authenticated',
+            created_at: new Date().toISOString(),
+            role: userData.role,
+            app_metadata: {
+              provider: 'telegram',
+              telegram_id: telegramUser.id
+            },
+            user_metadata: {
+              full_name: telegramUser.firstName + (telegramUser.lastName ? ' ' + telegramUser.lastName : ''),
+              telegram_username: telegramUser.username
+            }
+          } as unknown as User; // Cast to unknown first, then to User
+          
+          // Set user data - but not session (Telegram users don't have a Supabase session)
+          setUser(telegramAuthUser);
+          
+          // Check if this user has admin privileges (must verify through the regular database check)
+          checkUserRole(userData.id);
+          
+        } catch (error) {
+          console.error("Error authenticating Telegram user:", error);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      authenticateTelegramUser();
+    }
+  }, [isTelegram, telegramUser, user]);
+
   const checkUserRole = async (userId: string) => {
     try {
-      // Fixed: Check for admin role in the profiles table
+      // Always require a proper database lookup for admin role - never assume
       const { data, error } = await supabase
         .from('profiles')
         .select('role')
@@ -156,29 +230,135 @@ const AuthProviderInner: React.FC<AuthProviderInnerProps> = ({
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error("Sign out error:", error);
-        toast.error(`Logout failed: ${error.message}`);
-      } else {
+      console.log("Sign out requested. Telegram environment:", isTelegram);
+      
+      // Special handling for Telegram environment - more thorough check
+      const inTelegramApp = isTelegram || window.Telegram?.WebApp || 
+        window.location.pathname.includes('/telegram') || 
+        window.location.href.includes('telegram');
+        
+      if (inTelegramApp) {
+        console.log("Telegram environment detected - performing custom sign out");
+        
+        // Just clear the local state without making Supabase API call
+        setUser(null);
+        setSession(null);
+        setIsAdmin(false);
+        
+        // Enhanced logout - clear all possible auth tokens
+        try {
+          // Clear Supabase auth storage items from all storage locations
+          localStorage.removeItem('supabase.auth.token');
+          localStorage.removeItem('supabase.auth.refreshToken');
+          sessionStorage.removeItem('supabase.auth.token');
+          sessionStorage.removeItem('supabase.auth.refreshToken');
+          
+          // Also clear anything with 'auth' in the key for good measure
+          Object.keys(localStorage).forEach(key => {
+            if (key.toLowerCase().includes('auth')) {
+              localStorage.removeItem(key);
+            }
+          });
+          
+          Object.keys(sessionStorage).forEach(key => {
+            if (key.toLowerCase().includes('auth')) {
+              sessionStorage.removeItem(key);
+            }
+          });
+          
+          // Force Supabase client to reset its internal state
+          try {
+            await supabase.auth.signOut({ scope: 'global' });
+          } catch (supabaseResetError) {
+            console.log("Error during Supabase forced reset:", supabaseResetError);
+            // Continue anyway
+          }
+          
+          // Attempt to clear cookies too
+          document.cookie.split(';').forEach(cookie => {
+            const [name] = cookie.split('=');
+            if (name.trim().toLowerCase().includes('auth') || name.trim().toLowerCase().includes('supabase')) {
+              document.cookie = `${name.trim()}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+            }
+          });
+          
+          console.log("Auth storage items cleared");
+        } catch (storageErr) {
+          console.log("Error clearing storage:", storageErr);
+          // Continue anyway
+        }
+        
         toast.success("You've been logged out");
+        return { error: null };
       }
-      return { error };
+      
+      console.log("Using standard sign out flow");
+      // Normal sign out flow for non-Telegram environments
+      try {
+        const { error } = await supabase.auth.signOut();
+        
+        if (error) {
+          console.error("Sign out error:", error);
+          toast.error(`Logout failed: ${error.message}`);
+        } else {
+          toast.success("You've been logged out");
+        }
+        return { error };
+      } catch (supabaseError) {
+        // If supabase.auth.signOut() throws an exception, handle it gracefully
+        console.error("Supabase sign out exception:", supabaseError);
+        
+        // Fallback to manual cleanup
+        setUser(null);
+        setSession(null);
+        setIsAdmin(false);
+        toast.success("You've been logged out");
+        
+        return { error: null };
+      }
     } catch (err) {
       console.error("Unexpected error during sign out:", err);
+      
+      // Ensure user is signed out even if there's an error
+      setUser(null);
+      setSession(null);
+      setIsAdmin(false);
+      
       const error = { message: 'An unexpected error occurred', name: 'AuthError' } as AuthError;
       return { error };
     }
   };
 
+  // Make sure signInWithGoogle properly blocks Telegram environments
   const signInWithGoogle = async () => {
-    // In Telegram mini app, don't use Google auth
+    // In Telegram mini app, don't use Google auth - it doesn't work in Telegram's WebView
     if (isTelegram) {
       console.log("Google auth not supported in Telegram Mini App");
-      toast.error('Google authentication is not supported in Telegram Mini Apps');
+      showTelegramAuthOnly();
       return { 
         error: { 
           message: "Google authentication is not supported in Telegram Mini Apps", 
+          name: 'AuthError'
+        } as AuthError 
+      };
+    }
+
+    // Check for potential embedded browsers that Google blocks
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isTelegramBrowser = userAgent.includes('telegram') || 
+                              window.location.href.includes('telegram') ||
+                              !!window.Telegram?.WebApp;
+    const isEmbeddedWebView = userAgent.includes('wv') || 
+                              userAgent.includes('tgweb') ||
+                              userAgent.includes('fb_iab') || 
+                              (userAgent.includes('mobile') && !userAgent.includes('chrome') && !userAgent.includes('safari'));
+    
+    if (isTelegramBrowser || isEmbeddedWebView) {
+      console.log("Google auth not supported in this browser environment");
+      showTelegramAuthOnly();
+      return { 
+        error: { 
+          message: "Google authentication is not supported in embedded browsers", 
           name: 'AuthError'
         } as AuthError 
       };
@@ -205,6 +385,14 @@ const AuthProviderInner: React.FC<AuthProviderInnerProps> = ({
       const error = { message: 'An unexpected error occurred', name: 'AuthError' } as AuthError;
       return { error };
     }
+  };
+
+  // Helper function to show a message about using Telegram auth
+  const showTelegramAuthOnly = () => {
+    toast.error(
+      'Google authentication is not supported in Telegram Mini Apps due to browser restrictions. Please use email/password or link your Telegram account.',
+      { duration: 8000 }
+    );
   };
 
   const handleAuthCallback = async () => {

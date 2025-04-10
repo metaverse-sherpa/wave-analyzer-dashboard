@@ -1,18 +1,25 @@
 {
   "version": 1,
-  "include": ["/*"],
+  "include": [
+    "/*"
+  ],
   "exclude": [
-    "/assets/*",
-    "/build/*"
+    "/api/*",
+    "/telegram/*",
+    "/telegram/webhook"
   ],
   "routes": [
     {
-      "pattern": "/api/*",
-      "handler": "worker"
+      "src": "/api/telegram/webhook",
+      "dest": "/api/telegram/webhook"
     },
     {
-      "pattern": "/*",
-      "handler": "static"
+      "src": "/telegram/webhook",
+      "dest": "/api/telegram/webhook"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
     }
   ]
 }

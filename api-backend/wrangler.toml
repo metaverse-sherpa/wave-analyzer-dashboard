@@ -14,6 +14,10 @@ ENABLE_CACHING = "true"
 [observability]
 enabled = true
 
+# Explicitly acknowledge the use of secrets
+# The TELEGRAM_BOT_TOKEN secret should be set with:
+# $ npx wrangler secret put TELEGRAM_BOT_TOKEN
+
 # KV namespace binding - uncomment and add your KV namespace ID when ready
 # [[kv_namespaces]]
 # binding = "CACHE_STORAGE" 

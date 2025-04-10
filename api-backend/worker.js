@@ -26,7 +26,7 @@ const SCREENER_TYPES = [
 ];
 
 // Add this near the top with other constants
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+// const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_MINI_APP_URL = 'https://wave-analyzer-dashboard.pages.dev/telegram';
 
 // HTML documentation to serve at the root path
@@ -391,6 +391,12 @@ export default {
             'Access-Control-Allow-Origin': '*'
           }
         });
+      }
+
+      // Add this to fix the Telegram token endpoint
+      // Token retrieval handler
+      if (path === '/get-telegram-token') {
+        return handleGetTelegramToken(request, env);
       }
 
       // Replace the existing top stocks endpoint handler
@@ -1051,14 +1057,7 @@ export default {
       // Add this new route handler in your fetch function
       if (path === '/telegram/webhook') {
         console.log("Received request to Telegram webhook endpoint");
-        return handleTelegramWebhook({ json: async () => {
-          try {
-            return await request.json();
-          } catch (e) {
-            console.error("Failed to parse JSON:", e);
-            return {};
-          }
-        }, env });
+        return handleTelegramWebhook(request, env);
       }
 
       // Test endpoint for basic API functionality verification
@@ -1289,9 +1288,29 @@ function getRatingScore(rating) {
 }
 
 // Add improved Telegram webhook handler to replace the existing implementation
-async function handleTelegramWebhook(request) {
+async function handleTelegramWebhook(request, env) {
   try {
-    console.log("Telegram webhook handler called");
+    console.log("Telegram webhook handler called with URL:", request.url);
+    
+    // Check if token is available - add detailed logging
+    const token = env?.TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN;
+    
+    if (!token) {
+      console.error("TELEGRAM_BOT_TOKEN is not configured. env:", JSON.stringify({
+        hasEnv: !!env,
+        hasTelegramBotToken: !!(env && env.TELEGRAM_BOT_TOKEN),
+        hasDefaultToken: !!TELEGRAM_BOT_TOKEN,
+      }));
+      return new Response(JSON.stringify({
+        status: "error", 
+        message: "Telegram bot token not configured. Please set TELEGRAM_BOT_TOKEN environment variable."
+      }), { 
+        status: 500,
+        headers: { "Content-Type": "application/json" } 
+      });
+    }
+    
+    console.log("Using bot token starting with:", token.substring(0, 5) + "...");
     
     // Parse the incoming request JSON
     let payload;
@@ -1300,20 +1319,25 @@ async function handleTelegramWebhook(request) {
       console.log("Parsed webhook payload:", JSON.stringify(payload));
     } catch (error) {
       console.error("Failed to parse webhook payload:", error);
-      return new Response("Invalid JSON", { status: 200 }); // Return 200 to avoid retries
-    }
-    
-    // Get the token from environment
-    const token = TELEGRAM_BOT_TOKEN;
-    if (!token) {
-      console.error("Telegram bot token not configured");
-      return new Response("Telegram bot token not configured", { status: 200 }); // Return 200 to avoid retries
+      return new Response(JSON.stringify({
+        status: "error",
+        message: "Invalid JSON payload"
+      }), { 
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
     }
     
     // Extract message details
     if (!payload.message) {
       console.log("No message in webhook payload");
-      return new Response("OK - no message", { status: 200 });
+      return new Response(JSON.stringify({
+        status: "ok",
+        message: "No message in payload"
+      }), { 
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
     }
     
     const chatId = payload.message.chat.id;
@@ -1326,6 +1350,7 @@ async function handleTelegramWebhook(request) {
     
     // Process commands
     if (text.startsWith('/start')) {
+      console.log("Processing /start command");
       return await sendTelegramMessage(token, chatId, 
         `👋 Welcome to the Wave Analyzer Bot, ${username}!\n\n` +
         "I can help you analyze stocks and market indices using Elliott Wave theory.\n\n" +
@@ -1348,18 +1373,21 @@ async function handleTelegramWebhook(request) {
       );
     }
     else if (text.startsWith('/help')) {
+      console.log("Processing /help command");
       return await sendTelegramMessage(token, chatId,
         "📚 *Wave Analyzer Bot Help*\n\n" +
         "Available commands:\n" +
         "/analyze - Open the Wave Analyzer Mini App\n" +
         "/market - Get current market overview\n" +
         "/symbol [TICKER] - Get analysis for specific symbol\n" +
+        "/logout - Sign out from your current session\n" +
         "/help - Show this help message\n\n" +
         "Visit our website for more features: https://wave-analyzer-dashboard.pages.dev",
         { parse_mode: "Markdown" }
       );
     }
     else if (text.startsWith('/analyze')) {
+      console.log("Processing /analyze command");
       return await sendTelegramMessage(token, chatId,
         "📊 *Wave Analyzer*\n\n" +
         "Click below to open the Wave Analyzer Mini App:",
@@ -1379,6 +1407,7 @@ async function handleTelegramWebhook(request) {
       );
     }
     else if (text.startsWith('/market')) {
+      console.log("Processing /market command");
       return await sendTelegramMessage(token, chatId,
         "📈 *Market Overview*\n\n" +
         "Getting the latest market data...\n\n" +
@@ -1386,7 +1415,31 @@ async function handleTelegramWebhook(request) {
         { parse_mode: "Markdown" }
       );
     }
+    else if (text.startsWith('/logout')) {
+      console.log("Processing /logout command");
+      // Clear user session data
+      const userId = payload.message.from.id.toString();
+      
+      // If using KV storage:
+      if (env && env.CACHE_STORAGE) {
+        try {
+          await env.CACHE_STORAGE.delete(`telegram_user_${userId}`);
+          console.log(`Deleted KV session data for user ${userId}`);
+        } catch (kvError) {
+          console.error(`Error deleting KV data: ${kvError.message}`);
+        }
+      }
+      
+      // If using in-memory cache:
+      if (CACHE[`telegram_user_${userId}`]) {
+        delete CACHE[`telegram_user_${userId}`];
+        console.log(`Deleted in-memory session data for user ${userId}`);
+      }
+      
+      return await sendTelegramMessage(token, chatId, "You have been successfully logged out. Your session has been ended.");
+    }
     else {
+      console.log(`Received unrecognized message: "${text}"`);
       // For all other messages, prompt them to use commands
       return await sendTelegramMessage(token, chatId,
         "I'm here to help with Elliott Wave analysis! Try /start or /help to see what I can do."
@@ -1459,4 +1512,53 @@ async function sendTelegramMessage(token, chatId, text, options = {}) {
       headers: { "Content-Type": "application/json" }
     });
   }
+}
+
+// Add this function to your worker.js file
+async function handleGetTelegramToken(request, env) {
+  // Check authentication - you should implement a proper auth check here
+  // For example, verify API key in headers or check for session cookie
+  
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({
+      status: "error", 
+      message: "Authentication required"
+    }), { 
+      status: 401,
+      headers: { "Content-Type": "application/json" } 
+    });
+  }
+  
+  // In a real implementation, verify the auth token against a valid session
+  // This is a simplified example
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  
+  // Use your actual auth validation logic here
+  // For example: if (!isValidToken(token)) { return unauthorized response }
+  
+  // Return just enough of the token to verify it's available (first few chars)
+  // Never expose the full token to the frontend
+  const botToken = env?.TELEGRAM_BOT_TOKEN || '';
+  const tokenPreview = botToken ? 
+    botToken.substring(0, 5) + '...' + botToken.substring(botToken.length - 4) : '';
+  
+  if (!botToken) {
+    return new Response(JSON.stringify({
+      status: "error", 
+      message: "Token not configured"
+    }), { 
+      status: 500,
+      headers: { "Content-Type": "application/json" } 
+    });
+  }
+  
+  return new Response(JSON.stringify({
+    status: "success",
+    token_available: !!botToken,
+    token_preview: tokenPreview
+  }), { 
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
 }

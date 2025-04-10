@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext'; // Import auth context
+import TelegramLogin from '@/components/auth/TelegramLogin'; // Import the new component
 // Fix: Import marketIndexes from the correct path with correct export name
 import { marketIndexes } from '@/config/marketIndexes';
 
@@ -12,6 +14,7 @@ const TelegramEntryPoint: React.FC = () => {
   const { isTelegram, isInitialized, expandApp, sendAnalyticsEvent } = useTelegram();
   const navigate = useNavigate();
   const { analyses } = useWaveAnalysis(); // Fix: Use available properties from context
+  const { user } = useAuth(); // Get authentication state
   const [loading, setLoading] = useState(true);
   const [popularStocks, setPopularStocks] = useState<Array<{symbol: string, name: string}>>([]);
   
@@ -84,53 +87,59 @@ const TelegramEntryPoint: React.FC = () => {
   
   return (
     <TelegramLayout title="Wave Analyzer">
-      <div className="p-4">
-        <h2 className="text-xl font-bold mb-4">Market Indices</h2>
-        <div className="grid grid-cols-2 gap-2 mb-6">
-          {marketIndexes.slice(0, 4).map((index) => (
+      {/* Show TelegramLogin if in Telegram and not authenticated */}
+      {isTelegram && !user && <TelegramLogin />}
+      
+      {/* Only show main content if authenticated or not in Telegram */}
+      {(!isTelegram || user) && (
+        <div className="p-4">
+          <h2 className="text-xl font-bold mb-4">Market Indices</h2>
+          <div className="grid grid-cols-2 gap-2 mb-6">
+            {marketIndexes.slice(0, 4).map((index) => (
+              <Button 
+                key={index.symbol} 
+                variant="outline" 
+                className="flex justify-between items-center h-20 p-3"
+                onClick={() => handleIndexSelect(index.symbol, index.name)}
+              >
+                <div className="flex flex-col items-start">
+                  <span className="font-bold">{index.name}</span>
+                  <span className="text-sm opacity-70">{index.symbol}</span>
+                </div>
+                <ArrowRight className="h-4 w-4 opacity-50" />
+              </Button>
+            ))}
+          </div>
+          
+          <h2 className="text-xl font-bold mb-4">Popular Stocks</h2>
+          <div className="grid grid-cols-2 gap-2">
+            {popularStocks.map((stock) => (
+              <Button 
+                key={stock.symbol} 
+                variant="outline" 
+                className="flex justify-between items-center h-20 p-3"
+                onClick={() => handleStockSelect(stock.symbol, stock.name)}
+              >
+                <div className="flex flex-col items-start">
+                  <span className="font-bold">{stock.symbol}</span>
+                  <span className="text-sm opacity-70">{stock.name}</span>
+                </div>
+                <ArrowRight className="h-4 w-4 opacity-50" />
+              </Button>
+            ))}
+          </div>
+          
+          <div className="mt-6 text-center">
             <Button 
-              key={index.symbol} 
-              variant="outline" 
-              className="flex justify-between items-center h-20 p-3"
-              onClick={() => handleIndexSelect(index.symbol, index.name)}
+              variant="default" 
+              className="w-full"
+              onClick={handleViewDashboard}
             >
-              <div className="flex flex-col items-start">
-                <span className="font-bold">{index.name}</span>
-                <span className="text-sm opacity-70">{index.symbol}</span>
-              </div>
-              <ArrowRight className="h-4 w-4 opacity-50" />
+              View Full Dashboard
             </Button>
-          ))}
+          </div>
         </div>
-        
-        <h2 className="text-xl font-bold mb-4">Popular Stocks</h2>
-        <div className="grid grid-cols-2 gap-2">
-          {popularStocks.map((stock) => (
-            <Button 
-              key={stock.symbol} 
-              variant="outline" 
-              className="flex justify-between items-center h-20 p-3"
-              onClick={() => handleStockSelect(stock.symbol, stock.name)}
-            >
-              <div className="flex flex-col items-start">
-                <span className="font-bold">{stock.symbol}</span>
-                <span className="text-sm opacity-70">{stock.name}</span>
-              </div>
-              <ArrowRight className="h-4 w-4 opacity-50" />
-            </Button>
-          ))}
-        </div>
-        
-        <div className="mt-6 text-center">
-          <Button 
-            variant="default" 
-            className="w-full"
-            onClick={handleViewDashboard}
-          >
-            View Full Dashboard
-          </Button>
-        </div>
-      </div>
+      )}
     </TelegramLayout>
   );
 };

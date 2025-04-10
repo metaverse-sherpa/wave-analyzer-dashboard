@@ -15,11 +15,11 @@ const AuthCallback: React.FC = () => {
         setIsProcessing(true);
         // Get the hash or search portion of the URL to extract tokens
         const hashParams = window.location.hash || window.location.search;
-        console.log("Processing auth callback with params:", hashParams);
+        //console.log("Processing auth callback with params:", hashParams);
         
         // Handle the auth callback
         const result = await handleAuthCallback();
-        console.log("Auth callback result:", result);
+        //console.log("Auth callback result:", result);
         
         if (result.error) {
           setError(result.error);

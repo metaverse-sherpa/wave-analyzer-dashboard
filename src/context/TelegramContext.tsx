@@ -56,9 +56,43 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, bo
   const [isTelegram, setIsTelegram] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [telegramUser, setTelegramUser] = useState(null);
+  const [token, setToken] = useState<string | null>(null);
 
   // Bot API base URL
   const BOT_API_BASE = 'https://api.telegram.org/bot';
+
+  // First, try to load the token
+  useEffect(() => {
+    const fetchToken = async () => {
+      try {
+        // Try to get token from props first
+        if (botToken) {
+          console.log("Using bot token from props");
+          setToken(botToken);
+          return;
+        }
+
+        // Otherwise try to fetch from environment
+        console.log("Trying to fetch bot token from API");
+        const response = await fetch('/api/get-telegram-token');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.token) {
+            console.log("Successfully retrieved bot token from API");
+            setToken(data.token);
+          } else {
+            console.error("API response didn't contain token");
+          }
+        } else {
+          console.error("Failed to fetch bot token from API:", await response.text());
+        }
+      } catch (error) {
+        console.error("Error loading Telegram bot token:", error);
+      }
+    };
+
+    fetchToken();
+  }, [botToken]);
 
   useEffect(() => {
     // Check if we're running inside Telegram
@@ -96,11 +130,11 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, bo
 
     initTelegram();
 
-    // Set up bot commands if token is provided
-    if (botToken) {
+    // Set up bot commands if token is available
+    if (token) {
       setDefaultBotCommands();
     }
-  }, [botToken]);
+  }, [token]); // Changed dependency to token instead of botToken
 
   // Helper functions to interact with Telegram WebApp
   const showBackButton = (show: boolean) => {
@@ -198,13 +232,13 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, bo
 
   // Bot functionality for group chats
   const sendMessage = async (chatId: string|number, text: string) => {
-    if (!botToken) {
-      console.error('Bot token not provided');
+    if (!token) {
+      console.error('Bot token not available');
       return null;
     }
 
     try {
-      const response = await fetch(`${BOT_API_BASE}${botToken}/sendMessage`, {
+      const response = await fetch(`${BOT_API_BASE}${token}/sendMessage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -224,13 +258,13 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, bo
   };
 
   const setCommands = async (commands: BotCommand[]): Promise<boolean> => {
-    if (!botToken) {
-      console.error('Bot token not provided');
+    if (!token) {
+      console.error('Bot token not available');
       return false;
     }
 
     try {
-      const response = await fetch(`${BOT_API_BASE}${botToken}/setMyCommands`, {
+      const response = await fetch(`${BOT_API_BASE}${token}/setMyCommands`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -259,7 +293,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, bo
 
   // Handle incoming group messages
   const handleGroupMessage = (message: any) => {
-    if (!message || !botToken) return;
+    if (!message || !token) return;
 
     // Extract chat ID and message text
     const chatId = message.chat?.id;
