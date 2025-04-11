@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 // Fix: Remove incorrect WebApp import
 // Using window.Telegram.WebApp directly instead
+import { supabase } from '@/lib/supabase'; // Add import for supabase
 
 interface TelegramContextType {
   isTelegram: boolean;
@@ -61,39 +62,7 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, bo
   // Bot API base URL
   const BOT_API_BASE = 'https://api.telegram.org/bot';
 
-  // First, try to load the token
-  useEffect(() => {
-    const fetchToken = async () => {
-      try {
-        // Try to get token from props first
-        if (botToken) {
-          console.log("Using bot token from props");
-          setToken(botToken);
-          return;
-        }
-
-        // Otherwise try to fetch from environment
-        console.log("Trying to fetch bot token from API");
-        const response = await fetch('/api/get-telegram-token');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.token) {
-            console.log("Successfully retrieved bot token from API");
-            setToken(data.token);
-          } else {
-            console.error("API response didn't contain token");
-          }
-        } else {
-          console.error("Failed to fetch bot token from API:", await response.text());
-        }
-      } catch (error) {
-        console.error("Error loading Telegram bot token:", error);
-      }
-    };
-
-    fetchToken();
-  }, [botToken]);
-
+  // First, check if we're running inside Telegram
   useEffect(() => {
     // Check if we're running inside Telegram
     const initTelegram = async () => {
@@ -129,13 +98,67 @@ export const TelegramProvider: React.FC<TelegramProviderProps> = ({ children, bo
     };
 
     initTelegram();
+  }, []); // No dependencies - only run once on mount
 
+  // Only try to load the token if we're actually in Telegram
+  useEffect(() => {
+    const fetchToken = async () => {
+      // Skip token fetching if not in Telegram environment
+      if (!isTelegram) {
+        console.log("Not in Telegram environment - skipping token fetch");
+        return;
+      }
+      
+      try {
+        // Try to get token from props first
+        if (botToken) {
+          console.log("Using bot token from props");
+          setToken(botToken);
+          return;
+        }
+
+        // Otherwise try to fetch from environment
+        console.log("Trying to fetch bot token from API");
+        
+        // Get the current session for authentication
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        // Make authenticated request to get Telegram token
+        const response = await fetch('/api/get-telegram-token', {
+          headers: {
+            'Authorization': `Bearer ${session?.access_token || ''}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.token) {
+            console.log("Successfully retrieved bot token from API");
+            setToken(data.token);
+          } else {
+            console.error("API response didn't contain token");
+          }
+        } else {
+          console.error("Failed to fetch bot token from API:", await response.text());
+        }
+      } catch (error) {
+        console.error("Error loading Telegram bot token:", error);
+      }
+    };
+
+    fetchToken();
+  }, [botToken, isTelegram]); // Only run when isTelegram or botToken changes
+
+  // Set up bot commands if token is available
+  useEffect(() => {
     // Set up bot commands if token is available
-    if (token) {
+    if (token && isTelegram) {
       setDefaultBotCommands();
     }
-  }, [token]); // Changed dependency to token instead of botToken
+  }, [token, isTelegram]); // Changed dependency to run when both token and isTelegram are available
 
+  // Rest of the component remains unchanged
   // Helper functions to interact with Telegram WebApp
   const showBackButton = (show: boolean) => {
     if (!isTelegram) return;

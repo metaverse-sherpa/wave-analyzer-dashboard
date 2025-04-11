@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTelegram } from '@/context/TelegramContext';
 import TelegramLayout from '@/components/layout/TelegramLayout';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from 'lucide-react';
@@ -13,10 +13,25 @@ import { marketIndexes } from '@/config/marketIndexes';
 const TelegramEntryPoint: React.FC = () => {
   const { isTelegram, isInitialized, expandApp, sendAnalyticsEvent } = useTelegram();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { analyses } = useWaveAnalysis(); // Fix: Use available properties from context
   const { user } = useAuth(); // Get authentication state
   const [loading, setLoading] = useState(true);
   const [popularStocks, setPopularStocks] = useState<Array<{symbol: string, name: string}>>([]);
+  
+  // Check if a direct symbol was passed in URL parameters
+  useEffect(() => {
+    const directSymbol = searchParams.get('symbol');
+    if (directSymbol) {
+      console.log(`Direct symbol requested: ${directSymbol}`);
+      // Wait for initialization before redirecting
+      if (isInitialized && !loading) {
+        // Track this direct access
+        sendAnalyticsEvent('direct_symbol_access', { symbol: directSymbol });
+        navigate(`/stocks/${directSymbol}`);
+      }
+    }
+  }, [searchParams, navigate, isInitialized, loading, sendAnalyticsEvent]);
   
   // Generate trending stocks based on available analyses
   useEffect(() => {
@@ -74,6 +89,21 @@ const TelegramEntryPoint: React.FC = () => {
     sendAnalyticsEvent('view_full_dashboard');
     navigate('/');
   };
+  
+  // If there's a direct symbol parameter, show loading state
+  const directSymbol = searchParams.get('symbol');
+  if (directSymbol && (loading || !isInitialized)) {
+    return (
+      <TelegramLayout>
+        <div className="flex flex-col items-center justify-center h-[70vh]">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+          <p className="text-center text-muted-foreground">
+            Loading analysis for {directSymbol}...
+          </p>
+        </div>
+      </TelegramLayout>
+    );
+  }
   
   if (!isInitialized || loading) {
     return (

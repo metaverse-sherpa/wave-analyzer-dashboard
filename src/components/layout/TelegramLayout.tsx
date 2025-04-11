@@ -2,6 +2,9 @@ import React, { ReactNode, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTelegram } from '@/context/TelegramContext';
 
+// Declare the APP_VERSION that's defined in vite.config.ts
+declare const APP_VERSION: string;
+
 interface TelegramLayoutProps {
   children: ReactNode;
   showBackButton?: boolean;
@@ -60,6 +63,11 @@ const TelegramLayout: React.FC<TelegramLayoutProps> = ({
         {children}
       </div>
       
+      {/* Version display in the bottom corner */}
+      <div className="tg-version">
+        v{APP_VERSION || '0.0.0'}
+      </div>
+      
       {/* Fix: Remove jsx and global attributes from style tag */}
       <style>{`
         :root {
@@ -77,6 +85,7 @@ const TelegramLayout: React.FC<TelegramLayoutProps> = ({
           color: var(--tg-theme-text-color);
           min-height: 100vh;
           width: 100%;
+          position: relative;
         }
 
         .tg-header {
@@ -89,6 +98,17 @@ const TelegramLayout: React.FC<TelegramLayoutProps> = ({
           padding: 0.5rem;
           height: calc(100vh - 60px);
           overflow-y: auto;
+        }
+        
+        .tg-version {
+          position: fixed;
+          bottom: 4px;
+          right: 6px;
+          font-size: 0.6rem;
+          opacity: 0.5;
+          color: var(--tg-theme-hint-color);
+          z-index: 10;
+          pointer-events: none;
         }
       `}</style>
     </div>

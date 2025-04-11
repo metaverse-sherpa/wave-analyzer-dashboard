@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Telegram WebApp Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    #telegram-container {
+      max-width: 500px;
+      margin: 0 auto;
+      border: 2px solid #179cde;
+      border-radius: 10px;
+      height: 80vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      margin-top: 20px;
+    }
+    #header {
+      background-color: #179cde;
+      color: white;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    #back-button {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    #content {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+    }
+    iframe {
+      border: none;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #controls {
+      padding: 10px;
+      background-color: #f5f5f5;
+    }
+    #theme-toggle {
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="telegram-container">
+    <div id="header">
+      <button id="back-button">← Back</button>
+      <span>Telegram Mini App Test</span>
+      <div id="theme-toggle">
+        <label>
+          <input type="checkbox" id="dark-mode"> Dark Mode
+        </label>
+      </div>
+    </div>
+    <div id="content">
+      <iframe id="telegram-iframe" src="http://localhost:3000?tgWebAppData=query_id%3DAAHdF6IQAAAAAN0XohBHOYgR%26user%3D%7B%22id%22%3A123456789%2C%22first_name%22%3A%22Telegram%22%2C%22last_name%22%3A%22Tester%22%2C%22username%22%3A%22tester%22%2C%22language_code%22%3A%22en%22%7D%26auth_date%3D1681234567%26hash%3Dabc123def456"></iframe>
+    </div>
+  </div>
+
+  <script>
+    // Simulate Telegram WebApp object
+    const webAppData = {
+      initData: "query_id=AAHdF6IQAAAAAN0XohBHOYgR&user=%7B%22id%22%3A123456789%2C%22first_name%22%3A%22Telegram%22%2C%22last_name%22%3A%22Tester%22%2C%22username%22%3A%22tester%22%2C%22language_code%22%3A%22en%22%7D&auth_date=1681234567&hash=abc123def456",
+      initDataUnsafe: {
+        query_id: "AAHdF6IQAAAAAN0XohBHOYgR",
+        user: {
+          id: 123456789,
+          first_name: "Telegram",
+          last_name: "Tester",
+          username: "tester",
+          language_code: "en"
+        },
+        auth_date: 1681234567,
+        hash: "abc123def456"
+      },
+      colorScheme: "light",
+      themeParams: {
+        bg_color: "#ffffff",
+        text_color: "#000000",
+        hint_color: "#707579",
+        link_color: "#2678b6",
+        button_color: "#50a8eb",
+        button_text_color: "#ffffff",
+        secondary_bg_color: "#f1f1f1",
+      },
+      viewportHeight: window.innerHeight,
+      viewportStableHeight: window.innerHeight,
+      isExpanded: true,
+      backgroundColor: "#ffffff",
+      headerColor: "#ffffff",
+      MainButton: {
+        isVisible: false,
+        isProgressVisible: false,
+        isActive: true,
+        text: "CONTINUE",
+        color: "#50a8eb",
+        textColor: "#ffffff",
+        onClick: () => console.log("MainButton clicked"),
+        offClick: () => {},
+        show: function() { console.log("MainButton.show"); this.isVisible = true; return this; },
+        hide: function() { console.log("MainButton.hide"); this.isVisible = false; return this; },
+        setParams: function() { return this; }
+      },
+      BackButton: {
+        isVisible: false,
+        onClick: () => console.log("BackButton clicked"),
+        offClick: () => {},
+        show: function() { console.log("BackButton.show"); this.isVisible = true; return this; },
+        hide: function() { console.log("BackButton.hide"); this.isVisible = false; return this; }
+      },
+      HapticFeedback: {
+        impactOccurred: () => console.log("HapticFeedback.impactOccurred"),
+        notificationOccurred: () => console.log("HapticFeedback.notificationOccurred"),
+        selectionChanged: () => console.log("HapticFeedback.selectionChanged"),
+      },
+      ready: () => console.log("WebApp.ready"),
+      expand: () => console.log("WebApp.expand"),
+      close: () => console.log("WebApp.close"),
+      enableClosingConfirmation: () => console.log("WebApp.enableClosingConfirmation"),
+      disableClosingConfirmation: () => console.log("WebApp.disableClosingConfirmation"),
+      showPopup: (params) => console.log("WebApp.showPopup", params),
+      showAlert: (message) => console.log("WebApp.showAlert", message),
+      showConfirm: (message) => console.log("WebApp.showConfirm", message),
+      openTelegramLink: (url) => console.log("WebApp.openTelegramLink", url),
+      openLink: (url) => console.log("WebApp.openLink", url),
+      switchInlineQuery: (query) => console.log("WebApp.switchInlineQuery", query),
+      setHeaderColor: (color) => console.log("WebApp.setHeaderColor", color),
+      setBackgroundColor: (color) => console.log("WebApp.setBackgroundColor", color),
+    };
+
+    const iframe = document.getElementById('telegram-iframe');
+    iframe.addEventListener('load', () => {
+      // Inject Telegram WebApp JavaScript Bridge
+      const iframeWindow = iframe.contentWindow;
+      iframeWindow.Telegram = {
+        WebApp: webAppData
+      };
+      console.log("Telegram WebApp injected");
+
+      // Set the flag that indicates we're in Telegram
+      localStorage.setItem('is_telegram_webapp', 'true');
+    });
+
+    // Toggle between light and dark mode
+    document.getElementById('dark-mode').addEventListener('change', function(e) {
+      const isDarkMode = e.target.checked;
+      
+      // Update Telegram WebApp theme
+      webAppData.colorScheme = isDarkMode ? 'dark' : 'light';
+      webAppData.themeParams = isDarkMode ? {
+        bg_color: "#212121",
+        text_color: "#ffffff",
+        hint_color: "#aaaaaa",
+        link_color: "#8ab4f8",
+        button_color: "#50a8eb",
+        button_text_color: "#ffffff",
+        secondary_bg_color: "#181818",
+      } : {
+        bg_color: "#ffffff",
+        text_color: "#000000",
+        hint_color: "#707579",
+        link_color: "#2678b6",
+        button_color: "#50a8eb",
+        button_text_color: "#ffffff",
+        secondary_bg_color: "#f1f1f1",
+      };
+
+      // Reload iframe to apply new theme
+      iframe.src = iframe.src;
+    });
+
+    // Handle back button
+    document.getElementById('back-button').addEventListener('click', function() {
+      if (iframe.contentWindow.history.length > 1) {
+        iframe.contentWindow.history.back();
+      }
+    });
+  </script>
+</body>
+</html>

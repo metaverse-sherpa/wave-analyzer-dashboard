@@ -4,6 +4,8 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { visualizer } from 'rollup-plugin-visualizer';
 import type { ProxyOptions } from 'vite';
+// Import package.json for version number
+import packageJson from './package.json';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -58,6 +60,8 @@ export default defineConfig(({ mode }) => {
       'process.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
       'process.env.VITE_USE_REAL_API': JSON.stringify(env.VITE_USE_REAL_API || 'false'),
       'process.env.VITE_DEBUG_API_CALLS': JSON.stringify(env.VITE_DEBUG_API_CALLS || 'false'),
+      // Add the APP_VERSION constant from package.json
+      'APP_VERSION': JSON.stringify(packageJson.version),
     },
     build: {
       outDir: "dist",
