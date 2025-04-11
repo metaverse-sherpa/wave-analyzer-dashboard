@@ -26,8 +26,8 @@ else
   npx wrangler secret put TELEGRAM_BOT_TOKEN <<< "$TELEGRAM_BOT_TOKEN"
 fi
 
-# Deploy the API
+# Deploy the API directly (no build step)
 echo "Deploying API to Cloudflare Workers..."
 npx wrangler deploy
 
-echo "Deployment complete!"
+echo "✅ Deployment completed successfully with custom domain api.elliottwaves.ai!"

@@ -4,11 +4,32 @@ import { calculateAverageReturn, identifyLeadingSectors } from '@/utils/marketAn
 import { buildApiUrl } from '@/services/yahooFinanceService';
 import { MAJOR_INDEXES, getIndexSymbols } from '@/config/marketIndexes';
 
+// Update the API base URL to use /api path
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+
 export interface MarketSentimentResult {
   analysis: string;     // The actual AI analysis
   isMockData: boolean;  // Whether mock data was used
   sourcesUsed: string[]; // What data sources were used
   timestamp: number;    // When the analysis was generated
+}
+
+interface MarketSentimentResponse {
+  analysis: string;
+  sentiment: string;
+  bullishPercentage: number;
+  bearishPercentage: number;
+  timestamp: number;
+  lastUpdated: string;
+  isMockData: boolean;
+  sourcesUsed: string[];
+}
+
+interface MarketData {
+  bullishCount: number;
+  bearishCount: number;
+  neutralCount: number;
+  overallSentiment: string;
 }
 
 /**

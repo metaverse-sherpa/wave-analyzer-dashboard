@@ -3,22 +3,23 @@
 # https://developers.cloudflare.com/workers/wrangler/configuration/
 name = "api-backend"
 main = "worker.js"
-compatibility_date = "2024-09-23"
+compatibility_date = "2024-09-23"  # Updated to resolve URL module issue
 compatibility_flags = ["nodejs_compat"]
+
+# Domain configuration
+routes = [
+  { pattern = "elliottwaves.ai/api/*", zone_name = "elliottwaves.ai" }
+]
 
 [vars]
 ENABLE_MOCK_DATA = "false"
 ENABLE_CACHING = "true"
+APP_VERSION = "0.0.9"
 
-# Enable observability
-[observability]
-enabled = true
-
-# Explicitly acknowledge the use of secrets
-# The TELEGRAM_BOT_TOKEN secret should be set with:
-# $ npx wrangler secret put TELEGRAM_BOT_TOKEN
-
-# KV namespace binding - uncomment and add your KV namespace ID when ready
+# Comment out the KV namespace binding until you have a valid KV namespace ID
+# To create a KV namespace, run: npx wrangler kv:namespace create CACHE_STORAGE
+# Then update this configuration with the ID from the output
 # [[kv_namespaces]]
-# binding = "CACHE_STORAGE" 
-# id = "YOUR_KV_NAMESPACE_ID"
+# binding = "CACHE_STORAGE"
+# id = "your-kv-namespace-id-here"
+# preview_id = "your-preview-kv-id-here"

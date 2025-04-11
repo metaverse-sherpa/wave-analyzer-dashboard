@@ -4,13 +4,26 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Create a minimal client without unnecessary configuration
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce'
+  },
+  global: {
+    // Add fetch options here instead of in cookies property
+    headers: {
+      'X-Client-Info': 'wave-analyzer-dashboard'
+    }
+  }
+});
 
 // Get the redirect URL
 export const getRedirectUrl = () => {
   const isProd = import.meta.env.PROD;
   return isProd 
-    ? 'https://wave-analyzer-dashboard.pages.dev/auth/callback'
+    ? 'https://elliottwaves.ai/auth/callback'
     : `${window.location.origin}/auth/callback`;
 };
 
