@@ -104,15 +104,19 @@ async function handleFullDataRefresh(payload) {
       timestamp: Date.now()
     });
     
-    // Step 1: Clear historical data cache
+    // Step 1: Clear both historical data and wave analysis cache
     self.postMessage({ 
       action: 'OPERATION_STATUS',
-      step: 'clear_historical_cache',
-      message: 'Clearing historical data cache...',
+      step: 'clear_caches',
+      message: 'Clearing historical data and wave analysis caches...',
       progress: 5
     });
     
-    await clearHistoricalCache();
+    // Clear both caches in parallel for efficiency
+    await Promise.all([
+      clearHistoricalCache(),
+      clearWaveAnalysisCache()
+    ]);
     
     // Step 2: Load historical data
     self.postMessage({ 
@@ -219,6 +223,35 @@ async function clearHistoricalCache() {
     return await response.json();
   } catch (error) {
     console.error('[Refresh Worker] Clear cache error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clear the wave analysis data cache
+ */
+async function clearWaveAnalysisCache() {
+  try {
+    // Ensure proper URL formation
+    const apiUrl = `${apiEndpoint}/clear-cache`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${refreshToken}`
+      },
+      body: JSON.stringify({
+        cacheType: 'wave_analysis'
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('[Refresh Worker] Clear wave analysis cache error:', error);
     throw error;
   }
 }

@@ -529,21 +529,69 @@ async function handleClearCache(request, env, ctx) {
     // Check if we have Supabase credentials in environment variables
     if (env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY) {
       try {
-        // Attempt to clear cache in Supabase
-        const supabaseResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/cache`, {
-          method: 'DELETE',
-          headers: {
-            'apikey': env.SUPABASE_SERVICE_KEY,
-            'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            key: `like.${cacheType}%`
-          })
-        });
+        // Determine pattern for cache deletion
+        let pattern;
         
-        if (!supabaseResponse.ok) {
-          throw new Error(`Supabase API error: ${supabaseResponse.status}`);
+        if (cacheType === 'historical_data') {
+          pattern = 'historical_data_%';
+        } else if (cacheType === 'wave_analysis') {
+          pattern = 'wave_analysis_%';
+        } else {
+          pattern = `${cacheType}%`;
+        }
+        
+        // First try using the RPC function if available
+        try {
+          console.log(`Attempting to clear cache using RPC delete_cache_by_pattern with pattern: ${pattern}`);
+          const rpcResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/delete_cache_by_pattern`, {
+            method: 'POST',
+            headers: {
+              'apikey': env.SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              pattern_text: pattern
+            })
+          });
+          
+          if (rpcResponse.ok) {
+            console.log("Successfully cleared cache using RPC method");
+          } else {
+            throw new Error(`RPC method failed with status: ${rpcResponse.status}`);
+          }
+        } catch (rpcError) {
+          // Fallback to direct DELETE with LIKE filter
+          console.log("RPC method failed, falling back to direct DELETE with LIKE filter");
+          
+          // Add the LIKE filter as a URL query parameter
+          const url = new URL(`${env.SUPABASE_URL}/rest/v1/cache`);
+          url.searchParams.append('key', `like.${pattern}`);
+          
+          const deleteResponse = await fetch(url, {
+            method: 'DELETE',
+            headers: {
+              'apikey': env.SUPABASE_SERVICE_KEY,
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              'Prefer': 'return=minimal'
+            }
+          });
+          
+          if (!deleteResponse.ok) {
+            throw new Error(`Supabase DELETE error: ${deleteResponse.status}`);
+          }
+          
+          console.log("Successfully cleared cache using direct DELETE with LIKE filter");
+        }
+        
+        // Also clear from in-memory cache
+        if (CACHE) {
+          Object.keys(CACHE).forEach(key => {
+            if (key.startsWith(cacheType) || (cacheType === 'historical_data' && key.startsWith('historical_data_'))) {
+              console.log(`Clearing in-memory cache entry: ${key}`);
+              delete CACHE[key];
+            }
+          });
         }
         
         console.log(`Successfully cleared ${cacheType} cache in Supabase`);
@@ -1347,4 +1395,27 @@ function getStartDateForPeriod(period) {
       return new Date(now.setFullYear(now.getFullYear() - 1)); // Default to 1 year
   }
 }
-
+// Helper function to handle stock historical data requests
+async function handleStockHistorical(symbol, headers) {
+  try {
+    const data = await yahooFinance.historical(symbol);
+    return new Response(JSON.stringify(data), { headers });
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: `Failed to get historical data for ${symbol}`,
+      message: error.message
+    }), { 
+      status: 500,
+      headers
+    });
+  }
+}
+// Helper function to handle health check
+async function handleHealthCheck(headers) {
+  return new Response(JSON.stringify({
+    status: 'success',
+    message: 'Server is running',
+    timestamp: new Date().toISOString()
+  }), { headers });
+}
+// Helper function to handle version check
