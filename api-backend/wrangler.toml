@@ -6,10 +6,16 @@ main = "worker.js"
 compatibility_date = "2024-09-23"  # Updated to resolve URL module issue
 compatibility_flags = ["nodejs_compat"]
 
-# Domain configuration
+# Domain configuration using Routes
 routes = [
-  { pattern = "elliottwaves.ai/api/*", zone_name = "elliottwaves.ai" }
+  { pattern = "elliottwaves.ai/api/*", zone_name = "elliottwaves.ai" },
+  { pattern = "*.elliottwaves.ai/api/*", zone_name = "elliottwaves.ai" }
 ]
+
+# wrangler.toml (wrangler v3.88.0^)
+[observability.logs]
+enabled = true
+
 
 [vars]
 ENABLE_MOCK_DATA = "false"

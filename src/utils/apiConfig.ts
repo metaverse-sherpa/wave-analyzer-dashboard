@@ -1,7 +1,7 @@
 // Create a central place for API configuration
 
 // Access the environment variable with fallback
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://www.elliottwaves.ai/api';
 
 // Helper function to create full API URLs
 export const apiUrl = (path: string) => {

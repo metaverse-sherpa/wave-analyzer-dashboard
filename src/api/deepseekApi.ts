@@ -34,17 +34,94 @@ export async function getElliottWaveAnalysis(
   try {
     console.log(`Fetching Elliott Wave analysis for ${symbol} from DeepSeek API`);
     
-    // Process historical data to limit prompt size - use last 60 days
+    // Validate that we have enough historical data
+    if (!historicalData || historicalData.length < 50) {
+      console.warn(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points (minimum 50 required)`);
+      return `Insufficient data points for ${symbol}: only ${historicalData?.length || 0} points (minimum 50 required)`;
+    }
+    
+    // Process historical data to limit prompt size - use last 365 days
     const recentData = historicalData.slice(-365);
     
-    // Format data points for the prompt in a concise format
-    const formattedData = recentData.map(d => ({
-      date: new Date(d.timestamp).toISOString().split('T')[0],
-      open: d.open.toFixed(2),
-      high: d.high.toFixed(2),
-      low: d.low.toFixed(2),
-      close: d.close.toFixed(2)
-    }));
+    // Format data points for the prompt in a concise format - with safe timestamp handling
+    const formattedData = recentData.map(d => {
+      // Safely handle timestamp conversion
+      let dateStr;
+      try {
+        // Check for null or undefined timestamp first
+        if (d.timestamp === null || d.timestamp === undefined) {
+          console.warn(`Null or undefined timestamp encountered for ${symbol}, using current date`);
+          dateStr = new Date().toISOString().split('T')[0]; // Use current date as fallback
+          return { date: dateStr, open: d.open.toFixed(2), high: d.high.toFixed(2), low: d.low.toFixed(2), close: d.close.toFixed(2) };
+        }
+        
+        // Standardize timestamps: ensure they're in milliseconds
+        let timestamp = d.timestamp;
+        
+        // Convert seconds to milliseconds if needed (timestamps before 1970 + 50 years are likely in seconds)
+        if (typeof timestamp === 'number' && timestamp < 4000000000) {  // If timestamp is before ~2100 in seconds
+          timestamp = timestamp * 1000;
+        }
+        
+        // More robust timestamp validation
+        if (typeof timestamp === 'number' && !isNaN(timestamp) && isFinite(timestamp)) {
+          // Handle extreme timestamp values that would cause Date to throw
+          const minTimestamp = -8640000000000000; // Minimum JS date value
+          const maxTimestamp = 8640000000000000;  // Maximum JS date value
+          
+          if (timestamp < minTimestamp || timestamp > maxTimestamp) {
+            console.warn(`Timestamp ${timestamp} outside valid JS date range, using current date`);
+            dateStr = new Date().toISOString().split('T')[0];
+          } else {
+            // Ensure the timestamp is valid by testing if it creates a valid date
+            const date = new Date(timestamp);
+            
+            // Check if date is valid (not Invalid Date) and within reasonable range
+            if (!isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
+              try {
+                dateStr = date.toISOString().split('T')[0]; // Convert to YYYY-MM-DD
+              } catch (isoError) {
+                console.warn(`Failed to convert date to ISO string: ${isoError}`, date);
+                // Manual formatting as fallback
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                dateStr = `${year}-${month}-${day}`;
+              }
+            } else {
+              // Invalid date object
+              console.warn(`Invalid date object for timestamp ${timestamp}, original: ${d.timestamp}`);
+              dateStr = new Date().toISOString().split('T')[0]; // Use current date as fallback
+            }
+          }
+        } else {
+          // If timestamp is invalid, use current date as fallback
+          console.warn(`Invalid timestamp format: ${d.timestamp}`);
+          dateStr = new Date().toISOString().split('T')[0];
+        }
+      } catch (err) {
+        console.warn(`Error handling timestamp for ${symbol}: ${d.timestamp}`, err);
+        try {
+          dateStr = new Date().toISOString().split('T')[0]; // Use current date as fallback
+        } catch (dateError) {
+          // Ultimate fallback if even current date fails
+          dateStr = "2025-04-13"; // Current date hardcoded
+        }
+      }
+      
+      return {
+        date: dateStr,
+        open: d.open.toFixed(2),
+        high: d.high.toFixed(2),
+        low: d.low.toFixed(2),
+        close: d.close.toFixed(2)
+      };
+    });
+    
+    // Proceed with API call only if we have valid formatted data
+    if (!formattedData || formattedData.length < 50) {
+      return `Failed to process historical data for ${symbol}. Please check the data format.`;
+    }
     
     const response = await client.chat.completions.create({
       model: "deepseek-chat",

@@ -23,6 +23,8 @@ import {
   BarController   // Add any other controllers you might use
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import { AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // Import datalabels
 import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -117,7 +119,41 @@ function getTimestampValue(timestamp: string | number | undefined): number {
     console.warn('Undefined timestamp detected');
     return Date.now(); // Return current time as fallback
   }
-  return typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp;
+  
+  try {
+    // Handle numeric timestamps
+    if (typeof timestamp === 'number') {
+      // Convert seconds to milliseconds if needed (timestamps before 1970 + 50 years are likely in seconds)
+      if (timestamp < 4000000000) { // If timestamp is before ~2100 in seconds
+        timestamp = timestamp * 1000;
+      }
+      
+      // Validate timestamp is a reasonable date
+      const date = new Date(timestamp);
+      if (!isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
+        return timestamp;
+      } else {
+        console.warn(`Invalid numeric timestamp: ${timestamp}, using current time`);
+        return Date.now();
+      }
+    } 
+    // Handle string timestamps
+    else if (typeof timestamp === 'string') {
+      const parsedTime = new Date(timestamp).getTime();
+      if (!isNaN(parsedTime) && parsedTime > 0) {
+        return parsedTime;
+      } else {
+        console.warn(`Invalid string timestamp: ${timestamp}, using current time`);
+        return Date.now();
+      }
+    }
+    
+    // Fallback for any other cases
+    return Date.now();
+  } catch (err) {
+    console.warn(`Error processing timestamp ${timestamp}:`, err);
+    return Date.now(); // Return current time as fallback
+  }
 }
 
 // Add this helper function to safely get a timestamp value
@@ -173,6 +209,7 @@ interface StockDetailChartProps {
   onClearSelection?: () => void;
   livePrice?: number;
   viewMode?: 'all' | 'current'; // Add this prop
+  errorMessage?: string | null; // Add this prop to receive error messages
 }
 
 // Define OHLCDataPoint interface
@@ -204,7 +241,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   onClearSelection,
   livePrice, // Use the prop passed from the parent component
   invalidWaves,
-  viewMode
+  viewMode,
+  errorMessage // Receive error message from parent
 }) => {
   const { settings } = useAdminSettings();
   const chartPaddingDays = settings.chartPaddingDays;
@@ -212,6 +250,93 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   // Change useState to useRef for the chart reference
   const chartRef = useRef<ChartJS<'line'>>(null);
   const [chartLoaded, setChartLoaded] = useState(false);
+  const [hasError, setHasError] = useState<boolean>(false); // Add error state
+  const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(null); // Add error message state
+
+  // Use the minimum required data points for chart rendering and different threshold for wave analysis
+  const MIN_CHART_DATA_POINTS = 5;
+  const MIN_WAVE_DATA_POINTS = 50;
+  
+  // Validate data on mount
+  useEffect(() => {
+    // Check for sufficient data points for chart rendering
+    if (!data || data.length < MIN_CHART_DATA_POINTS) {
+      setHasError(true);
+      setLocalErrorMessage(`Insufficient data for ${symbol}: Only ${data?.length || 0} data points available (minimum ${MIN_CHART_DATA_POINTS} required for chart rendering)`);
+      console.error(`Insufficient data for chart rendering: ${data?.length || 0} points`);
+    } else if (data.length < MIN_WAVE_DATA_POINTS) {
+      // We have enough data for a chart but not enough for wave analysis
+      setHasError(false); // Not a fatal error since we can show price chart
+      setLocalErrorMessage(`Insufficient data for Elliott Wave analysis: Only ${data?.length} data points (minimum ${MIN_WAVE_DATA_POINTS} required for wave analysis)`);
+      console.warn(`Insufficient data for wave analysis: ${data?.length || 0} points`);
+    } else {
+      // Reset error state if we have enough data
+      setHasError(false);
+      setLocalErrorMessage(null);
+    }
+  }, [data, symbol]);
+  
+  // Display a simplified chart for limited data
+  if (data && data.length >= MIN_CHART_DATA_POINTS && data.length < MIN_WAVE_DATA_POINTS) {
+    // Simple chart for limited data
+    return (
+      <div className="w-full h-[500px] relative">
+        {/* Show a warning alert about limited data */}
+        <Alert variant="warning" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Limited data available</AlertTitle>
+          <AlertDescription>
+            {errorMessage || localErrorMessage || `Only ${data.length} data points available for ${symbol}. Elliott Wave analysis requires at least ${MIN_WAVE_DATA_POINTS} data points.`}
+          </AlertDescription>
+        </Alert>
+        
+        <div className="relative h-[420px] bg-[#1a1a1a] rounded-md p-4">
+          {/* Render a simplified chart with just price data */}
+          <Line 
+            data={{
+              labels: data.map(d => new Date(getTimestampValue(d.timestamp)).toLocaleDateString()),
+              datasets: [
+                {
+                  type: 'line',
+                  label: symbol,
+                  data: data.map((d, index) => ({ x: index, y: typeof d.close === 'number' ? d.close : parseFloat(d.close) })),
+                  borderColor: 'rgba(76, 175, 80, 0.8)',
+                  backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                  borderWidth: 2,
+                  fill: true,
+                  tension: 0.1,
+                  pointRadius: 2,
+                  pointHoverRadius: 4
+                }
+              ]
+            }}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: { enabled: true },
+                datalabels: { display: false }
+              }
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+  
+  // Show error state if we don't have enough data for even a basic chart
+  if (hasError || !data || data.length < MIN_CHART_DATA_POINTS) {
+    return (
+      <div className="w-full h-64 flex flex-col items-center justify-center bg-card rounded-lg">
+        <AlertCircle className="h-8 w-8 text-destructive mb-2" />
+        <p className="text-destructive font-medium">Chart data unavailable</p>
+        <p className="text-muted-foreground text-sm mt-2">
+          {errorMessage || localErrorMessage || `Insufficient data for ${symbol} chart`}
+        </p>
+      </div>
+    );
+  }
   
   // Add the missing mostRecentWave1 calculation
   const mostRecentWave1 = useMemo(() => {

@@ -46,6 +46,7 @@ import Index from "./pages/Index";
 import StockDetails from "./pages/StockDetails";
 import { WaveAnalysisProvider } from '@/context/WaveAnalysisContext';
 import { HistoricalDataProvider } from '@/context/HistoricalDataContext';
+import { DataRefreshProvider } from '@/context/DataRefreshManager';
 import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { KillSwitchContext } from './context/KillSwitchContext';
@@ -246,71 +247,73 @@ const App = () => {
             <KillSwitchContext.Provider value={{ killSwitch: calculationKillSwitch, setKillSwitch: setCalculationKillSwitch }}>
               <HistoricalDataProvider>
                 <WaveAnalysisProvider>
-                  <AdminSettingsProvider>
-                    <AnalysisStatusTracker />
-                    <AuthProvider>
-                      <PreviewProvider>
-                        <TelegramProvider>
-                          <Router>
-                            <Routes>
-                              {/* Public routes - accessible without authentication */}
-                              <Route path="/" element={<Index />} />
-                              <Route path="/telegram" element={<TelegramEntryPoint />} />
-                              <Route path="/stocks/:symbol" element={
-                                <SemiProtectedRoute>
-                                  <StockDetails />
-                                </SemiProtectedRoute>
-                              } />
-                              
-                              {/* Auth callback route */}
-                              <Route path="/auth/callback" element={<AuthCallback />} />
-                              
-                              {/* Login/Signup routes */}
-                              <Route path="/login" element={<LoginPage />} />
-                              <Route path="/signup" element={<SignupPage />} />
-                              
-                              {/* Protected routes - require login */}
-                              <Route path="/profile" element={
-                                <ProtectedRoute>
-                                  <ProfilePage />
-                                </ProtectedRoute>
-                              } />
-                              
-                              {/* Admin routes - require admin role */}
-                              <Route path="/admin" element={
-                                <ProtectedRoute requireAdmin>
-                                  <AdminDashboard />
-                                </ProtectedRoute>
-                              } />
-                              
-                              {/* Fallback route */}
-                              <Route path="*" element={<Navigate to="/" replace />} />
-                            </Routes>
-                          </Router>
-                        </TelegramProvider>
-                      </PreviewProvider>
-                    </AuthProvider>
-                    <DataInitializer 
-                      onDataLoaded={() => {
-                        // Only update state if not already loaded
-                        if (loadState === 'loading') {
-                          console.log("Data successfully loaded from DataInitializer");
-                          setLoadState('success');
-                        }
-                      }}
-                      onError={(msg) => {
-                        console.error("DataInitializer error:", msg);
-                        // Still set success to allow app to load
-                        if (loadState === 'loading') {
-                          setLoadState('success');
-                        }
-                      }}
-                    />
-                    
-                    {/* Add the toast components */}
-                    <Toaster />
-                    <Sonner position="top-right" />
-                  </AdminSettingsProvider>
+                  <DataRefreshProvider>
+                    <AdminSettingsProvider>
+                      <AnalysisStatusTracker />
+                      <AuthProvider>
+                        <PreviewProvider>
+                          <TelegramProvider>
+                            <Router>
+                              <Routes>
+                                {/* Public routes - accessible without authentication */}
+                                <Route path="/" element={<Index />} />
+                                <Route path="/telegram" element={<TelegramEntryPoint />} />
+                                <Route path="/stocks/:symbol" element={
+                                  <SemiProtectedRoute>
+                                    <StockDetails />
+                                  </SemiProtectedRoute>
+                                } />
+                                
+                                {/* Auth callback route */}
+                                <Route path="/auth/callback" element={<AuthCallback />} />
+                                
+                                {/* Login/Signup routes */}
+                                <Route path="/login" element={<LoginPage />} />
+                                <Route path="/signup" element={<SignupPage />} />
+                                
+                                {/* Protected routes - require login */}
+                                <Route path="/profile" element={
+                                  <ProtectedRoute>
+                                    <ProfilePage />
+                                  </ProtectedRoute>
+                                } />
+                                
+                                {/* Admin routes - require admin role */}
+                                <Route path="/admin" element={
+                                  <ProtectedRoute requireAdmin>
+                                    <AdminDashboard />
+                                  </ProtectedRoute>
+                                } />
+                                
+                                {/* Fallback route */}
+                                <Route path="*" element={<Navigate to="/" replace />} />
+                              </Routes>
+                            </Router>
+                          </TelegramProvider>
+                        </PreviewProvider>
+                      </AuthProvider>
+                      <DataInitializer 
+                        onDataLoaded={() => {
+                          // Only update state if not already loaded
+                          if (loadState === 'loading') {
+                            console.log("Data successfully loaded from DataInitializer");
+                            setLoadState('success');
+                          }
+                        }}
+                        onError={(msg) => {
+                          console.error("DataInitializer error:", msg);
+                          // Still set success to allow app to load
+                          if (loadState === 'loading') {
+                            setLoadState('success');
+                          }
+                        }}
+                      />
+                      
+                      {/* Add the toast components */}
+                      <Toaster />
+                      <Sonner position="top-right" />
+                    </AdminSettingsProvider>
+                  </DataRefreshProvider>
                 </WaveAnalysisProvider>
               </HistoricalDataProvider>
             </KillSwitchContext.Provider>

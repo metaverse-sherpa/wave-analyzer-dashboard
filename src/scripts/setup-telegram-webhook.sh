@@ -10,8 +10,8 @@ else
   BOT_TOKEN=$1
 fi
 
-# Set the webhook URL to your API backend
-WEBHOOK_URL="https://api-backend.metaversesherpa.workers.dev/telegram/webhook"
+# Set the webhook URL to your new domain with /api path
+WEBHOOK_URL="https://elliottwaves.ai/api/telegram/webhook"
 
 echo "Setting up Telegram webhook for bot..."
 echo "Webhook URL: $WEBHOOK_URL"

@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e  # Exit on error
 
+echo "🚀 Deploying API backend to Cloudflare Workers..."
+
 # Source .env.local to get environment variables
 if [ -f .env.local ]; then
   echo "Loading environment variables from .env.local"
@@ -26,8 +28,38 @@ else
   npx wrangler secret put TELEGRAM_BOT_TOKEN <<< "$TELEGRAM_BOT_TOKEN"
 fi
 
-# Deploy the API directly (no build step)
+# Handle Supabase URL
+if [ -z "$VITE_SUPABASE_URL" ]; then
+  read -p "Enter your Supabase URL (leave blank to skip): " SUPABASE_URL
+  
+  if [ ! -z "$SUPABASE_URL" ]; then
+    echo "Setting SUPABASE_URL as a secret..."
+    npx wrangler secret put SUPABASE_URL <<< "$SUPABASE_URL"
+  fi
+else
+  echo "Using SUPABASE_URL from environment"
+  npx wrangler secret put SUPABASE_URL <<< "$VITE_SUPABASE_URL"
+fi
+
+# Handle Supabase Service Key - Use VITE_SUPABASE_ANON_KEY instead of prompting for SUPABASE_SERVICE_KEY
+if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+  read -p "Enter your Supabase Service Key (leave blank to skip): " SUPABASE_SERVICE_KEY
+  
+  if [ ! -z "$SUPABASE_SERVICE_KEY" ]; then
+    echo "Setting SUPABASE_SERVICE_KEY as a secret..."
+    npx wrangler secret put SUPABASE_SERVICE_KEY <<< "$SUPABASE_SERVICE_KEY"
+  fi
+else
+  echo "Using VITE_SUPABASE_ANON_KEY from environment as SUPABASE_SERVICE_KEY"
+  npx wrangler secret put SUPABASE_SERVICE_KEY <<< "$VITE_SUPABASE_ANON_KEY"
+fi
+
+# Deploy the API
 echo "Deploying API to Cloudflare Workers..."
 npx wrangler deploy
 
-echo "✅ Deployment completed successfully with custom domain api.elliottwaves.ai!"
+# Verify the deployment
+echo "✅ Deployment completed! API should be available at both:"
+echo "- https://elliottwaves.ai/api"
+echo "- https://api-backend.metaversesherpa.workers.dev"
+

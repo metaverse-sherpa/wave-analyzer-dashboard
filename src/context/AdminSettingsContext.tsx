@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase';
 
 interface AdminSettings {
   chartPaddingDays: number;
+  stockCount: number;
+  cacheExpiryDays: number;
   // Add other global settings as needed
 }
 
@@ -14,6 +16,8 @@ interface AdminSettingsContextType {
 
 const defaultSettings: AdminSettings = {
   chartPaddingDays: 20, // Default value
+  stockCount: 100,      // Default value
+  cacheExpiryDays: 7,   // Default value
 };
 
 const AdminSettingsContext = createContext<AdminSettingsContextType>({

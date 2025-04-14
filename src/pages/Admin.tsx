@@ -3,10 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Link } from 'react-router-dom';
 import { getAllAnalyses, clearAllAnalyses } from '@/services/databaseService';
 import { getAllHistoricalData } from '@/services/cacheService'; // Get the Supabase version
 import { toast } from '@/lib/toast';
+import { storageHelpers } from '@/lib/storage-monitor'; // Import the storage helpers
 import { ArrowLeft, Trash2, RefreshCw, Database, Clock, BarChart3, Activity, LineChart, Loader2, 
          Search, X, Cog, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +33,8 @@ import { Label } from "@/components/ui/label";
 import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
 import { FavoritesManager } from '@/components/FavoritesManager';
 import UserManagement from '@/components/admin/UserManagement';
+import DataRefreshStatus from '@/components/DataRefreshStatus'; // Add this import
+import BackgroundRefreshControl, { REFRESH_COMPLETED_EVENT } from "@/components/BackgroundRefreshControl"; // Import the BackgroundRefreshControl component and event
 
 // Add this at the top of Admin.tsx with other interfaces
 declare global {
@@ -72,9 +76,19 @@ type SelectedDataType =
 const fetchTopStocks = async (limit: number): Promise<{symbol: string}[]> => {
   try {
     const apiUrl = buildApiUrl(`/stocks/top?limit=${limit}`);
-    const response = await fetch(apiUrl);
+    console.log(`Fetching top stocks from API: ${apiUrl}`);
+    
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      },
+      // Add cache control to avoid stale responses
+      cache: 'no-cache'
+    });
     
     if (!response.ok) {
+      console.error(`API returned status ${response.status}`);
       throw new Error(`API returned status ${response.status}`);
     }
     
@@ -84,13 +98,52 @@ const fetchTopStocks = async (limit: number): Promise<{symbol: string}[]> => {
     const stocks = Array.isArray(data) ? data : (data.data || []);
     
     // Make sure we have the expected format
-    return stocks.map((stock: any) => ({
+    const formattedStocks = stocks.map((stock: any) => ({
       symbol: typeof stock === 'string' ? stock : (stock.symbol || '')
     })).filter((stock: {symbol: string}) => !!stock.symbol);
+
+    console.log(`Successfully fetched ${formattedStocks.length} top stocks`);
+    
+    // Return an empty array if we have no stocks to prevent further errors
+    if (formattedStocks.length === 0) {
+      console.warn("API returned 0 stocks, using fallback list");
+      return getFallbackStocks();
+    }
+    
+    return formattedStocks;
   } catch (error) {
     console.error('Error fetching top stocks:', error);
-    return [];
+    
+    // Return a fallback list of common stocks when the API fails
+    return getFallbackStocks();
   }
+};
+
+// Add a helper function to provide fallback stock symbols when the API fails
+const getFallbackStocks = (): {symbol: string}[] => {
+  console.log("Using fallback stocks list");
+  return [
+    { symbol: 'AAPL' },
+    { symbol: 'MSFT' },
+    { symbol: 'GOOGL' },
+    { symbol: 'AMZN' },
+    { symbol: 'TSLA' },
+    { symbol: 'META' },
+    { symbol: 'NVDA' },
+    { symbol: 'JPM' },
+    { symbol: 'JNJ' },
+    { symbol: 'V' },
+    { symbol: 'PG' },
+    { symbol: 'DIS' },
+    { symbol: 'BAC' },
+    { symbol: 'MA' },
+    { symbol: 'HD' },
+    { symbol: 'INTC' },
+    { symbol: 'VZ' },
+    { symbol: 'ADBE' },
+    { symbol: 'CSCO' },
+    { symbol: 'NFLX' }
+  ];
 };
 
 const AdminDashboard = () => {
@@ -116,7 +169,8 @@ const AdminDashboard = () => {
     total: 0,
     current: 0,
     inProgress: false,
-    currentSymbol: undefined as string | undefined
+    currentSymbol: undefined as string | undefined,
+    processedSymbols: [] as string[] // Add this line to track processed symbols
   });
   const [apiStatus, setApiStatus] = useState<'online' | 'offline' | 'checking' | 'degraded'>('checking');
   const [activeTab, setActiveTab] = useState<string>("historical");
@@ -151,18 +205,27 @@ const loadCacheData = useCallback(async (forceRefresh = false) => {
   try {
     // Check if we have a recent local cache and force refresh wasn't requested
     const now = Date.now();
-    const cachedData = localStorage.getItem('admin_dashboard_cache');
-    const cachedTimestamp = localCacheTimestamp || parseInt(localStorage.getItem('admin_dashboard_cache_timestamp') || '0');
+    const cachedTimestampStr = localStorage.getItem('admin_dashboard_cache_timestamp') || 
+                              localStorage.getItem('admin_dashboard_cache_chunk_timestamp');
+    const cachedTimestamp = localCacheTimestamp || (cachedTimestampStr ? parseInt(cachedTimestampStr) : 0);
+    
+    // Use storage helpers to get potentially chunked data
+    const cachedData = storageHelpers.getItem('admin_dashboard_cache');
     
     if (!forceRefresh && cachedData && (now - cachedTimestamp < LOCAL_CACHE_TTL)) {
       // Use local cache if it's recent enough
       console.log('Using local cache from', new Date(cachedTimestamp).toLocaleTimeString());
-      const parsedCache = JSON.parse(cachedData);
-      setWaveAnalyses(parsedCache.waves || {});
-      setHistoricalData(parsedCache.historical || {});
-      setAiAnalysisCount(parsedCache.aiCount || 0);
-      setIsRefreshing(false);
-      return;
+      try {
+        const parsedCache = JSON.parse(cachedData);
+        setWaveAnalyses(parsedCache.waves || {});
+        setHistoricalData(parsedCache.historical || {});
+        setAiAnalysisCount(parsedCache.aiCount || 0);
+        setIsRefreshing(false);
+        return;
+      } catch (parseError) {
+        console.error('Error parsing cached data:', parseError);
+        // Continue with fresh data load if parsing fails
+      }
     }
     
     // Load metadata-only from Supabase (not full data)
@@ -269,9 +332,27 @@ const loadCacheData = useCallback(async (forceRefresh = false) => {
       historical: historicalDataObj,
       aiCount: aiCount || 0
     };
-    localStorage.setItem('admin_dashboard_cache', JSON.stringify(cacheData));
-    localStorage.setItem('admin_dashboard_cache_timestamp', now.toString());
-    setLocalCacheTimestamp(now);
+    
+    try {
+      // Use storage helpers to store potentially large data with chunking
+      const cacheString = JSON.stringify(cacheData);
+      const success = storageHelpers.setItem('admin_dashboard_cache', cacheString);
+      
+      if (success) {
+        // Store timestamp separately
+        localStorage.setItem('admin_dashboard_cache_chunk_timestamp', now.toString());
+        setLocalCacheTimestamp(now);
+        console.log('Successfully stored cache data in localStorage (possibly chunked)');
+      } else {
+        // If chunking failed, we'll still have the in-memory data, just no persistence
+        console.warn('Failed to save cache to localStorage due to size constraints');
+        toast.warning('Cache is too large to save locally. Data will be reloaded on refresh.');
+      }
+    } catch (storageError) {
+      console.error('Error saving to localStorage:', storageError);
+      // Failure to cache is not critical, just log warning
+      toast.warning('Failed to save cache locally due to browser limitations');
+    }
     
   } catch (error) {
     console.error('Error loading cache metadata:', error);
@@ -425,6 +506,19 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
                 }
               }));
               
+              // CRITICAL FIX: Explicitly save the wave analysis to Supabase
+              await supabase
+                .from('cache')
+                .upsert({
+                  key: `wave_analysis_${symbol}_1d`,
+                  data: analysis,
+                  timestamp: Date.now(),
+                  duration: 7 * 24 * 60 * 60 * 1000, // 7 days
+                  is_string: false
+                }, { onConflict: 'key' });
+                
+              console.log(`Successfully stored wave analysis for ${symbol} in Supabase`);
+              
               completed++;
             }
           } catch (err) {
@@ -469,7 +563,7 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
     }
   }, [getAnalysis, getHistoricalData, loadCacheData, supabase, stockCount]);
 
-  // Function to preload historical data for top stocks
+// Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
     // Make the historical tab active
     setActiveTab("historical");
@@ -477,71 +571,42 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
     setIsRefreshing(true);
     try {
       // First fetch top stocks from the API based on stockCount
-      const stocks = await fetchTopStocks(stockCount);
+      const topStocksFromAPI = await fetchTopStocks(stockCount);
       
       // Check if we got any stocks
-      if (!stocks.length) {
-        throw new Error('No stocks returned from API');
+      if (!topStocksFromAPI || topStocksFromAPI.length === 0) {
+        toast.error('Failed to fetch top stocks, please try again');
+        setIsRefreshing(false);
+        return;
       }
       
-      // Next, separately fetch favorites from Supabase to ensure we have them
-      const { data: favoritesData, error: favError } = await supabase
+      // Update the state with the fetched stocks
+      setTopStocks(topStocksFromAPI);
+      
+      // Process stocks in small chunks to provide better UI feedback
+      const symbolsToProcess = topStocksFromAPI.map(stock => stock.symbol);
+      
+      // Initialize favorites to an empty array if null
+      const { data: favoritesData } = await supabase
         .from('cache')
         .select('data')
         .eq('key', 'favorite_stocks')
         .single();
-        
-      // Handle error silently - just log and continue with what we have
-      if (favError) {
-        console.warn('Could not retrieve favorites:', favError);
-      }
       
-      // Track which favorites are invalid to remove later
-      let invalidFavorites: string[] = [];
-      let validFavorites: string[] = [];
+      const favoriteSymbols = (favoritesData?.data || []) as string[];
       
-      // Create an array of all stock symbols we want to fetch, with favorites prioritized
-      let symbolsToProcess: string[] = [];
-
-      // Add favorites first (if available)
-      if (favoritesData?.data && Array.isArray(favoritesData.data)) {
-        symbolsToProcess = favoritesData.data
-          .slice(0, stockCount)
-          .map(symbol => String(symbol));
-      }
-
-      // If we still have room for more stocks, add from the API results
-      if (symbolsToProcess.length < stockCount) {
-        const remainingCount = stockCount - symbolsToProcess.length;
-        
-        // Create a set of existing symbols to avoid duplicates
-        const existingSymbols = new Set(symbolsToProcess);
-        
-        // Add unique top stocks up to the remaining count
-        for (const stock of stocks) {
-          const symbol = String(stock.symbol);
-          if (!existingSymbols.has(symbol)) {
-            symbolsToProcess.push(symbol);
-            existingSymbols.add(symbol);
-            
-            // Stop when we reach the total limit
-            if (symbolsToProcess.length >= stockCount) break;
-          }
-        }
-      }
-      
-      console.log(`Processing total of ${symbolsToProcess.length} stocks (limit: ${stockCount})`);
-      
-      // Initialize progress tracking with the actual symbols to fetch
+      // Initialize progress tracking with empty processedSymbols array
       setHistoryLoadProgress({
         total: symbolsToProcess.length,
         current: 0,
         inProgress: true,
-        currentSymbol: undefined
+        currentSymbol: undefined,
+        processedSymbols: [] // Initialize processedSymbols as an empty array
       });
       
-      // Start with an empty state to ensure we only show freshly loaded data
-      setHistoricalData({});
+      // Track which favorites are invalid to remove later
+      let invalidFavorites: string[] = [];
+      let validFavorites: string[] = [];
       
       // Process the limited list of symbols
       let completed = 0;
@@ -553,8 +618,8 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
       for (let i = 0; i < symbolsToProcess.length; i += batchSize) {
         const batch = symbolsToProcess.slice(i, i + batchSize);
         
-        // Process each stock in the batch concurrently
-        await Promise.all(batch.map(async (symbol) => {
+        // Process each stock in the batch sequentially for better UI updates
+        for (const symbol of batch) {
           try {
             // Update the UI to show which stock is currently being processed
             setHistoryLoadProgress(prev => ({
@@ -563,63 +628,33 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
             }));
             
             // Update the currentApiCall state to show in UI
-            const proxyUrl = buildApiUrl(`/stocks/historical/${symbol}?timeframe=2y&interval=1d`);
-            setCurrentApiCall(proxyUrl);
+            setCurrentApiCall(`Loading historical data for ${symbol}...`);
             
-            // Add retry logic
-            const maxRetries = 2;
-            let attempts = 0;
-            let response;
+            // Get historical data with the correct timeframe
+            const data = await fetch(buildApiUrl(`/stocks/${symbol}/history/1d`));
             
-            while (attempts < maxRetries) {
-              try {
-                response = await fetch(proxyUrl);
-                if (response.ok) break;
-                attempts++;
-                await new Promise(r => setTimeout(r, 1000)); // Wait 1 second between retries
-              } catch (e) {
-                if (attempts >= maxRetries - 1) throw e;
-                attempts++;
-                await new Promise(r => setTimeout(r, 1000));
-              }
+            // Check for HTTP errors first
+            if (!data.ok) {
+              throw new Error(`API returned status ${data.status} for ${symbol}`);
             }
             
-            if (!response || !response.ok) {
-              throw new Error(`API returned status ${response?.status || 'unknown'}`);
+            const json = await data.json();
+            
+            // Basic validation
+            if (!json || !json.data || !Array.isArray(json.data)) {
+              throw new Error(`Invalid data format for ${symbol}`);
             }
             
-            const apiData = await response.json();
-            
-            // Check if the response contains an error message
-            if (apiData && apiData.error) {
-              throw new Error(`API returned error: ${apiData.error} - ${apiData.message || ''}`);
+            if (json.data.length < 50) {
+              throw new Error(`Insufficient data points for ${symbol}: only ${json.data.length} found (minimum 50 required)`);
             }
             
-            // Validate the data
-            if (!apiData || !Array.isArray(apiData) || apiData.length < 50) {
-              throw new Error(`Insufficient data for ${symbol}: ${apiData?.length || 0} points`);
-            }
-            
-            // Check if this is a favorite stock
-            const isFavorite = favoritesData?.data && Array.isArray(favoritesData.data) && 
-                              favoritesData.data.includes(symbol);
-            
-            if (isFavorite) {
-              validFavorites.push(symbol);
-            }
-            
-            // Ensure proper timestamp format
-            const formattedData = apiData.map(item => {
-              // Convert timestamps properly
-              let timestamp;
-              if (item.date) {
+            // Format for our application needs - must be compatible with downstream functions
+            const formattedData = json.data.map(item => {
+              // Handle various date/timestamp formats
+              let timestamp = item.timestamp;
+              if (typeof item.date === 'string') {
                 timestamp = new Date(item.date).getTime();
-              } else if (typeof item.timestamp === 'string') {
-                timestamp = new Date(item.timestamp).getTime();
-              } else if (typeof item.timestamp === 'number' && item.timestamp < 10000000000) {
-                timestamp = item.timestamp * 1000; // Convert seconds to milliseconds
-              } else {
-                timestamp = item.timestamp;
               }
               
               return {
@@ -645,7 +680,7 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
                 is_string: false
               }, { onConflict: 'key' });
             
-            // Update the local state incrementally in real-time with a function updater to ensure proper state merging
+            // Update the local state incrementally in real-time with a function updater 
             setHistoricalData(prev => {
               const newData = {
                 ...prev,
@@ -658,7 +693,18 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
               return newData;
             });
             
+            // Update the processed symbols array for real-time UI updates
+            setHistoryLoadProgress(prev => ({
+              ...prev,
+              processedSymbols: [...prev.processedSymbols, symbol]
+            }));
+            
             completed++;
+            
+            // If this is a favorite, mark it as valid
+            if (favoriteSymbols.includes(symbol)) {
+              validFavorites.push(symbol);
+            }
             
             console.log(`Stored ${symbol} data in Supabase (${formattedData.length} points)`);
           } catch (error) {
@@ -666,11 +712,8 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
             errors.push(`${symbol}: ${error.message}`);
             failed++;
             
-            // Check if this is a favorite stock - make case-insensitive comparison
-            const isFavorite = favoritesData?.data && Array.isArray(favoritesData.data) && 
-                              favoritesData.data.some(fav => 
-                                String(fav).toLowerCase() === symbol.toLowerCase()
-                              );
+            // Check if this is a favorite stock
+            const isFavorite = favoriteSymbols.includes(symbol);
             
             // For HTTP 500 errors, always add to invalidFavorites if it's a favorite
             const isServerError = error.message && (
@@ -691,104 +734,154 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
                   .eq('key', 'favorite_stocks')
                   .single();
                   
-                if (currentFavs?.data && Array.isArray(currentFavs.data)) {
-                  // Filter out this specific invalid favorite - ensure exact string comparison
-                  const updatedFavorites = currentFavs.data.filter(
-                    fav => String(fav).toLowerCase() !== symbol.toLowerCase()
-                  );
+                if (currentFavs && Array.isArray(currentFavs.data)) {
+                  // Remove the invalid symbol
+                  const updatedFavorites = (currentFavs.data as string[]).filter(s => s !== symbol);
                   
-                  console.log(`Removing ${symbol} from favorites: before=${currentFavs.data.length}, after=${updatedFavorites.length}`);
-                  
-                  // Only update if something changed
-                  if (updatedFavorites.length < currentFavs.data.length) {
-                    // Update the favorites in Supabase immediately
-                    await supabase
-                      .from('cache')
-                      .update({
-                        data: updatedFavorites,
-                        timestamp: Date.now(),
-                      })
-                      .eq('key', 'favorite_stocks');
-                      
-                    // Show toast notification with the correct Sonner format
-                    toast(`${symbol} removed from favorites`, {
-                      description: "The stock was removed because it was not found in Yahoo Finance",
-                    });
-                    
-                    // Find any FavoritesManager components and refresh them
-                    const evt = new CustomEvent('refresh-favorites');
-                    window.dispatchEvent(evt);
-                    
-                    console.log(`Immediately removed ${symbol} from favorites due to error`);
-                  } else {
-                    console.log(`No change in favorites list when removing ${symbol}`);
-                  }
+                  // Update favorites in Supabase
+                  await supabase
+                    .from('cache')
+                    .upsert({
+                      key: 'favorite_stocks',
+                      data: updatedFavorites,
+                      timestamp: Date.now(),
+                      duration: 365 * 24 * 60 * 60 * 1000, // 1 year
+                      is_string: false
+                    }, { onConflict: 'key' });
                 }
               } catch (favError) {
-                console.error(`Error trying to immediately remove ${symbol} from favorites:`, favError);
+                console.error(`Failed to update favorites after removing ${symbol}:`, favError);
               }
             }
           } finally {
-            // Update progress tracking
+            // Update progress regardless of success or failure
             setHistoryLoadProgress(prev => ({
               ...prev,
               current: prev.current + 1
             }));
-            
-            // Clear the current API call when done with this symbol
-            setCurrentApiCall(null);
           }
-        }));
-        
-        // Small delay between stocks to allow UI to update and be responsive
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
-      // If we found any invalid favorites, remove them from the favorites list
-      if (invalidFavorites.length > 0) {
-        try {
-          // Get the current favorites list
-          const { data: currentFavs } = await supabase
-            .from('cache')
-            .select('data')
-            .eq('key', 'favorite_stocks')
-            .single();
-            
-          if (currentFavs?.data && Array.isArray(currentFavs.data)) {
-            // Filter out the invalid favorites
-            const updatedFavorites = currentFavs.data.filter(
-              fav => !invalidFavorites.includes(String(fav))
-            );
-            
-            // Update the favorites in Supabase
-            await supabase
-              .from('cache')
-              .upsert({
-                key: 'favorite_stocks',
-                data: updatedFavorites,
-                timestamp: Date.now(),
-                is_string: false
-              }, { onConflict: 'key' });
-              
-            // Notify the user with toast message
-            invalidFavorites.forEach(symbol => {
-              toast.error(`${symbol} was removed from favorites as no data was found.`);
-            });
-            
-            console.log(`Removed ${invalidFavorites.length} invalid favorites:`, invalidFavorites);
-          }
-        } catch (err) {
-          console.error("Error updating favorites list:", err);
         }
       }
       
-      // Final success message
+      // Reset API call display
+      setCurrentApiCall(null);
+      
+      // Success message
       if (failed > 0) {
-        toast.error(`Failed to load data for ${failed} stocks. Check console for details.`);
+        toast.warning(`Historical data loaded with issues - ${completed} succeeded, ${failed} failed`);
+        
         // Display error details in the console in a readable format
         console.error('Historical data load failures:', errors);
       } else {
         toast.success(`Historical data stored in Supabase successfully for all ${completed} stocks`);
+      }
+
+      // Now automatically analyze the waves too
+      if (completed > 0) {
+        try {
+          toast.info("Starting wave analysis for loaded historical data...");
+          
+          // Switch to the waves tab to show analysis progress
+          setActiveTab("waves");
+
+          // Initialize progress tracking for wave analysis
+          setAnalysisProgress({
+            total: completed,
+            current: 0,
+            inProgress: true,
+            currentSymbol: undefined
+          });
+
+          // Get all symbols that were successfully loaded with historical data
+          const symbolsToAnalyze = Object.keys(historicalData)
+            .filter(key => key.includes('_1d'))
+            .map(key => key.split('_')[0])
+            .slice(0, stockCount);
+            
+          console.log(`Analyzing waves for ${symbolsToAnalyze.length} symbols...`);
+          
+          // Process one symbol at a time for smoother UI updates
+          let waveAnalyzed = 0;
+          
+          for (const symbol of symbolsToAnalyze) {
+            try {
+              // Update the UI to show which stock is currently being processed
+              setAnalysisProgress(prev => ({
+                ...prev,
+                currentSymbol: symbol
+              }));
+              
+              console.log(`Analyzing waves for ${symbol}...`);
+              
+              // Get the historical data that was just loaded
+              const historicalData = await getHistoricalData(symbol, '1d');
+              
+              // Require at least 50 data points for analysis
+              if (!historicalData || historicalData.length < 50) {
+                console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
+                continue; // Skip this stock
+              }
+              
+              // Start the analysis
+              const analysis = await getAnalysis(symbol, historicalData, true, true);
+              
+              // If we have valid analysis results
+              if (analysis && analysis.waves) {
+                // Update state
+                setWaveAnalyses(prev => ({
+                  ...prev,
+                  [`${symbol}_1d`]: {
+                    analysis: analysis,
+                    timestamp: Date.now(),
+                    isLoaded: true // Mark as loaded
+                  }
+                }));
+
+                // CRITICAL: Explicitly save the wave analysis to Supabase
+                await supabase
+                  .from('cache')
+                  .upsert({
+                    key: `wave_analysis_${symbol}_1d`,
+                    data: analysis,
+                    timestamp: Date.now(),
+                    duration: 7 * 24 * 60 * 60 * 1000, // 7 days
+                    is_string: false
+                  }, { onConflict: 'key' });
+                  
+                console.log(`Successfully stored wave analysis for ${symbol} in Supabase`);
+                waveAnalyzed++;
+              }
+            } catch (err) {
+              console.error(`Failed to analyze ${symbol}`, err);
+            } finally {
+              // Update progress regardless of success or failure
+              setAnalysisProgress(prev => ({
+                ...prev,
+                current: prev.current + 1
+              }));
+            }
+
+            // Small delay between analyses
+            await new Promise(r => setTimeout(r, 100));
+          }
+
+          // Final success message for wave analysis
+          toast.success(`Wave analysis completed for ${waveAnalyzed} stocks`);
+          
+          // Update cache data after all analyses are done
+          await loadCacheData(true);
+        } catch (waveErr) {
+          console.error('Error during automatic wave analysis:', waveErr);
+          toast.error('Error occurred during automatic wave analysis');
+        } finally {
+          // Reset progress indicator
+          setAnalysisProgress({
+            total: 0,
+            current: 0,
+            inProgress: false,
+            currentSymbol: undefined
+          });
+        }
       }
     } catch (error) {
       console.error('Error preloading historical data:', error);
@@ -799,12 +892,13 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
         total: 0,
         current: 0,
         inProgress: false,
-        currentSymbol: undefined
+        currentSymbol: undefined,
+        processedSymbols: [] // Reset processedSymbols to an empty array
       });
       setCurrentApiCall(null);
       setIsRefreshing(false);
     }
-  }, [loadCacheData, supabase, stockCount, fetchTopStocks, cacheExpiryDays]);
+  }, [loadCacheData, supabase, stockCount, fetchTopStocks, cacheExpiryDays, getHistoricalData, getAnalysis]);
 
   // Calculate cache statistics using useMemo
   const cacheStats = useMemo(() => ({
@@ -1304,6 +1398,208 @@ useEffect(() => {
     initialLoad();
   }, [loadSettings, loadCacheData]);
 
+  // In the AdminDashboard component, modify the existing useEffect for background refresh events
+  useEffect(() => {
+    // Function to handle when background refresh is completed
+    const handleRefreshCompleted = async () => {
+      console.log('Background refresh completed event received, refreshing cache data');
+      toast.info('Background refresh completed, updating cache display...');
+      
+      try {
+        // Clear any cached data in memory to ensure we get fresh data
+        setWaveAnalyses({});
+        setHistoricalData({});
+        
+        // Clear localStorage cache to ensure subsequent page loads get fresh data
+        localStorage.removeItem('admin_dashboard_cache');
+        localStorage.removeItem('admin_dashboard_cache_timestamp');
+        localStorage.removeItem('admin_dashboard_cache_chunk_timestamp');
+        setLocalCacheTimestamp(0);
+        
+        // Add a slight delay before loading fresh data to allow Supabase to fully sync
+        toast.info('Waiting for database sync before loading fresh data...');
+        await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second delay
+        
+        // Now force reload cache data to show the latest wave analysis
+        // Using true to bypass local cache and get fresh data from Supabase
+        await loadCacheData(true);
+        
+        // Switch to waves tab to show the results
+        setActiveTab("waves");
+        
+        toast.success('Cache data refreshed successfully after background process completion');
+      } catch (error) {
+        console.error('Error refreshing cache after background process:', error);
+        toast.error('Failed to refresh cache data after background process');
+      }
+    };
+
+    // Listen for the custom event from BackgroundRefreshControl
+    window.addEventListener(REFRESH_COMPLETED_EVENT, handleRefreshCompleted);
+    
+    // Log that we've set up the event listener
+    console.log('Set up event listener for background refresh completion:', REFRESH_COMPLETED_EVENT);
+    
+    return () => {
+      // Clean up the event listener
+      window.removeEventListener(REFRESH_COMPLETED_EVENT, handleRefreshCompleted);
+    };
+  }, [loadCacheData, setActiveTab, toast]); // Make sure loadCacheData is included in the dependency array
+
+  // Tab content for Historical Data Cache
+  const renderHistoricalDataTab = () => {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-medium">Historical Data Cache</h3>
+          <div className="flex items-center gap-2">
+            <Button 
+              onClick={preloadHistoricalData} 
+              disabled={isRefreshing || historyLoadProgress.inProgress}
+              variant="outline"
+              className="h-8 text-xs"
+            >
+              Refresh Historical Data
+            </Button>
+            <Input
+              type="number"
+              value={stockCount}
+              onChange={(e) => setStockCount(Number(e.target.value))}
+              className="w-16 h-8"
+              min="1"
+              max="1000"
+            />
+          </div>
+        </div>
+
+        {/* Progress indicator */}
+        {historyLoadProgress.inProgress && (
+          <div className="bg-muted rounded-md p-4 space-y-2">
+            <div className="flex justify-between mb-2">
+              <p>Loading historical data...</p>
+              <p>{historyLoadProgress.current} / {historyLoadProgress.total}</p>
+            </div>
+            <Progress 
+              value={(historyLoadProgress.current / historyLoadProgress.total) * 100} 
+              className="h-2" 
+            />
+            {historyLoadProgress.currentSymbol && (
+              <p className="text-sm text-muted-foreground">
+                Currently processing: {historyLoadProgress.currentSymbol}
+              </p>
+            )}
+            
+            {/* Real-time list of processed symbols */}
+            {historyLoadProgress.processedSymbols && historyLoadProgress.processedSymbols.length > 0 && (
+              <div className="mt-4">
+                <p className="text-sm font-medium mb-2">Successfully processed symbols: {historyLoadProgress.processedSymbols.length}</p>
+                <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-card rounded border">
+                  {historyLoadProgress.processedSymbols.map((symbol) => (
+                    <Badge key={symbol} variant="outline" className="bg-green-100 dark:bg-green-900">
+                      {symbol}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Display stats about historical data cache */}
+        <div className="space-y-4">
+          <div className="bg-muted rounded-md p-4">
+            <h4 className="font-medium mb-2">Cache Statistics</h4>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-sm text-muted-foreground">Cached Stocks:</p>
+                <p className="font-medium">{Object.keys(historicalData).length}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Last Updated:</p>
+                <p className="font-medium">
+                  {Object.values(historicalData).length > 0 
+                    ? new Date(Math.max(...Object.values(historicalData)
+                        .map(h => h.timestamp || 0))).toLocaleString()
+                    : 'Never'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Cache Expiry:</p>
+                <p className="font-medium">{cacheExpiryDays} days</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Stock Count Limit:</p>
+                <p className="font-medium">{stockCount}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Newly Processed Symbols Section - shows recent updates even after loading completes */}
+          {!historyLoadProgress.inProgress && historyLoadProgress.processedSymbols && historyLoadProgress.processedSymbols.length > 0 && (
+            <div className="bg-muted rounded-md p-4">
+              <h4 className="font-medium mb-2">Recently Processed Symbols ({historyLoadProgress.processedSymbols.length})</h4>
+              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-card rounded border">
+                {historyLoadProgress.processedSymbols.map((symbol) => (
+                  <Badge key={symbol} variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+                    {symbol}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* List of cached stocks */}
+          {Object.keys(historicalData).length > 0 && (
+            <div className="bg-muted rounded-md p-4">
+              <h4 className="font-medium mb-2">Cached Stocks</h4>
+              <div className="max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Symbol</TableHead>
+                      <TableHead>Data Points</TableHead>
+                      <TableHead>Last Updated</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {Object.entries(historicalData)
+                      .sort(([symbolA], [symbolB]) => symbolA.localeCompare(symbolB))
+                      .map(([key, value]) => {
+                        const symbol = key.split('_')[0];
+                        const dataPoints = value.data?.length || 0;
+                        const lastUpdated = new Date(value.timestamp || 0).toLocaleString();
+                        const isNewlyProcessed = historyLoadProgress.processedSymbols.includes(symbol);
+                        
+                        return (
+                          <TableRow key={key} className={isNewlyProcessed ? "bg-green-50 dark:bg-green-900/20" : ""}>
+                            <TableCell className="font-medium">{symbol}</TableCell>
+                            <TableCell>{dataPoints}</TableCell>
+                            <TableCell>{lastUpdated}</TableCell>
+                            <TableCell>
+                              {value.isLoaded ? (
+                                <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+                                  Loaded
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100">
+                                  Pending
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center">
@@ -1405,6 +1701,8 @@ useEffect(() => {
               </Button>
             </CardContent>
           </Card>
+          <DataRefreshStatus isRefreshing={isRefreshing} />
+          <BackgroundRefreshControl /> {/* Add the BackgroundRefreshControl component here */}
         </div>
         
         {/* Right column - Tabs */}

@@ -11,6 +11,8 @@ const alertVariants = cva(
         default: "bg-background text-foreground",
         destructive:
           "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+        warning:
+          "border-yellow-500/50 text-yellow-700 dark:text-yellow-500 dark:border-yellow-500/50 [&>svg]:text-yellow-500",
       },
     },
     defaultVariants: {
@@ -19,9 +21,14 @@ const alertVariants = cva(
   }
 )
 
+// Update the type declaration to explicitly include 'warning'
+type AlertVariants = VariantProps<typeof alertVariants> & {
+  variant?: 'default' | 'destructive' | 'warning';
+}
+
 const Alert = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>
+  React.HTMLAttributes<HTMLDivElement> & AlertVariants
 >(({ className, variant, ...props }, ref) => (
   <div
     ref={ref}

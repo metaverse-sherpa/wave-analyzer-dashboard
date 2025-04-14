@@ -1,11 +1,11 @@
 import { supabase } from '@/lib/supabase';
 import { StockHistoricalData, WaveAnalysisResult } from '@/types/shared';
 import { calculateAverageReturn, identifyLeadingSectors } from '@/utils/marketAnalysisUtils';
-import { buildApiUrl } from '@/services/yahooFinanceService';
+import { buildApiUrl, getApiBaseUrl, switchToFallbackApi } from '@/config/apiConfig';
 import { MAJOR_INDEXES, getIndexSymbols } from '@/config/marketIndexes';
 
-// Update the API base URL to use /api path
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+// Use the centralized API configuration
+const API_BASE_URL = getApiBaseUrl();
 
 export interface MarketSentimentResult {
   analysis: string;     // The actual AI analysis
@@ -38,6 +38,7 @@ interface MarketData {
  * @param waveAnalyses Object containing wave analyses for all stocks
  * @param forceRefresh Whether to force refresh the cache
  * @param skipApiCall Whether to skip the API call (helpful for debugging)
+ * @param abortSignal Optional abort signal to cancel the request
  * @returns Object with analysis text and metadata
  */
 export async function getAIMarketSentiment(
@@ -49,7 +50,8 @@ export async function getAIMarketSentiment(
   }, 
   waveAnalyses: Record<string, { analysis: WaveAnalysisResult, timestamp: number }> = {},
   forceRefresh: boolean = false,
-  skipApiCall: boolean = false // Add this parameter
+  skipApiCall: boolean = false, // Add this parameter
+  abortSignal?: AbortSignal // Add abort signal parameter
 ): Promise<MarketSentimentResult> {
   try {
     // Check cache first unless we're forcing a refresh
@@ -87,25 +89,38 @@ export async function getAIMarketSentiment(
       }
     }
     
-    // Call DeepSeek API with enhanced context
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_PUBLIC_DEEPSEEK_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
-            You analyze market patterns, news, and analyst insights to provide concise, actionable market sentiment summaries.`
-          },
-          {
-            role: "user",
-            content: `Generate a brief market sentiment analysis based on this market data:
-            
+    try {
+      // Check if DeepSeek API key exists
+      const apiKey = import.meta.env.VITE_PUBLIC_DEEPSEEK_API_KEY;
+      
+      // If no API key is available, use a fallback approach instead
+      if (!apiKey) {
+        console.warn("No DeepSeek API key found, using local sentiment generation");
+        return generateLocalSentimentResult(marketData, analysisInsights, marketInsightsResult);
+      }
+      
+      // Create a combined abort signal with a timeout if no external signal is provided
+      const timeoutSignal = abortSignal || AbortSignal.timeout(10000);
+      
+      // Call DeepSeek API with enhanced context
+      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            {
+              role: "system",
+              content: `You are an expert market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
+              You analyze market patterns, news, and analyst insights to provide concise, actionable market sentiment summaries.`
+            },
+            {
+              role: "user",
+              content: `Generate a brief market sentiment analysis based on this market data:
+              
 Bullish stocks: ${marketData.bullishCount} 
 Bearish stocks: ${marketData.bearishCount}
 Neutral stocks: ${marketData.neutralCount}
@@ -120,37 +135,108 @@ ${marketInsightsResult.content}
 ${marketInsightsResult.isMock ? "Note: Some market data is simulated due to API limitations." : ""}
 Include specific references to current market events or news mentioned in the insights.
 Keep your response under 120 words and focus on what this means for investors.`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 250
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 250
+        }),
+        signal: timeoutSignal
+      });
+      
+      if (!response.ok) {
+        console.warn(`DeepSeek API error: ${response.status}`);
+        // Fall back to local generation if API fails
+        return generateLocalSentimentResult(marketData, analysisInsights, marketInsightsResult);
+      }
+      
+      const result = await response.json();
+      const sentimentAnalysis = result.choices[0].message.content;
+      
+      // Create the complete result with metadata
+      const sentimentResult: MarketSentimentResult = {
+        analysis: sentimentAnalysis,
+        isMockData: marketInsightsResult.isMock,
+        sourcesUsed: ['Elliott Wave analysis', 'DeepSeek AI', ...marketInsightsResult.sourcesUsed],
+        timestamp: Date.now()
+      };
+      
+      // Save to cache
+      await saveToCache(sentimentResult);
+      
+      return sentimentResult;
+    } catch (error) {
+      console.error('Error with DeepSeek API:', error);
+      // Fall back to local generation if anything fails
+      return generateLocalSentimentResult(marketData, analysisInsights, marketInsightsResult);
     }
-    
-    const result = await response.json();
-    const sentimentAnalysis = result.choices[0].message.content;
-    
-    // Create the complete result with metadata
-    const sentimentResult: MarketSentimentResult = {
-      analysis: sentimentAnalysis,
-      isMockData: marketInsightsResult.isMock,
-      sourcesUsed: ['Elliott Wave analysis', ...marketInsightsResult.sourcesUsed],
-      timestamp: Date.now()
-    };
-    
-    // Save to cache
-    await saveToCache(sentimentResult);
-    
-    return sentimentResult;
-    
   } catch (error) {
     console.error('Error getting AI market sentiment:', error);
-    throw new Error(`Failed to get market sentiment analysis: ${(error as Error).message}`);
+    // Final fallback
+    return {
+      analysis: `Market analysis based on ${marketData.bullishCount} bullish and ${marketData.bearishCount} bearish stocks suggests a ${marketData.overallSentiment.toLowerCase()} trend. Elliott Wave patterns indicate potential for continued momentum in the current direction.`,
+      isMockData: true,
+      sourcesUsed: ['fallback analysis'],
+      timestamp: Date.now()
+    };
   }
+}
+
+// Helper function to generate sentiment result locally
+function generateLocalSentimentResult(
+  marketData: MarketData, 
+  analysisInsights: string, 
+  marketInsightsResult: MarketInsightsResult
+): MarketSentimentResult {
+  const currentDate = new Date();
+  const dateStr = currentDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+  
+  const { bullishCount, bearishCount, neutralCount, overallSentiment } = marketData;
+  
+  // Create a deterministic but varying sentiment based on the counts
+  const bullishRatio = bullishCount / (bullishCount + bearishCount + neutralCount || 1);
+  const bearishRatio = bearishCount / (bullishCount + bearishCount + neutralCount || 1);
+  
+  let sentiment;
+  if (bullishRatio > 0.6) sentiment = "strongly bullish";
+  else if (bullishRatio > 0.5) sentiment = "moderately bullish";
+  else if (bearishRatio > 0.6) sentiment = "strongly bearish";
+  else if (bearishRatio > 0.5) sentiment = "moderately bearish";
+  else sentiment = "neutral";
+  
+  // Generate different analysis based on the sentiment
+  let analysisText = "";
+  
+  // Include some market insights if available
+  const hasMarketInsights = marketInsightsResult.content && 
+    !marketInsightsResult.content.includes("Market data currently unavailable");
+  
+  switch(sentiment) {
+    case "strongly bullish":
+      analysisText = `As of ${dateStr}, market sentiment is decidedly bullish with ${bullishCount} stocks showing positive wave patterns. ${hasMarketInsights ? `Recent news indicates ${marketInsightsResult.content.split('\n')[0].toLowerCase().replace('📰 latest market headlines:', '')}.` : ''}  This broad participation suggests momentum may continue. Investors might consider maintaining equity exposure while being mindful of potential overbought conditions.`;
+      break;
+    case "moderately bullish":
+      analysisText = `Market indicators as of ${dateStr} show a cautiously optimistic outlook with ${bullishCount} bullish vs ${bearishCount} bearish stocks. ${hasMarketInsights ? `Market activity reflects ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'ongoing developments'}.` : ''} The Elliott Wave patterns suggest we may be in the early-to-middle stages of an upward movement.`;
+      break;
+    case "strongly bearish":
+      analysisText = `Market analysis on ${dateStr} reveals significant bearish pressure with ${bearishCount} stocks showing negative wave patterns. ${hasMarketInsights ? `This aligns with recent developments including ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'current market events'}.` : ''} Protective positioning may be warranted as technical indicators suggest further downside potential.`;
+      break;
+    case "moderately bearish":
+      analysisText = `Current market conditions (${dateStr}) lean bearish with ${bearishCount} stocks showing negative wave patterns against ${bullishCount} bullish ones. ${hasMarketInsights ? `News about ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'market developments'} may be contributing factors.` : ''} Elliott Wave analysis suggests we may be in a corrective phase.`;
+      break;
+    default:
+      analysisText = `Market sentiment appears mixed as of ${dateStr}, with a balanced distribution between bullish (${bullishCount}) and bearish (${bearishCount}) patterns. ${hasMarketInsights ? `Recent news includes ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'various market developments'}.` : ''} This equilibrium suggests a period of consolidation may be underway.`;
+  }
+  
+  return {
+    analysis: analysisText,
+    isMockData: true,
+    sourcesUsed: ['local analysis', 'wave pattern data', ...(marketInsightsResult.sourcesUsed || [])],
+    timestamp: Date.now()
+  };
 }
 
 /**
@@ -318,13 +404,8 @@ interface MarketInsightsResult {
  * @returns Full URL with proper protocol
  */
 function buildSafeApiUrl(endpoint: string): string {
-  // Always use relative URLs in production to avoid CORS issues
-  const baseUrl = '/api';
-  
-  // Make sure endpoint starts with / but baseUrl doesn't end with /
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  
-  return `${baseUrl}${cleanEndpoint}`;
+  // Use the centralized buildApiUrl function to ensure consistency
+  return buildApiUrl(endpoint);
 }
 
 /**
@@ -369,203 +450,135 @@ async function fetchMarketInsights(additionalSymbols: string[] = []): Promise<Ma
     const insights: string[] = [];
     const sourcesUsed: string[] = [];
     
+    // Log which API URL we're using 
+    console.log(`[API] Using API base URL: ${API_BASE_URL}`);
     console.log(`Fetching insights for ${allSymbols.length} market indexes`);
-    
-    // Check API availability
-    try {
-      const healthCheck = await fetch('/api/health', { 
-        method: 'GET',
-        headers: { 'Cache-Control': 'no-cache' },
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (!healthCheck.ok) {
-        throw new Error(`API health check failed: ${healthCheck.status}`);
-      }
-    } catch (healthErr) {
-      console.error('API health check failed:', healthErr);
-      throw new Error('API unavailable');
-    }
+
+    // Create a fallback content that's robust even when everything fails
+    // This ensures we always have something to display
+    let fallbackContent = `Market analysis based on ${allSymbols.length} major indices.`;
     
     // Track API success/failure
     let apiSuccessCount = 0;
     let apiFailureCount = 0;
     
-    // Process index symbols with priority
-    const indexNames = Object.fromEntries(
-      MAJOR_INDEXES_ARRAY.map(index => [index.symbol, index.name])
-    );
-    
-    // First get market news - this is the highest priority
+    // First try to get market news - with improved error handling
     let hasMarketNews = false;
     try {
       const marketNewsUrl = buildSafeApiUrl('/market/news');
       
+      console.log('Fetching market news from:', marketNewsUrl);
       const newsResponse = await fetch(marketNewsUrl, { 
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(5000), // Shorter timeout to fail faster
         headers: { 'Cache-Control': 'no-cache' }
       });
       
       if (newsResponse.ok) {
         const newsResponseText = await newsResponse.text();
         
-        if (!newsResponseText.trim().startsWith('<!DOCTYPE') && !newsResponseText.trim().startsWith('<html')) {
-          const newsData = JSON.parse(newsResponseText);
-          
-          // Add top headlines
-          if (newsData && Array.isArray(newsData) && newsData.length > 0) {
-            insights.push("📰 Latest Market Headlines:");
-            newsData.slice(0, 5).forEach(article => {
-              insights.push(`- ${article.title}`);
-            });
-            hasMarketNews = true;
-            sourcesUsed.push('market news');
+        try {
+          if (!newsResponseText.trim().startsWith('<!DOCTYPE') && !newsResponseText.trim().startsWith('<html')) {
+            const newsData = JSON.parse(newsResponseText);
+            
+            // Add top headlines
+            if (newsData && Array.isArray(newsData) && newsData.length > 0) {
+              insights.push("📰 Latest Market Headlines:");
+              newsData.slice(0, 5).forEach(article => {
+                insights.push(`- ${article.title}`);
+              });
+              hasMarketNews = true;
+              sourcesUsed.push('market news');
+              
+              // If we got news, that's a good sign the API is working
+              apiSuccessCount++;
+              
+              // Update fallback content with actual news headlines
+              fallbackContent = `Recent market headlines indicate ${newsData[0].title.toLowerCase()}`;
+            }
+          } else {
+            console.warn('News response was HTML instead of JSON, using fallback');
+            apiFailureCount++;
           }
+        } catch (parseError) {
+          console.warn('Failed to parse news response:', parseError);
+          apiFailureCount++;
+        }
+      } else {
+        console.warn(`Market news request failed with status: ${newsResponse.status}`);
+        apiFailureCount++;
+        
+        // If we received a 404, switch to fallback API for future requests
+        if (newsResponse.status === 404) {
+          console.warn("Received 404 from news API, switching to fallback");
+          switchToFallbackApi();
         }
       }
     } catch (err) {
       console.warn('Error fetching market news:', err);
+      apiFailureCount++;
     }
     
-    // Group indexes by region for better organization
-    const regionGroups = {
-      'US': allSymbols.filter(symbol => 
-        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'US')),
-      'Europe': allSymbols.filter(symbol => 
-        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Europe')),
-      'Asia': allSymbols.filter(symbol => 
-        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Asia')),
-      'Global': allSymbols.filter(symbol => 
-        MAJOR_INDEXES_ARRAY.find(idx => idx.symbol === symbol && idx.region === 'Global')),
-      'Other': allSymbols.filter(symbol => 
-        !MAJOR_INDEXES_ARRAY.some(idx => idx.symbol === symbol))
-    };
-    
-    // Process each region
-    for (const [region, symbols] of Object.entries(regionGroups)) {
-      if (symbols.length === 0) continue;
-      
-      // Add region header
-      if (region !== 'Other') {
-        insights.push(`\n📊 ${region} Markets:`);
-      }
-      
-      // Process each symbol in this region
-      for (const symbol of symbols) {
-        try {
-          console.log(`Fetching insights for ${symbol} (${indexNames[symbol] || 'Additional Symbol'})`);
-          const insightUrl = `/api/stocks/${symbol}/insights`;
+    // Try to get S&P 500 quote as another data point
+    if (apiFailureCount > 0) {
+      try {
+        const sp500Url = buildSafeApiUrl('/market/quote/SPY');
+        
+        console.log('Fetching S&P 500 quote from:', sp500Url);
+        const quoteResponse = await fetch(sp500Url, { 
+          signal: AbortSignal.timeout(5000),
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        
+        if (quoteResponse.ok) {
+          const quoteData = await quoteResponse.json();
           
-          const response = await fetch(insightUrl, { 
-            signal: AbortSignal.timeout(10000),
-            headers: { 'Cache-Control': 'no-cache' }
-          });
-          
-          if (!response.ok) {
-            continue;
-          }
-          
-          const responseText = await response.text();
-          
-          if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
-            continue;
-          }
-          
-          const data = JSON.parse(responseText);
-          
-          // Process the data
-          if (data && data.technicalInsights) {
-            const rating = data.technicalInsights.rating || "NEUTRAL";
-            const name = indexNames[symbol] || symbol;
-            
-            insights.push(`${name}: ${rating} outlook`);
-            
-            // Add text insights if available
-            if (data.insightsText && Array.isArray(data.insightsText) && data.insightsText.length > 0) {
-              const insight = data.insightsText[0];
-              if (insight && insight.text) {
-                insights.push(`  "${insight.text}"`);
-              }
-            }
-            
+          if (quoteData && quoteData.price) {
+            insights.push("\n📊 Market Indicators:");
+            insights.push(`S&P 500 ETF (SPY): $${quoteData.price.toFixed(2)} (${quoteData.change > 0 ? '+' : ''}${quoteData.change.toFixed(2)}%)`);
+            sourcesUsed.push('market quotes');
             apiSuccessCount++;
-            
-            if (!sourcesUsed.includes('technical insights')) {
-              sourcesUsed.push('technical insights');
-            }
           }
-          
-          // Add a small delay between requests
-          await new Promise(resolve => setTimeout(resolve, 300));
-        } catch (err) {
-          console.warn(`Error fetching insights for ${symbol}:`, err);
+        } else {
+          console.warn(`S&P 500 quote request failed with status: ${quoteResponse.status}`);
           apiFailureCount++;
         }
+      } catch (err) {
+        console.warn('Error fetching S&P 500 quote:', err);
+        apiFailureCount++;
       }
     }
     
-    // Add a section for recent performance
-    insights.push("\n📈 Recent Performance:");
-    try {
-      // Try to get S&P 500 change
-      const sp500Url = `/api/stocks/%5EGSPC/quote`;
-      const sp500Response = await fetch(sp500Url, {
-        signal: AbortSignal.timeout(5000),
-        headers: { 'Cache-Control': 'no-cache' }
-      });
-      
-      if (sp500Response.ok) {
-        const sp500Data = await sp500Response.json();
-        if (sp500Data && sp500Data.regularMarketChangePercent) {
-          const changePercent = sp500Data.regularMarketChangePercent;
-          insights.push(`S&P 500: ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`);
-          sourcesUsed.push('market data');
-        }
-      }
-    } catch (err) {
-      console.warn('Error fetching S&P 500 data:', err);
-    }
-    
-    // If we didn't get much data from the real API, use fallback
-    if (apiSuccessCount < 2 && !hasMarketNews) {
-      console.warn('Insufficient real insights, using fallback data');
-      const mockData = generateMockIndexInsights();
+    // If all API calls have failed, use generated mock data
+    if (apiSuccessCount === 0) {
+      console.warn('All API calls failed, using generated mock data');
       return {
-        content: mockData,
+        content: generateMockIndexInsights(),
         isMock: true,
-        sourcesUsed: ['mock index data']
+        sourcesUsed: ['generated market data']
       };
     }
     
-    // If we got any insights at all, return them
+    // If we have at least some real data, return it
     if (insights.length > 0) {
-      // Add a summary line at the beginning
-      const summaryLine = `Analysis includes data from ${apiSuccessCount} major market indexes`;
-      insights.unshift(summaryLine);
-      
       return {
         content: insights.join('\n'),
-        isMock: false,
-        sourcesUsed
+        isMock: apiFailureCount > apiSuccessCount,
+        sourcesUsed: sourcesUsed.length ? sourcesUsed : ['market data']
       };
     }
     
-    // Fallback to mock data if nothing was retrieved
-    console.log('No insights retrieved from API, using fallback mock data');
-    const mockData = generateMockIndexInsights();
+    // Final fallback - should rarely reach here with the improved handling
     return {
-      content: mockData,
+      content: fallbackContent,
       isMock: true,
-      sourcesUsed: ['mock data (no insights)']
+      sourcesUsed: ['fallback data']
     };
-    
-  } catch (error) {
-    console.error('Error fetching market insights:', error);
-    const mockData = generateMockIndexInsights();
+  } catch (err) {
+    console.error('Error in fetchMarketInsights:', err);
     return {
-      content: mockData,
+      content: "Market data currently unavailable. Analysis based on Elliott Wave patterns only.",
       isMock: true,
-      sourcesUsed: ['mock data (error fallback)']
+      sourcesUsed: ['fallback only']
     };
   }
 }

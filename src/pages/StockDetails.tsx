@@ -114,7 +114,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [historicalData, setHistoricalData] = useState<StockHistoricalData[]>([]);
   const [analysis, setAnalysis] = useState<WaveAnalysisResult>({
     waves: [],
-    invalidWaves: [], // Add this line
+    invalidWaves: [], // Explicitly initialize invalidWaves as empty array
     currentWave: null,
     fibTargets: [],
     trend: 'neutral' as 'bullish' | 'bearish' | 'neutral',
@@ -128,6 +128,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
   const [chartData, setChartData] = useState<any[]>([]);
   const [livePrice, setLivePrice] = useState<number | null>(null); // Add this state
+  const [error, setError] = useState<string | null>(null); // Make sure this state exists
 
   // Move this outside of useEffect - this is the key fix
   const dataLoadedRef = useRef(false);
@@ -137,9 +138,11 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     // instead of creating it inside the effect
     const loadData = async () => {
       setLoading(true);
+      setError(null); // Reset error state
       
       if (!symbol) {
         setLoading(false);
+        setError("No stock symbol provided");
         return;
       }
       
@@ -166,9 +169,21 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         console.log(`Fetching historical data for ${symbol} (forceRefresh: ${forceRefresh})`);
         const historicalData = await getHistoricalData(symbol, '1d', forceRefresh);
         
-        // Update all required state variables
-        setHistoricalData(historicalData);
-        setChartData(formatChartData(historicalData));
+        // Check if we have sufficient data points for analysis
+        if (!historicalData || historicalData.length < 50) {
+          console.warn(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points (minimum 50 required)`);
+          setHistoricalData(historicalData || []);
+          setChartData(formatChartData(historicalData || []));
+          setError(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points available (minimum 50 required for wave analysis)`);
+          
+          // Continue loading to show at least the basic stock info and any available price data
+          // even if we can't do wave analysis
+        } else {
+          // Update all required state variables
+          setHistoricalData(historicalData);
+          setChartData(formatChartData(historicalData));
+          setError(null);
+        }
         
         // Fetch stock information 
         try {
@@ -253,13 +268,33 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
         }
         
         // Get Elliott Wave analysis
-        const waveAnalysis = await getAnalysis(symbol, historicalData);
-        setAnalysis(waveAnalysis);
-        
-        console.log('Data loading complete:', {
-          histPoints: historicalData.length,
-          waves: waveAnalysis.waves.length
-        });
+        try {
+          const waveAnalysis = await getAnalysis(symbol, historicalData);
+          
+          // Ensure we have valid analysis with required properties
+          if (waveAnalysis) {
+            // Make sure we have invalidWaves property even if the API didn't return it
+            const safeAnalysis = {
+              ...waveAnalysis,
+              waves: waveAnalysis.waves || [],
+              invalidWaves: waveAnalysis.invalidWaves || [], // Ensure invalidWaves exists
+              fibTargets: waveAnalysis.fibTargets || [],
+            };
+            
+            setAnalysis(safeAnalysis);
+            console.log('Data loading complete:', {
+              histPoints: historicalData.length,
+              waves: safeAnalysis.waves.length,
+              invalidWaves: safeAnalysis.invalidWaves.length
+            });
+          } else {
+            // If no analysis returned, keep the default empty analysis
+            console.log('No wave analysis available for this symbol');
+          }
+        } catch (analysisErr) {
+          console.error('Error getting wave analysis:', analysisErr);
+          // Keep the default empty analysis from useState initialization
+        }
         
         // Mark as loaded
         dataLoadedRef.current = true;
