@@ -44,28 +44,30 @@ export interface WaveAnalysisResult {
 /**
  * Determine whether a wave is impulse or corrective based on its number/letter
  */
-const determineWaveType = (waveNumber: string | number): 'impulse' | 'corrective' => {
-  if (typeof waveNumber === 'number') {
+function determineWaveType(waveNumber: string | number): 'impulse' | 'corrective' {
+  if (typeof waveNumber === 'number' || !isNaN(parseInt(waveNumber as string))) {
     // Waves 1, 3, 5 are impulse; 2, 4 are corrective
-    return waveNumber % 2 === 1 ? 'impulse' : 'corrective';
+    const num = typeof waveNumber === 'number' ? waveNumber : parseInt(waveNumber);
+    return num % 2 === 1 ? 'impulse' : 'corrective';
   } else {
     // Waves A, C are corrective; B is impulse
     return waveNumber === 'B' ? 'impulse' : 'corrective';
   }
-};
+}
 
 /**
  * Check if a wave is an impulse wave based on its number/letter
  */
-const isImpulseWave = (waveNumber: string | number): boolean => {
-  if (typeof waveNumber === 'number') {
+function isImpulseWave(waveNumber: string | number): boolean {
+  if (typeof waveNumber === 'number' || !isNaN(parseInt(waveNumber as string))) {
     // Waves 1, 3, 5 are impulse
-    return waveNumber % 2 === 1;
+    const num = typeof waveNumber === 'number' ? waveNumber : parseInt(waveNumber);
+    return num % 2 === 1;
   } else {
     // Wave B is impulse, A and C are not
     return waveNumber === 'B';
   }
-};
+}
 
 /**
  * Format a timestamp as a readable date string
@@ -1872,6 +1874,7 @@ const isWaveInvalidated = (wave: Wave, currentPrice: number, allWaves: Wave[]): 
   // Wave 5 shouldn't retrace below wave 4's start
   if (wave.number === 5) {
     const wave4 = findMostRecentWave(allWaves, 4);
+    
     if (wave4 && wave4.startPrice) {
       return currentPrice < wave4.startPrice;
     }

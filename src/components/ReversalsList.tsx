@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
-import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { apiUrl } from '@/utils/apiConfig';
@@ -39,37 +39,6 @@ interface ReversalCandidate {
 const CACHE_KEY = 'reversal-candidates-cache';
 const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
-export const handleGlobalRefresh = async (symbols: string[]) => {
-  console.log("Global refresh called with", symbols.length, "symbols");
-  
-  try {
-    // Clear existing cache
-    localStorage.removeItem(CACHE_KEY);
-    
-    // Create a simple approach to fetch prices and recalculate
-    // This is effectively what the component's fetchPrices and calculateReversals do
-    const url = apiUrl(`/quotes?symbols=${symbols.slice(0, 50).join(',')}`); // Limit to 50 symbols for performance
-    console.log(`Fetching fresh prices from: ${url}`);
-    
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch prices: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    console.log(`Fetched ${data.length} price quotes`);
-    
-    // We don't need to do the calculation here, just trigger a state update
-    // that will cause the component to refresh itself
-    
-    // Return success
-    return true;
-  } catch (error) {
-    console.error("Error in global refresh:", error);
-    return false;
-  }
-};
-
 const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => {
   const navigate = useNavigate();
   const [showMore, setShowMore] = useState(false);
@@ -82,6 +51,56 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
   const symbols = useMemo(() => {
     return [...new Set(Object.keys(analyses).map(key => key.split('_')[0]))];
   }, [analyses]);
+  
+  // Move handleGlobalRefresh inside the component as a regular function
+  const handleGlobalRefresh = useCallback((symbolsToRefresh: string[]) => {
+    console.log("Global refresh called with", symbolsToRefresh.length, "symbols");
+    
+    return new Promise<boolean>(async (resolve) => {
+      try {
+        // Clear existing cache
+        localStorage.removeItem(CACHE_KEY);
+        
+        // Use individual stock endpoints instead of the quotes endpoint that's returning 404
+        const priceMap: PriceMap = {};
+        
+        // Process a reasonable number of symbols (first 10) for a quick refresh
+        const symbolsToProcess = symbolsToRefresh.slice(0, 10);
+        
+        for (const symbol of symbolsToProcess) {
+          try {
+            // Updated: Use the correct endpoint format from the available endpoints list
+            const url = apiUrl(`/stocks/${symbol}/quote`);
+            console.log(`Fetching fresh price for ${symbol} from: ${url}`);
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+              console.warn(`Failed to fetch price for ${symbol}: ${response.status}`);
+              continue;
+            }
+            
+            const data = await response.json();
+            if (data && (data.regularMarketPrice || data.price || data.lastPrice)) {
+              const price = data.regularMarketPrice || data.price || data.lastPrice;
+              if (typeof price === 'number' && price > 0) {
+                priceMap[symbol] = price;
+              }
+            }
+          } catch (error) {
+            console.warn(`Error fetching ${symbol}:`, error);
+          }
+        }
+        
+        console.log(`Fetched ${Object.keys(priceMap).length} price quotes`);
+        
+        // Return success if we got at least some prices
+        resolve(Object.keys(priceMap).length > 0);
+      } catch (error) {
+        console.error("Error in global refresh:", error);
+        resolve(false);
+      }
+    });
+  }, []);
   
   // Function to save data to cache
   const saveToCache = useCallback((data: ReversalCandidate[]) => {
@@ -200,7 +219,7 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
     return priceMap;
   };
   
-  // Optimized function to fetch prices with better error handling
+  // Optimized function to fetch prices with better error handling and retry mechanism
   const fetchPrices = async (symbols: string[]): Promise<PriceMap> => {
     // Quick return if no symbols
     if (symbols.length === 0) return {};
@@ -209,125 +228,115 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
     const priceMap: PriceMap = {};
     
     try {
-      // Log the API URL we're about to use to help diagnose the issue
-      const sampleUrl = apiUrl(`/quotes?symbols=AAPL`);
-      console.log(`API URL format being used: ${sampleUrl}`);
+      // Process symbols individually using the available endpoint /stocks/{symbol}/quote
+      // Limit to 20 symbols for performance (can adjust as needed)
+      const limitedSymbols = symbols.slice(0, 20);
       
-      // Use batch processing with 50 symbols at a time
-      const batchSize = 50;
-      let successfulBatch = false;
+      console.log(`Fetching prices for ${limitedSymbols.length} symbols individually`);
       
-      for (let i = 0; i < symbols.length; i += batchSize) {
-        const batch = symbols.slice(i, i + batchSize);
-        const symbolsParam = batch.join(',');
+      // Process in smaller batches to avoid overwhelming the API
+      const batchSize = 3; 
+      
+      for (let i = 0; i < limitedSymbols.length; i += batchSize) {
+        const batch = limitedSymbols.slice(i, i + batchSize);
         
-        try {
-          console.log(`Fetching batch ${Math.floor(i/batchSize) + 1} with ${batch.length} symbols`);
-          
-          // Create the full URL to log for debugging
-          const batchUrl = apiUrl(`/quotes?symbols=${symbolsParam}`);
-          console.log(`Fetching from: ${batchUrl}`);
-          
-          // Add a timeout to the fetch to avoid hanging
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-          
-          const response = await fetch(batchUrl, { 
-            signal: controller.signal,
-            // Add headers that might be needed
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            }
-          });
-          
-          // Clear the timeout since fetch completed
-          clearTimeout(timeoutId);
-          
-          if (!response.ok) {
-            console.warn(`Error fetching batch: ${response.status} ${response.statusText}`);
-            // Try to get response text for more info
+        // Create array of promises for this batch
+        const promises = batch.map(async (symbol) => {
+          // Retry mechanism - try up to 2 times with increasing delay
+          for (let retry = 0; retry < 2; retry++) {
             try {
-              const errorText = await response.text();
-              console.warn(`Response error text: ${errorText}`);
-            } catch (e) {
-              // Ignore error reading response text
-            }
-            continue;
-          }
-          
-          const data = await response.json();
-          if (!Array.isArray(data)) {
-            console.warn('Expected array response from quotes API, got:', typeof data);
-            continue;
-          }
-          
-          // Populate price map with results
-          data.forEach(quote => {
-            if (quote.symbol) {
-              // Handle different possible price field names
-              const price = quote.regularMarketPrice || quote.price || quote.lastPrice;
-              if (typeof price === 'number' && price > 0) {
-                priceMap[quote.symbol] = price;
+              // Use the /stocks/{symbol}/quote endpoint that's available in the API
+              const url = apiUrl(`/stocks/${symbol}/quote`);
+              
+              if (retry > 0) {
+                console.log(`Retry attempt ${retry+1} for ${symbol}`);
+                // Add exponential backoff delay before retrying
+                await new Promise(resolve => setTimeout(resolve, retry * 1000));
               }
-            }
-          });
-          
-          console.log(`Processed batch with ${data.length} quotes`);
-          successfulBatch = true;
-        } catch (error) {
-          console.warn(`Failed to fetch batch ${Math.floor(i/batchSize) + 1}:`, error);
-        }
-      }
-      
-      // If all batches failed, try to provide more diagnostic info
-      if (!successfulBatch) {
-        console.error("All batch requests failed. This could indicate:");
-        console.error("1. Network connectivity issues");
-        console.error("2. CORS restrictions (if running locally)");
-        console.error("3. API endpoint URL is incorrect");
-        console.error("4. API service is down");
-        console.error("Attempting to fetch prices from individual stock endpoints as fallback...");
-        
-        // Try fetching a single stock as a test
-        try {
-          const testSymbol = symbols[0];
-          const testUrl = apiUrl(`/stocks/${testSymbol}`);
-          console.log(`Testing single stock URL: ${testUrl}`);
-          
-          const testResponse = await fetch(testUrl);
-          console.log(`Test response status: ${testResponse.status} ${testResponse.statusText}`);
-          
-          if (testResponse.ok) {
-            // Single stock endpoint works, use it for a few symbols
-            const fallbackSymbols = symbols.slice(0, 10); // Just try first 10 symbols
-            
-            for (const symbol of fallbackSymbols) {
-              try {
-                const response = await fetch(apiUrl(`/stocks/${symbol}`));
-                if (response.ok) {
-                  const data = await response.json();
-                  if (data && typeof data.regularMarketPrice === 'number') {
-                    priceMap[symbol] = data.regularMarketPrice;
-                  }
+              
+              // FIXED: Use a simpler approach for timeout handling to avoid AbortController issues
+              const fetchPromise = fetch(url, {
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json'
+                },
+                // Add cache control to avoid browser caching issues
+                cache: 'no-store'
+              });
+              
+              // Create a timeout promise
+              const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Timeout for ${symbol}`)), 5000);
+              });
+              
+              // Race the fetch against the timeout
+              const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
+              
+              if (!response.ok) {
+                console.warn(`Error fetching ${symbol}: ${response.status} ${response.statusText}`);
+                // Don't retry on 404s or other client errors
+                if (response.status >= 400 && response.status < 500) break;
+                continue; // Retry for server errors
+              }
+              
+              const data = await response.json();
+              if (data) {
+                // Handle different possible price field names
+                const price = data.regularMarketPrice || data.price || data.lastPrice;
+                if (typeof price === 'number' && price > 0) {
+                  priceMap[symbol] = price;
+                  console.log(`Got price for ${symbol}: ${price}`);
+                  return; // Success, exit retry loop
                 }
-              } catch (e) {
-                // Skip individual errors
               }
+              
+              // If we got here but didn't get a valid price, we should retry
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              
+              // Log the error in a more controlled way
+              if (errorMessage.includes('Timeout')) {
+                console.warn(`Timeout fetching ${symbol} (attempt ${retry+1})`);
+              } else {
+                console.warn(`Error fetching ${symbol} (attempt ${retry+1}): ${errorMessage}`);
+              }
+              
+              // Don't log stack trace for expected network errors
+              if (!(errorMessage.includes('Failed to fetch') || 
+                   errorMessage.includes('Abort') || 
+                   errorMessage.includes('Timeout'))) {
+                console.error(error);
+              }
+              
+              // Continue to next retry attempt
             }
           }
-        } catch (e) {
-          console.error("Fallback test failed too:", e);
-        }
+        });
+        
+        // Wait for all promises in this batch to complete before moving to the next batch
+        // Use Promise.allSettled instead of Promise.all to prevent one failure from affecting others
+        await Promise.allSettled(promises);
+        
+        // Add a small delay between batches to avoid overwhelming the API
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        console.log(`Completed batch ${Math.floor(i/batchSize) + 1} of ${Math.ceil(limitedSymbols.length/batchSize)}`);
       }
       
       const fetchedCount = Object.keys(priceMap).length;
       console.log(`Successfully fetched prices for ${fetchedCount}/${symbols.length} symbols (${Math.round(fetchedCount/symbols.length*100)}%)`);
+      
+      if (fetchedCount === 0) {
+        console.error("All requests failed. This could indicate:");
+        console.error("1. Network connectivity issues");
+        console.error("2. CORS restrictions (if running locally)");
+        console.error("3. API service is down");
+        console.error("Using fallback price data from wave analysis");
+      }
     } catch (error) {
-      console.error("Error in batch processing:", error);
+      console.error("Error fetching prices:", error);
     }
     
-    // If we couldn't get prices, return empty map and let caller use fallback
     return priceMap;
   };
   
@@ -523,7 +532,7 @@ const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => 
   return (
     <ReversalsContext.Provider value={{ 
       lastCacheUpdate, 
-      refreshReversals: handleRefresh, // Ensure this is the correct function
+      refreshReversals: handleRefresh,
       loading 
     }}>
       <div className="space-y-1">

@@ -1,34 +1,40 @@
 import React, { useContext } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { handleGlobalRefresh } from './ReversalsList';
+import { useGlobalRefresh } from '@/hooks/useGlobalRefresh';
 
-// Create a simple context to share the refresh state between components
-export const ReversalsContext = React.createContext<{
+// Define the context interface
+interface ReversalsContextType {
   lastCacheUpdate: number;
   refreshReversals: () => void;
   loading: boolean;
-}>({
+}
+
+// Create context with a default value
+export const ReversalsContext = React.createContext<ReversalsContextType>({
   lastCacheUpdate: 0,
-  refreshReversals: () => {
-    //console.log('Default refresh function called - using global refresh');
-    // Get symbols from localStorage or a simpler method
-    const symbols = localStorage.getItem('symbols')?.split(',') || ['AAPL', 'MSFT', 'GOOG'];
-    handleGlobalRefresh(symbols);
-  },
+  refreshReversals: () => {},
   loading: false
 });
 
-export const useReversals = () => useContext(ReversalsContext);
+// Use function declaration for the hook
+export function useReversals(): ReversalsContextType {
+  const context = useContext(ReversalsContext);
+  if (!context) {
+    throw new Error('useReversals must be used within a ReversalsProvider');
+  }
+  return context;
+}
 
-// Small component just for the timestamp and refresh button
-const ReversalsLastUpdated: React.FC = () => {
+// Use function declaration for the component
+export function ReversalsLastUpdated(): JSX.Element {
   const { lastCacheUpdate, refreshReversals, loading } = useReversals();
+  const { triggerGlobalRefresh } = useGlobalRefresh();
   
-  // Add logging to debug
-  const handleRefreshClick = () => {
-    //console.log('Refresh button clicked - triggering refresh at', new Date().toLocaleTimeString());
-    refreshReversals(); // Call the actual refresh function from context
+  const handleRefreshClick = async () => {
+    const symbols = localStorage.getItem('symbols')?.split(',') || ['AAPL', 'MSFT', 'GOOG'];
+    await triggerGlobalRefresh(symbols);
+    refreshReversals();
   };
   
   return (
@@ -50,6 +56,6 @@ const ReversalsLastUpdated: React.FC = () => {
       </Button>
     </>
   );
-};
+}
 
 export default ReversalsLastUpdated;

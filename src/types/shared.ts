@@ -67,6 +67,28 @@ export interface WaveAnalysisResult {
   correctivePattern?: boolean;
 }
 
+// Define the DeepSeek API response interface
+export interface DeepSeekWaveAnalysis {
+  currentWave: {
+    number: string | number;
+    startTime: string;
+    startPrice: number;
+  };
+  trend: 'bullish' | 'bearish' | 'neutral';
+  fibTargets: {
+    level: string;
+    price: number;
+    label: string;
+  }[];
+  completedWaves: {
+    number: string | number;
+    startTime: string;
+    startPrice: number;
+    endTime: string;
+    endPrice: number;
+  }[];
+}
+
 export interface StockData {
   symbol: string;
   name: string;

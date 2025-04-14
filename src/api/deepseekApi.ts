@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { StockHistoricalData, DeepSeekWaveAnalysis } from '@/types/shared';
 
 // For client-side usage, we need to use environment variables injected by Vite
 const apiKey = import.meta.env.VITE_PUBLIC_DEEPSEEK_API_KEY; 
@@ -209,6 +210,139 @@ async function saveAnalysisToCache(symbol: string, analysis: string): Promise<vo
     console.log(`Cached Elliott Wave analysis for ${symbol} in Supabase`);
   } catch (err) {
     console.warn('Error saving to cache:', err);
+  }
+}
+
+export async function getDeepSeekWaveAnalysis(
+  symbol: string,
+  historicalData: StockHistoricalData[]
+): Promise<DeepSeekWaveAnalysis> {
+  // Check cache first and verify timestamp
+  const cachedAnalysis = await getAnalysisFromCache(symbol);
+  if (cachedAnalysis) {
+    const { data, timestamp } = JSON.parse(cachedAnalysis);
+    const timeSinceLastAnalysis = Date.now() - timestamp;
+    const ANALYSIS_COOLDOWN = 24 * 60 * 60 * 1000; // 24 hours
+    
+    if (timeSinceLastAnalysis < ANALYSIS_COOLDOWN) {
+      console.log(`Using cached analysis for ${symbol}, last analysis was ${Math.round(timeSinceLastAnalysis / (60 * 60 * 1000))} hours ago`);
+      return data;
+    }
+  }
+
+  // No valid cache, perform new analysis
+  if (!historicalData || historicalData.length < 50) {
+    console.error(`Insufficient data points for ${symbol}: ${historicalData?.length || 0}`);
+    throw new Error(`Insufficient data points for ${symbol}`);
+  }
+
+  // Format data for DeepSeek
+  const formattedData = historicalData
+    .filter(d => d && (d.timestamp || d.timestamp === 0))
+    .map(d => {
+      let dateStr;
+      try {
+        let timestamp = d.timestamp;
+        if (typeof timestamp === 'string') {
+          timestamp = parseInt(timestamp, 10);
+        }
+        if (typeof timestamp === 'number') {
+          if (timestamp < 4000000000) {
+            timestamp *= 1000;
+          }
+          const date = new Date(timestamp);
+          if (!isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
+            dateStr = date.toISOString().slice(0, 10);
+          } else {
+            console.warn(`Invalid date from timestamp ${timestamp} for ${symbol}`);
+            return null;
+          }
+        } else {
+          console.warn(`Invalid timestamp type for ${symbol}: ${typeof timestamp}`);
+          return null;
+        }
+      } catch (err) {
+        console.error(`Error processing timestamp for ${symbol}:`, err);
+        return null;
+      }
+
+      if (isNaN(d.open) || isNaN(d.high) || isNaN(d.low) || isNaN(d.close)) {
+        console.warn(`Invalid price values for ${symbol} at ${dateStr}`);
+        return null;
+      }
+      
+      return {
+        date: dateStr,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close
+      };
+    })
+    .filter(d => d !== null);
+
+  // Verify we still have enough valid data points
+  if (formattedData.length < 50) {
+    throw new Error(`Insufficient valid data points for ${symbol}`);
+  }
+
+  // Sort chronologically
+  formattedData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // Call DeepSeek API with the prompt
+  const completion = await client.chat.completions.create({
+    model: "deepseek-chat",
+    messages: [
+      {
+        role: "system",
+        content: "You are an expert in Elliott Wave Theory and financial market analysis. Respond only with valid JSON in the requested format."
+      },
+      {
+        role: "user",
+        content: `Analyze this price data for ${symbol} using Elliott Wave Theory.\n${JSON.stringify(formattedData)}`
+      }
+    ],
+    temperature: 0.2,
+    max_tokens: 1000
+  });
+
+  const responseText = completion.choices[0].message.content || '';
+  let response: DeepSeekWaveAnalysis;
+
+  try {
+    const jsonContent = responseText.replace(/```json\s*([\s\S]*?)\s*```/g, '$1')
+                                   .replace(/```\s*([\s\S]*?)\s*```/g, '$1')
+                                   .trim();
+    response = JSON.parse(jsonContent) as DeepSeekWaveAnalysis;
+
+    if (!response.currentWave || !response.trend || !response.fibTargets || !response.completedWaves) {
+      throw new Error('Incomplete response structure');
+    }
+
+    // Add default arrays if missing
+    if (!Array.isArray(response.fibTargets)) response.fibTargets = [];
+    if (!Array.isArray(response.completedWaves)) response.completedWaves = [];
+
+    // Cache the response with timestamp
+    await saveAnalysisToCache(symbol, JSON.stringify({
+      data: response,
+      timestamp: Date.now()
+    }));
+
+    return response;
+  } catch (error) {
+    console.error("Error parsing DeepSeek response:", error);
+    const fallbackResponse: DeepSeekWaveAnalysis = {
+      currentWave: {
+        number: "1",
+        startTime: new Date().toISOString().slice(0, 10),
+        startPrice: historicalData[historicalData.length - 1]?.close || 0
+      },
+      trend: "neutral",
+      fibTargets: [],
+      completedWaves: []
+    };
+    return fallbackResponse;
   }
 }
 

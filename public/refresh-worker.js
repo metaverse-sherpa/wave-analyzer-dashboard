@@ -89,34 +89,27 @@ async function handleFullDataRefresh(payload) {
   const operationId = 'full_data_refresh';
   
   try {
-    // Check if operation is already in progress
     if (activeOperations.has(operationId)) {
       console.log('[Refresh Worker] Full data refresh already in progress');
       return;
     }
     
-    // Mark operation as active
     activeOperations.set(operationId, true);
     
-    // Report starting status
     self.postMessage({ 
       action: 'FULL_REFRESH_STARTED',
       timestamp: Date.now()
     });
     
-    // Step 1: Clear both historical data and wave analysis cache
+    // Step 1: Clear historical data cache only (not wave analysis cache)
     self.postMessage({ 
       action: 'OPERATION_STATUS',
       step: 'clear_caches',
-      message: 'Clearing historical data and wave analysis caches...',
+      message: 'Clearing historical data cache...',
       progress: 5
     });
     
-    // Clear both caches in parallel for efficiency
-    await Promise.all([
-      clearHistoricalCache(),
-      clearWaveAnalysisCache()
-    ]);
+    await clearHistoricalCache();
     
     // Step 2: Load historical data
     self.postMessage({ 
@@ -126,31 +119,25 @@ async function handleFullDataRefresh(payload) {
       progress: 10
     });
     
-    // Get top stocks first
     const topStocks = await fetchTopStocks(stockCount);
     const totalStocks = topStocks.length;
     
-    // Process stocks in batches to update progress
     for (let i = 0; i < totalStocks; i++) {
       const stock = topStocks[i];
       const symbol = stock.symbol;
       
-      // Report progress
       self.postMessage({ 
         action: 'OPERATION_STATUS',
         step: 'loading_stock_data',
         message: `Loading historical data for ${symbol} (${i+1}/${totalStocks})`,
-        progress: 10 + Math.floor((i / totalStocks) * 40) // Progress from 10% to 50%
+        progress: 10 + Math.floor((i / totalStocks) * 40)
       });
       
-      // Load historical data for this symbol
       await loadHistoricalDataForSymbol(symbol, cacheExpiryDays);
-      
-      // Small pause to avoid overwhelming the server
       await new Promise(resolve => setTimeout(resolve, 300));
     }
     
-    // Step 3: Run wave analysis
+    // Step 3: Run wave analysis only for stocks that need it
     self.postMessage({ 
       action: 'OPERATION_STATUS',
       step: 'analyze_waves',
@@ -158,27 +145,40 @@ async function handleFullDataRefresh(payload) {
       progress: 50
     });
     
-    // Process wave analysis in batches
     for (let i = 0; i < totalStocks; i++) {
       const stock = topStocks[i];
       const symbol = stock.symbol;
       
-      // Report progress
+      // Check last analysis time for this symbol
+      try {
+        const { data: existingAnalysis } = await fetch(`${apiEndpoint}/wave-analysis/${symbol}`, {
+          headers: { 'Authorization': `Bearer ${refreshToken}` }
+        }).then(r => r.json());
+        
+        const lastAnalysisTime = existingAnalysis?.timestamp || 0;
+        const timeSinceLastAnalysis = Date.now() - lastAnalysisTime;
+        const ANALYSIS_COOLDOWN = 24 * 60 * 60 * 1000; // 24 hours
+        
+        if (timeSinceLastAnalysis < ANALYSIS_COOLDOWN) {
+          console.log(`[Refresh Worker] Skipping analysis for ${symbol}, last analysis was ${Math.round(timeSinceLastAnalysis / (60 * 60 * 1000))} hours ago`);
+          continue;
+        }
+      } catch (error) {
+        console.warn(`[Refresh Worker] Error checking last analysis time for ${symbol}:`, error);
+        // Continue with analysis if we can't check the last time
+      }
+      
       self.postMessage({ 
         action: 'OPERATION_STATUS',
         step: 'analyzing_waves',
         message: `Analyzing waves for ${symbol} (${i+1}/${totalStocks})`,
-        progress: 50 + Math.floor((i / totalStocks) * 45) // Progress from 50% to 95%
+        progress: 50 + Math.floor((i / totalStocks) * 45)
       });
       
-      // Analyze waves for this symbol
       await analyzeWavesForSymbol(symbol);
-      
-      // Small pause to avoid overwhelming the server
       await new Promise(resolve => setTimeout(resolve, 300));
     }
     
-    // Completed
     self.postMessage({ 
       action: 'FULL_REFRESH_COMPLETED',
       timestamp: Date.now(),
@@ -187,13 +187,11 @@ async function handleFullDataRefresh(payload) {
     
   } catch (error) {
     console.error('[Refresh Worker] Full data refresh error:', error);
-    
     self.postMessage({ 
       action: 'FULL_REFRESH_ERROR',
       error: error.message || 'Unknown error'
     });
   } finally {
-    // Clean up
     activeOperations.delete(operationId);
   }
 }

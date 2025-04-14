@@ -239,7 +239,7 @@ const loadCacheData = useCallback(async (forceRefresh = false) => {
     while (waveHasMore) {
       const { data: pageData, error } = await supabase
         .from('cache')
-        .select('key, timestamp') // Don't fetch the full data!
+        .select('key, timestamp, data') // Add data to selected fields
         .like('key', 'wave_analysis_%')
         .range(waveFrom, waveFrom + PAGE_SIZE - 1)
         .order('timestamp', { ascending: false });
@@ -293,10 +293,19 @@ const loadCacheData = useCallback(async (forceRefresh = false) => {
     
     waveData.forEach(item => {
       const key = item.key.replace('wave_analysis_', '');
+      let currentWave = undefined;
+      
+      // Extract current wave from the data if available
+      if (item.data?.waves && item.data.waves.length > 0) {
+        const lastWave = item.data.waves[item.data.waves.length - 1];
+        currentWave = lastWave.number;
+      }
+      
       waveAnalysesObj[key] = {
-        analysis: { waves: [] }, // Empty placeholder - will be loaded on demand
+        analysis: item.data || { waves: [] },
         timestamp: item.timestamp,
-        isLoaded: false
+        isLoaded: true,
+        currentWave // Store the current wave number
       };
     });
     
@@ -502,11 +511,12 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
                 [`${symbol}_1d`]: {
                   analysis: analysis,
                   timestamp: Date.now(),
-                  isLoaded: true // Mark as loaded
+                  isLoaded: true,
+                  currentWave: analysis.currentWave?.number // Add this to store current wave
                 }
               }));
-              
-              // CRITICAL FIX: Explicitly save the wave analysis to Supabase
+
+              // CRITICAL: Explicitly save the wave analysis to Supabase with current wave
               await supabase
                 .from('cache')
                 .upsert({
@@ -514,7 +524,8 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
                   data: analysis,
                   timestamp: Date.now(),
                   duration: 7 * 24 * 60 * 60 * 1000, // 7 days
-                  is_string: false
+                  is_string: false,
+                  currentWave: analysis.currentWave?.number // Add this to store current wave
                 }, { onConflict: 'key' });
                 
               console.log(`Successfully stored wave analysis for ${symbol} in Supabase`);
@@ -649,12 +660,26 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
               throw new Error(`Insufficient data points for ${symbol}: only ${json.data.length} found (minimum 50 required)`);
             }
             
-            // Format for our application needs - must be compatible with downstream functions
+            // Format data for our application needs - must be compatible with downstream functions
             const formattedData = json.data.map(item => {
-              // Handle various date/timestamp formats
+              // Handle various timestamp formats consistently
               let timestamp = item.timestamp;
-              if (typeof item.date === 'string') {
-                timestamp = new Date(item.date).getTime();
+
+              // Convert string timestamps to numbers
+              if (typeof timestamp === 'string') {
+                timestamp = parseInt(timestamp, 10);
+              }
+
+              // Convert seconds to milliseconds if needed
+              if (typeof timestamp === 'number' && timestamp < 4000000000) {
+                timestamp *= 1000;
+              }
+
+              // Validate timestamp
+              const date = new Date(timestamp);
+              if (isNaN(date.getTime()) || date.getFullYear() < 1900 || date.getFullYear() > 2100) {
+                console.warn(`Invalid timestamp ${timestamp} for ${symbol}, using current time`);
+                timestamp = Date.now();
               }
               
               return {
@@ -1445,6 +1470,36 @@ useEffect(() => {
       window.removeEventListener(REFRESH_COMPLETED_EVENT, handleRefreshCompleted);
     };
   }, [loadCacheData, setActiveTab, toast]); // Make sure loadCacheData is included in the dependency array
+
+  // Move setWaveAnalyses hook inside the component
+  const setWaveAnalysisData = useCallback(async (symbol: string, analysis: WaveAnalysisResult) => {
+    try {
+      // Store the wave analysis with current wave information
+      await supabase
+        .from('cache')
+        .upsert({
+          key: `wave_analysis_${symbol}_1d`,
+          data: analysis,
+          timestamp: Date.now(),
+          duration: 7 * 24 * 60 * 60 * 1000, // 7 days
+          is_string: false,
+          currentWave: analysis.currentWave?.number
+        }, { onConflict: 'key' });
+      
+      // Update local state
+      setWaveAnalyses(prev => ({
+        ...prev,
+        [`${symbol}_1d`]: {
+          analysis,
+          timestamp: Date.now(),
+          isLoaded: true,
+          currentWave: analysis.currentWave?.number
+        }
+      }));
+    } catch (error) {
+      console.error(`Error storing wave analysis for ${symbol}:`, error);
+    }
+  }, [supabase]);
 
   // Tab content for Historical Data Cache
   const renderHistoricalDataTab = () => {

@@ -1,12 +1,36 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { analyzeElliottWaves } from '@/utils/elliottWaveAnalysis';
 import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired } from '@/services/databaseService';
-import type { WaveAnalysisResult, StockHistoricalData } from '@/types/shared';
+import type { WaveAnalysisResult, StockHistoricalData, Wave, FibTarget, DeepSeekWaveAnalysis } from '@/types/shared';
 import { supabase } from '@/lib/supabase';
 import { saveToCache } from '@/services/cacheService';
+import { getDeepSeekWaveAnalysis } from '@/api/deepseekApi';
 
 // Add this flag at the top of the file with your other imports
 const AUTO_LOAD_ANALYSES_FROM_SUPABASE = true;  // Set this to true
+
+// Add these helper functions from elliottWaveAnalysis.ts
+function determineWaveType(waveNumber: string | number): 'impulse' | 'corrective' {
+  if (typeof waveNumber === 'number' || !isNaN(parseInt(waveNumber as string))) {
+    // Waves 1, 3, 5 are impulse; 2, 4 are corrective
+    const num = typeof waveNumber === 'number' ? waveNumber : parseInt(waveNumber);
+    return num % 2 === 1 ? 'impulse' : 'corrective';
+  } else {
+    // Waves A, C are corrective; B is impulse
+    return waveNumber === 'B' ? 'impulse' : 'corrective';
+  }
+}
+
+function isImpulseWave(waveNumber: string | number): boolean {
+  if (typeof waveNumber === 'number' || !isNaN(parseInt(waveNumber as string))) {
+    // Waves 1, 3, 5 are impulse
+    const num = typeof waveNumber === 'number' ? waveNumber : parseInt(waveNumber);
+    return num % 2 === 1;
+  } else {
+    // Wave B is impulse, A and C are not
+    return waveNumber === 'B';
+  }
+}
 
 // Define a type for analysis events
 export type AnalysisEvent = {
@@ -189,24 +213,10 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
     
     try {
       // Perform the analysis
-      const result = await analyzeElliottWaves(
-        symbol,
-        historicalData,
-        // Check cancelation during analysis
-        () => cancelRequests[symbol] || false,
-        // Add progress callback parameter
-        (waves) => {
-          // Optional: Report progress to UI
-          if (!silent) {
-            addEvent({
-              symbol,
-              status: 'progress',
-              timestamp: Date.now(),
-              message: `Analyzing waves: ${waves.length} found`
-            });
-          }
-        }
-      );
+      const analysis = await getDeepSeekWaveAnalysis(symbol, historicalData);
+      
+      // Convert DeepSeek response to our WaveAnalysisResult format
+      const result = convertDeepSeekToWaveAnalysis(analysis, historicalData);
       
       if (cancelRequests[symbol]) {
         console.log(`Analysis for ${symbol} was canceled during processing`);
@@ -408,8 +418,8 @@ export const WaveAnalysisProvider: React.FC<{children: React.ReactNode}> = ({ ch
 };
 
 // 4. Export the hook separately - this is what components will use
-// Use function declaration instead of const assignment for hooks to improve HMR
-export const useWaveAnalysis = (): WaveAnalysisContextValue => {
+// Use function declaration for the hook instead of const assignment
+export function useWaveAnalysis(): WaveAnalysisContextValue {
   const context = useContext(WaveAnalysisContext);
   
   if (!context) {
@@ -417,7 +427,7 @@ export const useWaveAnalysis = (): WaveAnalysisContextValue => {
     
     return {
       analyses: {},
-      allAnalyses: {}, // Add this line
+      allAnalyses: {},
       getAnalysis: async () => null,
       preloadAnalyses: async () => {},
       clearAnalysis: () => {},
@@ -430,4 +440,53 @@ export const useWaveAnalysis = (): WaveAnalysisContextValue => {
   }
   
   return context;
-};
+}
+
+function convertDeepSeekToWaveAnalysis(
+  deepSeekAnalysis: DeepSeekWaveAnalysis, 
+  historicalData: StockHistoricalData[]
+): WaveAnalysisResult {
+  // Convert completed waves to our Wave format
+  const waves: Wave[] = deepSeekAnalysis.completedWaves.map(wave => ({
+    number: typeof wave.number === 'string' ? wave.number : wave.number.toString(),
+    startTimestamp: new Date(wave.startTime).getTime(),
+    endTimestamp: new Date(wave.endTime).getTime(),
+    startPrice: wave.startPrice,
+    endPrice: wave.endPrice,
+    type: determineWaveType(wave.number),
+    isComplete: true,
+    isImpulse: isImpulseWave(wave.number)
+  }));
+  
+  // Add current wave
+  waves.push({
+    number: typeof deepSeekAnalysis.currentWave.number === 'string' 
+      ? deepSeekAnalysis.currentWave.number 
+      : deepSeekAnalysis.currentWave.number.toString(),
+    startTimestamp: new Date(deepSeekAnalysis.currentWave.startTime).getTime(),
+    startPrice: deepSeekAnalysis.currentWave.startPrice,
+    // No end properties for current wave as it's ongoing
+    type: determineWaveType(deepSeekAnalysis.currentWave.number),
+    isComplete: false,
+    isImpulse: isImpulseWave(deepSeekAnalysis.currentWave.number)
+  });
+  
+  // Convert Fibonacci targets
+  const fibTargets: FibTarget[] = deepSeekAnalysis.fibTargets.map(target => ({
+    level: parseFloat(target.level),
+    price: target.price,
+    label: target.label,
+    isExtension: parseFloat(target.level) > 1.0,
+    isCritical: target.level === '0.618' || target.level === '1.0'
+  }));
+  
+  return {
+    waves,
+    invalidWaves: [], // DeepSeek doesn't provide invalidated waves
+    currentWave: waves[waves.length - 1],
+    fibTargets,
+    trend: deepSeekAnalysis.trend as 'bullish' | 'bearish' | 'neutral',
+    impulsePattern: waves.some(w => typeof w.number === 'number' && w.number === 5),
+    correctivePattern: waves.some(w => w.number === 'C')
+  };
+}
