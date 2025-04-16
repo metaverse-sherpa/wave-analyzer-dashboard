@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   
   // Get API URL from environment variable or use fallback
-  const apiBaseUrl = env.VITE_API_BASE_URL || 'http://localhost:3001';
+  const apiBaseUrl = env.VITE_API_BASE_URL || 'https://elliottwaves.ai/api';
   
   console.log(`[Vite Config] Using API URL: ${apiBaseUrl} (Mode: ${mode})`);
   
@@ -26,10 +26,18 @@ export default defineConfig(({ mode }) => {
       },
       proxy: {
         '/api': {
-          target: 'https://api-backend.metaversesherpa.workers.dev',
+          target: apiBaseUrl,
           changeOrigin: true,
           // Keep the rewrite to match how the worker expects paths
-          rewrite: (path) => path.replace(/^\/api/, '')
+          rewrite: (path) => path.replace(/^\/api/, ''),
+          configure: (proxy, options) => {
+            proxy.on('error', (err, req, res) => {
+              console.log('proxy error', err);
+            });
+            proxy.on('proxyReq', (proxyReq, req, res) => {
+              console.log('Proxying to:', proxyReq.path);
+            });
+          }
         }
       }
     },

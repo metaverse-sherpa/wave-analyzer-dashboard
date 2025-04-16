@@ -52,95 +52,60 @@ const MarketOverview: React.FC = () => {
   const { analyses } = useWaveAnalysis();
   const [showMoreBullish, setShowMoreBullish] = useState(false);
   const [showMoreBearish, setShowMoreBearish] = useState(false);
-  // Add state for wave filters
   const [bullishWaveFilter, setBullishWaveFilter] = useState<string | number | null>(null);
   const [bearishWaveFilter, setBearishWaveFilter] = useState<string | number | null>(null);
-  
-  // Use a ref to track initialization
-  const initialized = useRef(false);
-  
-  // Only debug log once when analyses are loaded
-  useEffect(() => {
-    if (Object.keys(analyses).length > 0 && !initialized.current) {
-      console.log('Wave analyses loaded:', Object.keys(analyses).length);
-      initialized.current = true;
-    }
-  }, [analyses]);
 
-  // Fix the categorization logic to correctly match with your Supabase data structure
-  const categorizedStocks = React.useMemo(() => {
-    console.log("Categorizing stocks from analyses:", Object.keys(analyses).length);
-    
-    const categorized = {
-      bullish: [] as {symbol: string, wave: string | number, startTimestamp?: number}[],
-      bearish: [] as {symbol: string, wave: string | number, startTimestamp?: number}[]
-    };
-    
-    // No need to process if no analyses
-    if (Object.keys(analyses).length === 0) {
-      return categorized;
-    }
-    
-    // This should process the entire analyses object, regardless of key format
+  // Categorize stocks based on wave analysis
+  const categorizedStocks = useMemo(() => {
+    const bullish: { symbol: string; wave: string | number; startTimestamp: number }[] = [];
+    const bearish: { symbol: string; wave: string | number; startTimestamp: number }[] = [];
+
     Object.entries(analyses).forEach(([key, analysis]) => {
+      if (!analysis?.currentWave) return;
+
       try {
-        // Extract the symbol from the key - just use the key directly as it seems to be the symbol
-        
-        const symbol = key;
-        
-        // Skip if no analysis or it's in an unexpected format
-        if (!analysis || !analysis.currentWave || !analysis.currentWave.number) {
-          return;
-        }
-        
-        // Get current wave and number directly
+        const [symbol] = key.split(':');
         const { currentWave } = analysis;
-        const currentWaveNumber = currentWave.number;
-        const startTimestamp = getTimestampValue(currentWave.startTimestamp || 0);
-        
-        // Categorize based on wave number
-        if (typeof currentWaveNumber === 'number') {
-          // Number waves: 1,3,5 are bullish; 2,4 are bearish
-          if (currentWaveNumber % 2 === 1) {
-            categorized.bullish.push({ symbol, wave: currentWaveNumber, startTimestamp });
-          } else {
-            categorized.bearish.push({ symbol, wave: currentWaveNumber, startTimestamp });
+        const startTimestamp = getTimestampValue(currentWave.startTimestamp);
+
+        // Enhanced wave categorization logic
+        if (typeof currentWave.number === 'number') {
+          // Impulse waves (1,3,5) are bullish
+          // Corrective waves (2,4) are bearish
+          if ([1, 3, 5].includes(currentWave.number)) {
+            bullish.push({ symbol, wave: currentWave.number, startTimestamp });
+          } else if ([2, 4].includes(currentWave.number)) {
+            bearish.push({ symbol, wave: currentWave.number, startTimestamp });
           }
-        } else if (typeof currentWaveNumber === 'string') {
-          // Letter waves: B is bullish; A,C are bearish
-          if (currentWaveNumber === 'B') {
-            categorized.bullish.push({ symbol, wave: currentWaveNumber, startTimestamp });
-          } else if (currentWaveNumber === 'A' || currentWaveNumber === 'C') {
-            categorized.bearish.push({ symbol, wave: currentWaveNumber, startTimestamp });
+        } else if (typeof currentWave.number === 'string') {
+          // Wave B is typically bullish in a corrective pattern
+          // Waves A and C are bearish retracements
+          if (currentWave.number === 'B') {
+            bullish.push({ symbol, wave: currentWave.number, startTimestamp });
+          } else if (['A', 'C'].includes(currentWave.number)) {
+            bearish.push({ symbol, wave: currentWave.number, startTimestamp });
           }
         }
       } catch (error) {
-        // Just silently skip problematic entries
+        console.error(`Error categorizing ${key}:`, error);
       }
     });
-    
-    // Sort both arrays by startTimestamp descending (most recent first)
-    categorized.bullish.sort((a, b) => (b.startTimestamp || 0) - (a.startTimestamp || 0));
-    categorized.bearish.sort((a, b) => (b.startTimestamp || 0) - (a.startTimestamp || 0));
-    
-    console.log("Categorization complete - Bullish:", categorized.bullish.length, ", Bearish:", categorized.bearish.length);
-    return categorized;
+
+    return {
+      bullish: bullish.sort((a, b) => b.startTimestamp - a.startTimestamp),
+      bearish: bearish.sort((a, b) => b.startTimestamp - a.startTimestamp)
+    };
   }, [analyses]);
 
-  // Get available wave numbers for both bullish and bearish
+  // Get available waves for filtering
   const availableWaves = useMemo(() => {
     const bullish = new Set<string | number>();
     const bearish = new Set<string | number>();
-    
-    categorizedStocks.bullish.forEach(stock => {
-      bullish.add(stock.wave);
-    });
-    
-    categorizedStocks.bearish.forEach(stock => {
-      bearish.add(stock.wave);
-    });
-    
-    // Convert to arrays and sort numerically/alphabetically
+
+    categorizedStocks.bullish.forEach(stock => bullish.add(stock.wave));
+    categorizedStocks.bearish.forEach(stock => bearish.add(stock.wave));
+
+    // Sort waves numerically/alphabetically
     const sortWaves = (waves: (string | number)[]) => {
       return waves.sort((a, b) => {
         if (typeof a === 'number' && typeof b === 'number') {
@@ -156,7 +121,7 @@ const MarketOverview: React.FC = () => {
     };
   }, [categorizedStocks]);
 
-  // Filter the stocks based on selected wave
+  // Filter stocks based on selected wave
   const filteredStocks = useMemo(() => {
     return {
       bullish: bullishWaveFilter 
@@ -168,90 +133,66 @@ const MarketOverview: React.FC = () => {
     };
   }, [categorizedStocks, bullishWaveFilter, bearishWaveFilter]);
 
-  // Format waves for display (with commas between items)
-  const formatWaves = (waves: (string | number)[]): JSX.Element[] => {
-    return waves.map((wave, index) => (
-      <React.Fragment key={wave}>
-        {index > 0 && ", "}
-        <span 
-          className="cursor-pointer hover:underline"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (waves === availableWaves.bullish) {
-              setBullishWaveFilter(bullishWaveFilter === wave ? null : wave);
-              setBearishWaveFilter(null); // Clear the other filter
-            } else {
-              setBearishWaveFilter(bearishWaveFilter === wave ? null : wave);
-              setBullishWaveFilter(null); // Clear the other filter
-            }
-          }}
-        >
-          {wave}
-        </span>
-      </React.Fragment>
-    ));
+  // Calculate market sentiment
+  const marketSentiment = useMemo(() => {
+    const bullish = categorizedStocks.bullish.length;
+    const bearish = categorizedStocks.bearish.length;
+    const total = bullish + bearish;
+    
+    if (total === 0) {
+      return {
+        count: 0,
+        bullish: 0,
+        bearish: 0,
+        neutral: 0,
+        bullishPercentage: 0,
+        bearishPercentage: 0,
+        neutralPercentage: 0,
+        overallSentiment: 'Neutral'
+      };
+    }
+    
+    // Calculate percentages based on categorized stocks
+    const bullishPercentage = Math.round((bullish / total) * 100) || 0;
+    const bearishPercentage = Math.round((bearish / total) * 100) || 0;
+    
+    // Determine overall sentiment with more nuanced thresholds
+    let overallSentiment = 'Neutral';
+    if (bullishPercentage > 60) overallSentiment = 'Bullish';
+    else if (bearishPercentage > 60) overallSentiment = 'Bearish';
+    else if (bullishPercentage > bearishPercentage + 10) overallSentiment = 'Slightly Bullish';
+    else if (bearishPercentage > bullishPercentage + 10) overallSentiment = 'Slightly Bearish';
+    
+    return {
+      count: total,
+      bullish,
+      bearish,
+      neutral: 0,
+      bullishPercentage,
+      bearishPercentage,
+      neutralPercentage: 0,
+      overallSentiment
+    };
+  }, [categorizedStocks]);
+
+  // Format waves for display
+  const formatWaves = (waves: (string | number)[]) => {
+    return waves.join(', ');
   };
 
-const marketSentiment = useMemo(() => {
-  // Instead of processing the wave analysis details, let's use our categorized stocks directly
-  const bullish = categorizedStocks.bullish.length;
-  const bearish = categorizedStocks.bearish.length;
-  const total = bullish + bearish;
-  
-  if (total === 0) {
-    return {
-      count: 0,
-      bullish: 0,
-      bearish: 0,
-      neutral: 0,
-      bullishPercentage: 0,
-      bearishPercentage: 0,
-      neutralPercentage: 0,
-      overallSentiment: 'Neutral'
-    };
-  }
-  
-  // Calculate percentages based on categorized stocks
-  const bullishPercentage = Math.round((bullish / total) * 100) || 0;
-  const bearishPercentage = Math.round((bearish / total) * 100) || 0;
-  const neutralPercentage = 0; // We don't have neutral in categorizedStocks
-  
-  // Determine overall sentiment
-  let overallSentiment = 'Neutral';
-  if (bullishPercentage > 60) overallSentiment = 'Bullish';
-  else if (bearishPercentage > 60) overallSentiment = 'Bearish';
-  else if (bullishPercentage > bearishPercentage + 10) overallSentiment = 'Slightly Bullish';
-  else if (bearishPercentage > bullishPercentage + 10) overallSentiment = 'Slightly Bearish';
-  
-  return {
-    count: total,
-    bullish,
-    bearish,
-    neutral: 0,
-    bullishPercentage,
-    bearishPercentage,
-    neutralPercentage,
-    overallSentiment
-  };
-}, [categorizedStocks]);
-  
-  // Navigate to stock details page
+  // Navigate to stock details
   const goToStockDetails = (symbol: string) => {
-    navigate("/stocks/" + symbol);
+    navigate(`/stocks/${symbol}`);
   };
-  
-  // Calculate overall market sentiment
-  const overallSentiment = marketSentiment.bullish >= marketSentiment.bearish ? 'bullish' : 'bearish';
-  
-  // Simplified display of stock lists
+
   return (
     <div className="space-y-4">
-      {/* Market Sentiment section moved to the top */}
+      {/* Market Sentiment Overview */}
       <div className="bg-secondary rounded-lg p-4">
         <div className="flex items-center justify-between mb-2">
           <div>
             <div className="text-muted-foreground text-sm">Market Sentiment</div>
-            <div className={"text-lg font-medium " + (overallSentiment === 'bullish' ? 'text-green-600' : 'text-red-600')}>
+            <div className={"text-lg font-medium " + (marketSentiment.overallSentiment.toLowerCase().includes('bullish') ? 'text-green-600' : 'text-red-600')}>
               {marketSentiment.overallSentiment}
             </div>
           </div>
@@ -261,7 +202,7 @@ const marketSentiment = useMemo(() => {
           </div>
         </div>
         
-        {/* Single sentiment progress bar */}
+        {/* Sentiment progress bar */}
         <div className="mt-3 mb-1">
           <div className="flex relative h-8 bg-muted rounded-md overflow-hidden">
             {/* Bearish portion (left side) */}
@@ -272,18 +213,6 @@ const marketSentiment = useMemo(() => {
               {marketSentiment.bearishPercentage > 15 && (
                 <span className="text-xs font-medium text-white">
                   {marketSentiment.bearishPercentage}%
-                </span>
-              )}
-            </div>
-            
-            {/* Neutral portion (middle) */}
-            <div 
-              className="bg-gray-400 h-full flex items-center justify-center"
-              style={{ width: `${marketSentiment.neutralPercentage}%` }}
-            >
-              {marketSentiment.neutralPercentage > 15 && (
-                <span className="text-xs font-medium text-white">
-                  {marketSentiment.neutralPercentage}%
                 </span>
               )}
             </div>
@@ -319,7 +248,7 @@ const marketSentiment = useMemo(() => {
         />
       </div>
 
-      {/* Modified grid for responsiveness - stack on mobile, 3 columns on larger screens */}
+      {/* Modified grid for responsiveness */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Bullish Section */}
         <div className="bg-secondary rounded-lg p-4">
@@ -467,7 +396,7 @@ const marketSentiment = useMemo(() => {
           </div>
         </div>
         
-        {/* NEW Reversal Alerts Section - Using the same styling */}
+        {/* Reversal Alerts Section */}
         <div className="bg-secondary rounded-lg p-4">
           <div className="text-muted-foreground text-sm mb-1">Reversal Alerts</div>
           <div className="flex items-center justify-between mb-3">

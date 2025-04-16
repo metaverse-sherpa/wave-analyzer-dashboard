@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { DataRefreshContext, DataRefreshContextType } from '@/context/DataRefreshContext';
+import { DataRefreshContext, DataRefreshContextType } from '@/context/DataRefreshManager';
 
 /**
  * Hook to access the DataRefresh context

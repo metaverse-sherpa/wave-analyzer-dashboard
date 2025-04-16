@@ -1,29 +1,16 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from "@/components/ui/button";
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { ArrowDown, ArrowUp } from 'lucide-react';
-import { apiUrl } from '@/utils/apiConfig';
-import type { WaveAnalysisResult } from '@/types/shared'; // Import the shared type
-import ReversalsLastUpdated, { ReversalsContext } from './ReversalsLastUpdated';
-import { 
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from "@/components/ui/tooltip";
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Wave } from '@/types/shared';
 
 interface ReversalsListProps {
   hideHeader?: boolean;
 }
 
 // Define only the types we need within the component
-interface PriceMap {
-  [symbol: string]: number;
-}
-
 interface ReversalCandidate {
   symbol: string;
   waveNumber: number | string;
@@ -36,581 +23,140 @@ interface ReversalCandidate {
   nextWave: string;
 }
 
-const CACHE_KEY = 'reversal-candidates-cache';
-const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-
 const ReversalsList: React.FC<ReversalsListProps> = ({ hideHeader = false }) => {
   const navigate = useNavigate();
-  const [showMore, setShowMore] = useState(false);
   const { analyses } = useWaveAnalysis();
-  const [reversalCandidates, setReversalCandidates] = useState<ReversalCandidate[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [lastCacheUpdate, setLastCacheUpdate] = useState<number>(0);
-  
-  // Extract symbols once to avoid recalculating
-  const symbols = useMemo(() => {
-    return [...new Set(Object.keys(analyses).map(key => key.split('_')[0]))];
+
+  // Find potential reversals based on wave analysis
+  const reversals = useMemo(() => {
+    const candidates: ReversalCandidate[] = [];
+
+    Object.entries(analyses).forEach(([key, analysis]) => {
+      if (!analysis?.currentWave || !analysis.fibTargets) return;
+
+      try {
+        const [symbol] = key.split(':');
+        const { currentWave, fibTargets } = analysis;
+
+        // Check for potential reversals at Fibonacci levels
+        fibTargets.forEach(target => {
+          const price = analysis.currentWave?.endPrice || 0;
+          const targetPrice = target.price;
+          const tolerance = Math.abs(targetPrice * 0.005); // 0.5% tolerance
+
+          if (Math.abs(price - targetPrice) <= tolerance) {
+            // Calculate how much the price has exceeded the target
+            const exceededBy = ((price - targetPrice) / targetPrice * 100).toFixed(2);
+            const isBearish = currentWave.number === 5 || ['B'].includes(String(currentWave.number));
+
+            candidates.push({
+              symbol,
+              waveNumber: currentWave.number,
+              trend: isBearish ? 'bearish' : 'bullish',
+              isBearish,
+              currentPrice: price,
+              targetPrice,
+              targetLevel: target.label,
+              exceededBy: `${exceededBy}%`,
+              nextWave: isBearish ? 'A' : String(Number(currentWave.number) + 1)
+            });
+          }
+        });
+
+        // Check for wave invalidations that could signal reversals
+        const currentWavePrice = currentWave.endPrice;
+        if (currentWavePrice && currentWave.isInvalidated) {
+          // Only show recent invalidations
+          if (Date.now() - (currentWave.invalidationTimestamp || 0) < 24 * 60 * 60 * 1000) {
+            const isBearish = [1, 3, 5].includes(Number(currentWave.number));
+            candidates.push({
+              symbol,
+              waveNumber: currentWave.number,
+              trend: isBearish ? 'bearish' : 'bullish',
+              isBearish,
+              currentPrice: currentWavePrice,
+              targetPrice: currentWave.invalidationPrice || currentWavePrice,
+              targetLevel: `Wave ${currentWave.number} Invalidation`,
+              exceededBy: 'Invalidated',
+              nextWave: isBearish ? 'A' : String(Number(currentWave.number) + 1)
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing reversals for ${key}:`, error);
+      }
+    });
+
+    return candidates;
   }, [analyses]);
-  
-  // Move handleGlobalRefresh inside the component as a regular function
-  const handleGlobalRefresh = useCallback((symbolsToRefresh: string[]) => {
-    console.log("Global refresh called with", symbolsToRefresh.length, "symbols");
-    
-    return new Promise<boolean>(async (resolve) => {
-      try {
-        // Clear existing cache
-        localStorage.removeItem(CACHE_KEY);
-        
-        // Use individual stock endpoints instead of the quotes endpoint that's returning 404
-        const priceMap: PriceMap = {};
-        
-        // Process a reasonable number of symbols (first 10) for a quick refresh
-        const symbolsToProcess = symbolsToRefresh.slice(0, 10);
-        
-        for (const symbol of symbolsToProcess) {
-          try {
-            // Updated: Use the correct endpoint format from the available endpoints list
-            const url = apiUrl(`/stocks/${symbol}/quote`);
-            console.log(`Fetching fresh price for ${symbol} from: ${url}`);
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-              console.warn(`Failed to fetch price for ${symbol}: ${response.status}`);
-              continue;
-            }
-            
-            const data = await response.json();
-            if (data && (data.regularMarketPrice || data.price || data.lastPrice)) {
-              const price = data.regularMarketPrice || data.price || data.lastPrice;
-              if (typeof price === 'number' && price > 0) {
-                priceMap[symbol] = price;
-              }
-            }
-          } catch (error) {
-            console.warn(`Error fetching ${symbol}:`, error);
-          }
-        }
-        
-        console.log(`Fetched ${Object.keys(priceMap).length} price quotes`);
-        
-        // Return success if we got at least some prices
-        resolve(Object.keys(priceMap).length > 0);
-      } catch (error) {
-        console.error("Error in global refresh:", error);
-        resolve(false);
-      }
-    });
-  }, []);
-  
-  // Function to save data to cache
-  const saveToCache = useCallback((data: ReversalCandidate[]) => {
-    const now = Date.now();
-    const cacheData = {
-      timestamp: now,
-      data: data
-    };
-    
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
-      setLastCacheUpdate(now);
-      console.log('Reversal data saved to cache');
-    } catch (e) {
-      console.warn('Failed to cache reversal data:', e);
-    }
-  }, []);
-  
-  // Function to load data from cache
-  const loadFromCache = useCallback((): { data: ReversalCandidate[], isFresh: boolean } => {
-    try {
-      const cacheJson = localStorage.getItem(CACHE_KEY);
-      if (!cacheJson) return { data: [], isFresh: false };
-      
-      const cache = JSON.parse(cacheJson);
-      const now = Date.now();
-      const isFresh = now - cache.timestamp < CACHE_EXPIRY;
-      
-      if (isFresh) {
-        setLastCacheUpdate(cache.timestamp);
-        return { data: cache.data, isFresh: true };
-      } else {
-        console.log('Cache expired, will fetch fresh data');
-        return { data: [], isFresh: false };
-      }
-    } catch (e) {
-      console.warn('Failed to load cached data:', e);
-      return { data: [], isFresh: false };
-    }
-  }, []);
-  
-  // Load data when analyses change
-  useEffect(() => {
-    // Skip if no analyses available
-    if (Object.keys(analyses).length === 0) return;
-  
-    const loadReversalData = async () => {
-      // First check the cache
-      const { data: cachedData, isFresh } = loadFromCache();
-      
-      // If we have fresh cached data, use it
-      if (cachedData.length > 0 && isFresh) {
-        console.log('Using cached reversal data from', new Date(lastCacheUpdate).toLocaleTimeString());
-        setReversalCandidates(cachedData);
-        return;
-      }
-      
-      // Otherwise, load fresh data
-      try {
-        setLoading(true);
-        
-        // Fetch prices and calculate reversals
-        const priceMap = await fetchPrices(symbols);
-        if (Object.keys(priceMap).length === 0) {
-          // If we couldn't get prices, use wave end prices
-          const fallbackPrices = getFallbackPrices();
-          calculateReversals(fallbackPrices);
-        } else {
-          calculateReversals(priceMap);
-        }
-      } catch (error) {
-        console.error("Error loading reversal data:", error);
-        
-        // If we have any cached data, use it as a fallback even if it's stale
-        if (cachedData.length > 0) {
-          console.log('Using stale cached data as fallback');
-          setReversalCandidates(cachedData);
-        }
-        
-        setLoading(false);
-      }
-    };
-    
-    loadReversalData();
-  }, [analyses, symbols, loadFromCache]); 
-  
-  // Add this new useEffect right here 👇
-  useEffect(() => {
-    // This effect handles ONLY manual refresh (when lastCacheUpdate changes)
-    if (lastCacheUpdate > 0) {
-      console.log('Manual refresh triggered at:', new Date(lastCacheUpdate).toLocaleTimeString());
-    }
-  }, [lastCacheUpdate]);
-  
-  // Get fallback prices from the wave analysis data
-  const getFallbackPrices = (): PriceMap => {
-    const priceMap: PriceMap = {};
-    
-    // This is how the MarketOverview component safely accesses the data
-    Object.entries(analyses).forEach(([key, analysisData]) => {
-      const symbol = key.split('_')[0];
-      
-      // Use a type assertion to handle the data structure
-      const analysis = analysisData as WaveAnalysisResult;
-      
-      // Check if waves property exists
-      if (analysis?.waves?.length > 0) {
-        // Safe access to the waves property
-        const latestWave = analysis.waves[analysis.waves.length - 1];
-        if (typeof latestWave.endPrice === 'number') {
-          priceMap[symbol] = latestWave.endPrice;
-        }
-      }
-    });
-    
-    return priceMap;
-  };
-  
-  // Optimized function to fetch prices with better error handling and retry mechanism
-  const fetchPrices = async (symbols: string[]): Promise<PriceMap> => {
-    // Quick return if no symbols
-    if (symbols.length === 0) return {};
-    
-    console.log(`Fetching prices for ${symbols.length} symbols`);
-    const priceMap: PriceMap = {};
-    
-    try {
-      // Process symbols individually using the available endpoint /stocks/{symbol}/quote
-      // Limit to 20 symbols for performance (can adjust as needed)
-      const limitedSymbols = symbols.slice(0, 20);
-      
-      console.log(`Fetching prices for ${limitedSymbols.length} symbols individually`);
-      
-      // Process in smaller batches to avoid overwhelming the API
-      const batchSize = 3; 
-      
-      for (let i = 0; i < limitedSymbols.length; i += batchSize) {
-        const batch = limitedSymbols.slice(i, i + batchSize);
-        
-        // Create array of promises for this batch
-        const promises = batch.map(async (symbol) => {
-          // Retry mechanism - try up to 2 times with increasing delay
-          for (let retry = 0; retry < 2; retry++) {
-            try {
-              // Use the /stocks/{symbol}/quote endpoint that's available in the API
-              const url = apiUrl(`/stocks/${symbol}/quote`);
-              
-              if (retry > 0) {
-                console.log(`Retry attempt ${retry+1} for ${symbol}`);
-                // Add exponential backoff delay before retrying
-                await new Promise(resolve => setTimeout(resolve, retry * 1000));
-              }
-              
-              // FIXED: Use a simpler approach for timeout handling to avoid AbortController issues
-              const fetchPromise = fetch(url, {
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Accept': 'application/json'
-                },
-                // Add cache control to avoid browser caching issues
-                cache: 'no-store'
-              });
-              
-              // Create a timeout promise
-              const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error(`Timeout for ${symbol}`)), 5000);
-              });
-              
-              // Race the fetch against the timeout
-              const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
-              
-              if (!response.ok) {
-                console.warn(`Error fetching ${symbol}: ${response.status} ${response.statusText}`);
-                // Don't retry on 404s or other client errors
-                if (response.status >= 400 && response.status < 500) break;
-                continue; // Retry for server errors
-              }
-              
-              const data = await response.json();
-              if (data) {
-                // Handle different possible price field names
-                const price = data.regularMarketPrice || data.price || data.lastPrice;
-                if (typeof price === 'number' && price > 0) {
-                  priceMap[symbol] = price;
-                  console.log(`Got price for ${symbol}: ${price}`);
-                  return; // Success, exit retry loop
-                }
-              }
-              
-              // If we got here but didn't get a valid price, we should retry
-            } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
-              
-              // Log the error in a more controlled way
-              if (errorMessage.includes('Timeout')) {
-                console.warn(`Timeout fetching ${symbol} (attempt ${retry+1})`);
-              } else {
-                console.warn(`Error fetching ${symbol} (attempt ${retry+1}): ${errorMessage}`);
-              }
-              
-              // Don't log stack trace for expected network errors
-              if (!(errorMessage.includes('Failed to fetch') || 
-                   errorMessage.includes('Abort') || 
-                   errorMessage.includes('Timeout'))) {
-                console.error(error);
-              }
-              
-              // Continue to next retry attempt
-            }
-          }
-        });
-        
-        // Wait for all promises in this batch to complete before moving to the next batch
-        // Use Promise.allSettled instead of Promise.all to prevent one failure from affecting others
-        await Promise.allSettled(promises);
-        
-        // Add a small delay between batches to avoid overwhelming the API
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        console.log(`Completed batch ${Math.floor(i/batchSize) + 1} of ${Math.ceil(limitedSymbols.length/batchSize)}`);
-      }
-      
-      const fetchedCount = Object.keys(priceMap).length;
-      console.log(`Successfully fetched prices for ${fetchedCount}/${symbols.length} symbols (${Math.round(fetchedCount/symbols.length*100)}%)`);
-      
-      if (fetchedCount === 0) {
-        console.error("All requests failed. This could indicate:");
-        console.error("1. Network connectivity issues");
-        console.error("2. CORS restrictions (if running locally)");
-        console.error("3. API service is down");
-        console.error("Using fallback price data from wave analysis");
-      }
-    } catch (error) {
-      console.error("Error fetching prices:", error);
-    }
-    
-    return priceMap;
-  };
-  
-  // Calculate reversals and update state
-  const calculateReversals = (priceMap: PriceMap) => {
-    console.time('calculateReversals');
-    const candidates: (ReversalCandidate & { startDate: string })[] = [];
-    
-    // Process each analysis entry using proper types
-    Object.entries(analyses).forEach(([key, analysisData]) => {
-      // Extract just the symbol from the key (e.g., "AAPL_1d" -> "AAPL")
-      const symbol = key.split('_')[0];
-      
-      // Use type assertion for the analysis structure
-      const analysis = analysisData as WaveAnalysisResult;
-      
-      // Use safe property access to avoid runtime errors
-      if (!analysis?.waves?.length || !analysis.fibTargets?.length) {
-        return;
-      }
-      
-      // The rest of your code using safe property access
-      const latestWave = analysis.waves[analysis.waves.length - 1];
-      
-      // Get the CURRENT price from our price map
-      // Fall back to the end price of the latest wave if we don't have current price
-      const currentPrice = priceMap[symbol] || latestWave.endPrice;
-      
-      if (!currentPrice || currentPrice <= 0) {
-        return;
-      }
-      
-      const waveNumber = latestWave.number;
-      const waveTrend = analysis.trend;
-      const waveStartTimestamp = latestWave.startTimestamp || 0;
-      const waveType = latestWave.type; // Get the wave type
-      
-      // Use the fib targets directly
-      const fibTargets = analysis.fibTargets || [];
-      
-      if (!fibTargets.length) return;
-      
-      // KEY CHANGE: Check if any targets are left (like ReversalCandidatesList does)
-      const hasTargetsLeft = fibTargets.some(target => {
-        if (waveType === 'impulse') {
-          // For impulse waves, we're looking ahead for higher targets
-          return target.price > currentPrice;
-        } else {
-          // For corrective waves, we're looking ahead for lower targets
-          return target.price < currentPrice;
-        }
-      });
-      
-      // If we still have targets ahead, this is not a reversal candidate
-      if (hasTargetsLeft) return;
-      
-      // If we reach here, it means the price has already passed all fib targets
-      
-      // Get closest fib target to see how much it was exceeded by
-      let closestFibTarget = 0;
-      let targetLevel = '';
-      let isBullish = waveType === 'impulse';
-      
-      // Find the extreme fib target based on wave type
-      if (isBullish) {
-        // For bullish waves, find highest target
-        let highestTarget = 0;
-        
-        fibTargets.forEach(target => {
-          if (target.price > highestTarget) {
-            highestTarget = target.price;
-            targetLevel = target.label || String(target.level);
-          }
-        });
-        
-        closestFibTarget = highestTarget;
-      } else {
-        // For bearish waves, find lowest target
-        let lowestTarget = Infinity;
-        
-        fibTargets.forEach(target => {
-          if (target.price < lowestTarget && target.price > 0) {
-            lowestTarget = target.price;
-            targetLevel = target.label || String(target.level);
-          }
-        });
-        
-        closestFibTarget = lowestTarget;
-      }
-      
-      // Calculate how much the target was exceeded by
-      let exceededByPercentage: string;
-      if (isBullish) {
-        exceededByPercentage = ((currentPrice / closestFibTarget - 1) * 100).toFixed(1);
-      } else {
-        exceededByPercentage = ((closestFibTarget / currentPrice - 1) * 100).toFixed(1);
-      }
-      
-      candidates.push({
-        symbol,
-        waveNumber,
-        trend: waveTrend,
-        isBearish: !isBullish,
-        currentPrice,
-        targetPrice: closestFibTarget,
-        targetLevel,
-        exceededBy: exceededByPercentage,
-        nextWave: getNextWave(waveNumber),
-        startDate: waveStartTimestamp ? new Date(waveStartTimestamp).toISOString() : '',
-      });
-    });
-    
-    console.timeEnd('calculateReversals');
-    console.log("Found reversal candidates:", candidates.length);
-    
-    // First sort by date (most recent first), then by exceededBy percentage
-    const sortedCandidates = candidates
-      .sort((a, b) => {
-        // Primary sort: by date (newest first)
-        if (a.startDate && b.startDate) {
-          return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
-        } 
-        // If dates are missing or equal, sort by exceededBy percentage
-        return parseFloat(b.exceededBy) - parseFloat(a.exceededBy);
-      })
-      .map(({ startDate, ...rest }) => rest); // Remove the startDate from the final output
-    
-    saveToCache(sortedCandidates);
-    setReversalCandidates(sortedCandidates);
-    setLoading(false);
-  };
-  
-  // Helper functions
-  function isBearish(waveNumber: number | string, trend: string): boolean {
-    const isBullishTrend = trend === 'bullish' || trend === 'up';
-    
-    if (typeof waveNumber === 'number') {
-      return isBullishTrend ? (waveNumber % 2 === 0) : (waveNumber % 2 === 1);
-    } else if (typeof waveNumber === 'string') {
-      if (isBullishTrend) {
-        return waveNumber === 'A' || waveNumber === 'C' || waveNumber === '2' || waveNumber === '4';
-      } else {
-        return waveNumber === '1' || waveNumber === '3' || waveNumber === '5' || waveNumber === 'B';
-      }
-    }
-    
-    return false;
-  }
-  
-  function getNextWave(currentWave: number | string): string {
-    if (typeof currentWave === 'number') {
-      if (currentWave === 5) return "A";
-      return String(currentWave + 1);
-    } else if (currentWave === 'A') return "B";
-    else if (currentWave === 'B') return "C";
-    else if (currentWave === 'C') return "1";
-    return "?";
-  }
-  
-  const goToStockDetails = (symbol: string) => {
+
+  const handleClick = (symbol: string) => {
     navigate(`/stocks/${symbol}`);
   };
-  
-  // Handle manual refresh
-  const handleRefresh = useCallback(async () => {
-    console.log("handleRefresh called in ReversalsList");
-    setLoading(true);
-    
-    try {
-      // Clear cache
-      localStorage.removeItem(CACHE_KEY);
-      setLastCacheUpdate(0);
-      
-      // Fetch fresh prices and recalculate
-      const priceMap = await fetchPrices(symbols);
-      
-      // Calculate reversals with fresh prices
-      calculateReversals(priceMap);
-      
-      // Update timestamp for last refresh
-      setLastCacheUpdate(Date.now());
-      
-      console.log("Reversal data refreshed successfully");
-      return true;
-    } catch (error) {
-      console.error("Error refreshing reversal data:", error);
-      setLoading(false);
-      return false;
-    }
-  }, [symbols, fetchPrices, calculateReversals]);
-  
-  // Return wrapped in context provider
-  return (
-    <ReversalsContext.Provider value={{ 
-      lastCacheUpdate, 
-      refreshReversals: handleRefresh,
-      loading 
-    }}>
-      <div className="space-y-1">
-        {/* Only show header if not hidden */}
-        {!hideHeader && (
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-sm font-medium">Fib Target Reversals</h3>
-            <div className="flex items-center">
-              <ReversalsLastUpdated />
-            </div>
-          </div>
-        )}
-        
-        {loading ? (
-          <div className="py-2 text-center text-muted-foreground text-sm">
-            Looking for reversals...
-          </div>
-        ) : reversalCandidates.length > 0 ? (
-          <>
-            {reversalCandidates.slice(0, showMore ? undefined : 5).map((candidate) => (
-              <div key={candidate.symbol} className="flex items-center justify-between">
-                <Button 
-                  variant="link"
-                  className="h-6 p-0 text-amber-600 hover:text-amber-700 text-left"
-                  onClick={() => goToStockDetails(candidate.symbol)}
-                >
-                  {candidate.symbol} <span className="text-xs ml-1">(Wave {candidate.waveNumber})</span>
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="text-xs text-muted-foreground flex items-center">
-                      {candidate.isBearish ? (
-                        // Bearish badge
-                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
-                          <ArrowUp className="h-3 w-3 mr-1" />
-                          Bullish +{candidate.exceededBy}% past {candidate.targetLevel}
-                        </Badge>
-                      ) : (
-                        // Bullish badge
-                        <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200 text-[10px]">
-                          <ArrowDown className="h-3 w-3 mr-1" />
-                          Bearish -{candidate.exceededBy}% past {candidate.targetLevel}
-                        </Badge>
-                      )}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {candidate.isBearish
-                      ? "Price has fallen below all bearish targets, suggesting a potential bullish reversal"
-                      : "Price has risen above all bullish targets, suggesting a potential bearish reversal"
-                    }
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            ))}
-            
-            {reversalCandidates.length > 5 && (
-              <Button 
-                variant="ghost"
-                size="sm"
-                className="mt-1 h-6 text-xs w-full"
-                onClick={() => setShowMore(!showMore)}
-              >
-                {showMore ? (
-                  <>Show Less <ChevronUp className="ml-1 h-3 w-3" /></>
-                ) : (
-                  <>Show {reversalCandidates.length - 5} More <ChevronDown className="ml-1 h-3 w-3" /></>
-                )}
-              </Button>
-            )}
-          </>
-        ) : (
-          <div className="py-2 text-center text-muted-foreground text-sm">
-            No Fibonacci target reversals found
-          </div>
-        )}
+
+  if (reversals.length === 0) {
+    return (
+      <div className="p-4 text-center text-muted-foreground text-sm">
+        No reversal signals detected
       </div>
-    </ReversalsContext.Provider>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {!hideHeader && (
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-medium">Reversal Alerts</h3>
+          <span className="text-sm text-muted-foreground">
+            {reversals.length} potential {reversals.length === 1 ? 'reversal' : 'reversals'}
+          </span>
+        </div>
+      )}
+
+      <ScrollArea className="h-[200px]">
+        <div className="space-y-2">
+          {reversals.map((reversal, index) => (
+            <div
+              key={`${reversal.symbol}-${index}`}
+              className="flex items-center justify-between py-1"
+            >
+              <Button
+                variant="link"
+                className="h-auto p-0 font-medium"
+                onClick={() => handleClick(reversal.symbol)}
+              >
+                <div className="flex items-center">
+                  {reversal.isBearish ? (
+                    <ArrowDownRight className="w-4 h-4 mr-1 text-bearish" />
+                  ) : (
+                    <ArrowUpRight className="w-4 h-4 mr-1 text-bullish" />
+                  )}
+                  <div className="text-left">
+                    <div className="flex items-center">
+                      <span>{reversal.symbol}</span>
+                      <span className="text-xs ml-2 text-muted-foreground">
+                        Wave {reversal.waveNumber} → {reversal.nextWave}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {reversal.targetLevel}
+                    </div>
+                  </div>
+                </div>
+              </Button>
+              <div className="text-right">
+                <div className={`text-sm ${reversal.isBearish ? 'text-bearish' : 'text-bullish'}`}>
+                  ${reversal.currentPrice.toFixed(2)}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {reversal.exceededBy}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
   );
 };
 

@@ -96,49 +96,36 @@ const getAgeString = (timestamp: number): string => {
 const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => {
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
-  
   const { user } = useAuth();
-  const { isPreviewMode } = usePreview(); // Add this near your other hooks
-  const { isTelegram } = useTelegram(); // Add this line to get Telegram context
-  
-  // Load basic data even for non-authenticated users
-  useEffect(() => {
-    const loadBasicData = async () => {
-      // Load minimal data for preview
-    };
-    
-    loadBasicData();
-  }, [symbol]);
+  const { isPreviewMode } = usePreview();
+  const { isTelegram } = useTelegram();
+  const dataLoadedRef = useRef(false);
 
-  const [stockData, setStockData] = useState<StockData | null>(null);
+  const [stockData, setStockData] = useState<StockData>(defaultStock);
   const [historicalData, setHistoricalData] = useState<StockHistoricalData[]>([]);
   const [analysis, setAnalysis] = useState<WaveAnalysisResult>({
     waves: [],
-    invalidWaves: [], // Explicitly initialize invalidWaves as empty array
     currentWave: null,
     fibTargets: [],
-    trend: 'neutral' as 'bullish' | 'bearish' | 'neutral',
+    trend: 'neutral',
     impulsePattern: false,
-    correctivePattern: false
+    correctivePattern: false,
+    invalidWaves: []  // Add this to match WaveAnalysisResult interface
   });
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'all' | 'current'>('current');
-  const { getAnalysis } = useWaveAnalysis();
-  const { getHistoricalData } = useHistoricalData();
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [livePrice, setLivePrice] = useState<number | null>(null); // Add this state
-  const [error, setError] = useState<string | null>(null); // Make sure this state exists
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Move this outside of useEffect - this is the key fix
-  const dataLoadedRef = useRef(false);
+  const { getHistoricalData } = useHistoricalData();
+  const { getAnalysis } = useWaveAnalysis();
 
+  // Load data effect
   useEffect(() => {
-    // Now we use the ref that's defined at component level
-    // instead of creating it inside the effect
     const loadData = async () => {
       setLoading(true);
-      setError(null); // Reset error state
+      setError(null);
       
       if (!symbol) {
         setLoading(false);
@@ -147,172 +134,95 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
       }
       
       try {
-        // First check if cached data exists and whether it's expired
-        let forceRefresh = false;
+        // Always fetch fresh historical data from backend API
+        const historicalData = await getHistoricalData(symbol, '1d', true);
         
-        const { data: cachedEntry, error: cacheError } = await supabase
-          .from('cache')
-          .select('timestamp')
-          .eq('key', `historical_data_${symbol}_1d`)
-          .single();
-        
-        if (cacheError) {
-          console.log(`No cache found for ${symbol}, will fetch fresh data`);
-          forceRefresh = true;
-        } else if (await isCacheExpired(cachedEntry.timestamp)) {
-          console.log(`Cached data for ${symbol} is ${getAgeString(cachedEntry.timestamp)} old - refreshing`);
-          forceRefresh = true;
-        } else {
-          console.log(`Using cached data for ${symbol} (age: ${getAgeString(cachedEntry.timestamp)})`);
-        }
-        
-        console.log(`Fetching historical data for ${symbol} (forceRefresh: ${forceRefresh})`);
-        const historicalData = await getHistoricalData(symbol, '1d', forceRefresh);
-        
-        // Check if we have sufficient data points for analysis
         if (!historicalData || historicalData.length < 50) {
           console.warn(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points (minimum 50 required)`);
           setHistoricalData(historicalData || []);
-          setChartData(formatChartData(historicalData || []));
           setError(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points available (minimum 50 required for wave analysis)`);
-          
-          // Continue loading to show at least the basic stock info and any available price data
-          // even if we can't do wave analysis
         } else {
-          // Update all required state variables
           setHistoricalData(historicalData);
-          setChartData(formatChartData(historicalData));
           setError(null);
-        }
-        
-        // Fetch stock information 
-        try {
-          // First fetch fresh price data directly from the API
-          console.log(`Fetching latest price data for ${symbol}`);
-          const proxyUrl = apiUrl(`/stocks/${symbol}`);
-          let stockInfo = null;
           
+          // Get Elliott Wave analysis using DeepSeek API
           try {
-            // Try to get fresh price info
-            const response = await fetch(proxyUrl);
-            if (response.ok) {
-              stockInfo = await response.json();
-              console.log(`Got fresh price data for ${symbol}:`, stockInfo);
-              
-              // Save to Supabase cache for future use
-              await supabase
-                .from('cache')
-                .upsert({
-                  key: `stock_${symbol}`,
-                  data: stockInfo,
-                  timestamp: Date.now(),
-                  duration: 15 * 60 * 1000, // 15 minutes
-                  is_string: false
-                }, { onConflict: 'key' });
-            }
-          } catch (priceErr) {
-            console.error(`Error fetching fresh price data for ${symbol}:`, priceErr);
-          }
-          
-          // If direct fetch failed, try the cache as fallback
-          if (!stockInfo) {
-            try {
-              const { data: stockResult } = await supabase
-                .from('cache')
-                .select('data')
-                .eq('key', `stock_${symbol}`)
-                .single();
-                
-              if (stockResult?.data) {
-                stockInfo = stockResult.data;
-                console.log(`Using cached price data for ${symbol}`);
-              }
-            } catch (cacheErr) {
-              console.error('Error fetching cached stock data:', cacheErr);
-            }
-          }
-          
-          // Apply the stock info, or use placeholder values
-          if (stockInfo) {
-            setStockData(stockInfo);
-          } else {
-            // Enhanced fallback with more realistic random values
-            const basePrice = 50 + (symbol.charCodeAt(0) % 100); // Make price based on first letter
-            const change = ((Math.random() * 6) - 3).toFixed(2); // Random change between -3 and +3
-            const changePercent = ((parseFloat(change) / basePrice) * 100).toFixed(2);
+            const waveAnalysis = await getAnalysis(symbol, historicalData);
             
+            // Ensure we have valid analysis with required properties
+            if (waveAnalysis) {
+              const safeAnalysis = {
+                ...waveAnalysis,
+                waves: waveAnalysis.waves || [],
+                invalidWaves: waveAnalysis.invalidWaves || [],
+                fibTargets: waveAnalysis.fibTargets || [],
+                currentWave: waveAnalysis.currentWave || null,
+                trend: waveAnalysis.trend || 'neutral',
+                impulsePattern: !!waveAnalysis.impulsePattern,
+                correctivePattern: !!waveAnalysis.correctivePattern
+              };
+              
+              setAnalysis(safeAnalysis);
+              console.log('Wave analysis loaded:', {
+                waves: safeAnalysis.waves.length,
+                invalidWaves: safeAnalysis.invalidWaves.length,
+                currentWave: safeAnalysis.currentWave?.number
+              });
+            }
+          } catch (analysisErr) {
+            console.error('Error getting wave analysis:', analysisErr);
+            setError(`Failed to analyze waves: ${(analysisErr as Error).message}`);
+          }
+        }
+
+        // Get latest stock info
+        try {
+          const response = await fetch(apiUrl(`/stocks/${symbol}`));
+          if (response.ok) {
+            const stockInfo = await response.json();
             setStockData({
-              ...defaultStock,
-              symbol,
-              shortName: symbol,
-              name: symbol,
-              regularMarketPrice: basePrice,
-              regularMarketChange: parseFloat(change),
-              regularMarketChangePercent: parseFloat(changePercent),
-              price: basePrice,
-              change: parseFloat(change),
-              changePercent: parseFloat(changePercent),
-              regularMarketVolume: Math.floor(Math.random() * 1000000) + 100000
+              ...stockInfo,
+              symbol
             });
+            
+            // Update live price if available
+            if (stockInfo.regularMarketPrice) {
+              setLivePrice(stockInfo.regularMarketPrice);
+            }
           }
         } catch (stockErr) {
-          console.error('Error handling stock data:', stockErr);
-          // Set minimal stock object with non-zero values
-          setStockData({
-            ...defaultStock,
-            symbol,
-            shortName: symbol,
-            regularMarketPrice: 100,
-            price: 100
-          });
+          console.error('Error fetching stock data:', stockErr);
         }
-        
-        // Get Elliott Wave analysis
-        try {
-          const waveAnalysis = await getAnalysis(symbol, historicalData);
-          
-          // Ensure we have valid analysis with required properties
-          if (waveAnalysis) {
-            // Make sure we have invalidWaves property even if the API didn't return it
-            const safeAnalysis = {
-              ...waveAnalysis,
-              waves: waveAnalysis.waves || [],
-              invalidWaves: waveAnalysis.invalidWaves || [], // Ensure invalidWaves exists
-              fibTargets: waveAnalysis.fibTargets || [],
-            };
-            
-            setAnalysis(safeAnalysis);
-            console.log('Data loading complete:', {
-              histPoints: historicalData.length,
-              waves: safeAnalysis.waves.length,
-              invalidWaves: safeAnalysis.invalidWaves.length
-            });
-          } else {
-            // If no analysis returned, keep the default empty analysis
-            console.log('No wave analysis available for this symbol');
-          }
-        } catch (analysisErr) {
-          console.error('Error getting wave analysis:', analysisErr);
-          // Keep the default empty analysis from useState initialization
-        }
-        
-        // Mark as loaded
-        dataLoadedRef.current = true;
+
       } catch (error) {
-        console.error('Error loading stock data:', error);
-        toast.error(`Failed to load stock data for ${symbol}`);
+        console.error('Error loading data:', error);
+        setError(`Failed to load data: ${(error as Error).message}`);
       } finally {
         setLoading(false);
       }
     };
-    
+
     loadData();
     
-    // Cleanup function for when component unmounts or symbol changes
+    // Set up live price updates
+    const priceInterval = setInterval(async () => {
+      try {
+        const response = await fetch(apiUrl(`/stocks/${symbol}`));
+        if (response.ok) {
+          const data = await response.json();
+          if (data && typeof data.regularMarketPrice === 'number') {
+            setLivePrice(data.regularMarketPrice);
+          }
+        }
+      } catch (error) {
+        console.error(`Error updating live price: ${error}`);
+      }
+    }, 30000); // Update every 30 seconds
+
     return () => {
-      dataLoadedRef.current = false;
+      clearInterval(priceInterval);
     };
-  }, [symbol]); // Only depend on symbol to prevent infinite loops
+  }, [symbol]);
 
   // Add this useEffect to fetch the live price
   useEffect(() => {
@@ -505,7 +415,6 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                   selectedWave={selectedWave}
                   onClearSelection={() => setSelectedWave(null)}
                   livePrice={livePrice} // Pass the live price
-                  invalidWaves={analysis.invalidWaves} // Add this line
                   viewMode={viewMode} // Add the viewMode prop here
                 />
               ) : null}

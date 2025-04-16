@@ -5,6 +5,8 @@ import type {
   BackendHealthCheck 
 } from '@/types/shared';
 
+import { saveToCache } from '@/services/cacheService';
+
 // Re-export the types to maintain compatibility
 export type StockData = SharedStockData;
 export type StockHistoricalData = SharedStockHistoricalData;
@@ -13,8 +15,7 @@ export type StockHistoricalData = SharedStockHistoricalData;
 const apiCache: Record<string, { data: unknown; timestamp: number }> = {};
 
 // Increase cache duration to 24 hours for price data
-const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes for regular stock data
-const HISTORICAL_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours for historical data
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours for price data
 
 // Clear all cached data
 export const invalidateCache = (): void => {
@@ -37,20 +38,21 @@ export const topStockSymbols = [
   'ZTS', 'SCHW', 'CB', 'PGR', 'SO', 'MO', 'REGN', 'DUK', 'BDX', 'CME'
 ];
 
-// Updated getApiBaseUrl function to avoid double "/api" in URLs
+// Get base URL based on environment
 const getApiBaseUrl = (): string => {
-  // Are we in development mode?
-  const isDevelopment = import.meta.env.DEV || 
-                      window.location.hostname === 'localhost' ||
-                      window.location.hostname === '127.0.0.1';
-  
-  if (isDevelopment) {
-    // Return base URL without "/api" - we'll add it in buildApiUrl
-    return 'http://' + window.location.hostname + ':3001';
+  // In development, always use relative paths for Vite proxy
+  if (import.meta.env.DEV) {
+    return '/api';
   }
   
-  // In production, use relative URL (same origin)
-  return '';
+  // In production, use API base URL if provided
+  const envApiUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envApiUrl) {
+    return envApiUrl.endsWith('/') ? envApiUrl.slice(0, -1) : envApiUrl;
+  }
+  
+  // Fallback to relative URL
+  return '/api';
 };
 
 // Create the apiUrl function that properly adds /api
@@ -60,28 +62,9 @@ const getApiBaseUrl = (): string => {
  * @returns Full URL to the API endpoint
  */
 export function buildApiUrl(endpoint: string): string {
-  // Base URL detection based on environment
-  let baseUrl: string;
-  
-  if (import.meta.env.DEV) {
-    // For local development
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      baseUrl = window.location.port === '5173' 
-        ? 'http://localhost:3001/api' // Standard Vite port pointing to local API
-        : `${window.location.origin}/api`; // Otherwise use same origin
-    } else {
-      baseUrl = `${window.location.origin}/api`;
-    }
-  } else {
-    // For production, always use relative URLs to avoid CORS issues
-    baseUrl = '/api';
-  }
-
-  // Make sure endpoint starts with / but baseUrl doesn't end with /
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-  
-  return `${cleanBaseUrl}${cleanEndpoint}`;
+  const baseUrl = getApiBaseUrl();
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
+  return `${baseUrl}/${cleanEndpoint}`;
 }
 
 // Use the function to get the base URL
@@ -92,7 +75,7 @@ const USE_MOCK_DATA = false; // Set to false when your backend is working
 // Add cache utility functions at the top of the file
 
 // Add import for the new cache service
-import { getFromCache, saveToCache, pruneCache } from '@/services/cacheService';
+import { getFromCache, pruneCache } from '@/services/cacheService';
 
 // Add LZ-string for compression (you'll need to install this package)
 import * as LZString from 'lz-string';
@@ -109,7 +92,7 @@ export const fetchTopStocks = async (limit: number = 100): Promise<StockData[]> 
     // Try multiple URL patterns to improve reliability
     const urls = [
       `/api/stocks/top?limit=${limit}`,    // Vite proxy path (relative)
-      `http://localhost:3001/api/stocks/top?limit=${limit}` // Direct server path
+      `https://elliottwaves.ai/api/stocks/top?limit=${limit}` // Direct server path
     ];
     
     let response;
@@ -282,71 +265,107 @@ async function smartFetch<T>(
   }
 }
 
-// Update the fetchHistoricalData function to skip the failing API calls and directly use fallback data
+// Update the fetchHistoricalData function to properly handle the API response data and add better error handling
 
 export const fetchHistoricalData = async (
   symbol: string, 
   timeframe: string = '1d',
   forceRefresh: boolean = false
 ): Promise<StockHistoricalData[]> => {
-  // Cache key for this specific data request
-  const cacheKey = `historical_data_${symbol}_${timeframe}`;
-  
-  // Try to get from cache first if not forcing refresh
-  if (!forceRefresh) {
-    const cached = await getFromCache<StockHistoricalData[]>(cacheKey);
-    if (cached && cached.length > 0) {
-      console.log(`Using cached data for ${symbol} (${timeframe})`);
-      return cached;
-    }
-  }
-  
   try {
-    // ONLY try the relative URL path through Vite's proxy
-    const proxyUrl = `/api/stocks/historical/${symbol}?timeframe=${timeframe}`;
-    console.log(`Fetching historical data: ${proxyUrl}`);
+    const url = buildApiUrl(`/stocks/${symbol}/history`);
+    console.log(`Fetching historical data: ${url}`);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' },
+      cache: forceRefresh ? 'no-cache' : 'default'
+    });
+
+    if (!response.ok) {
+      throw new Error(`API returned status ${response.status} for ${symbol}`);
+    }
     
-    const response = await fetch(proxyUrl, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/json' }
+    const json = await response.json();
+    
+    // Handle both possible response formats
+    let rawData: any[] = [];
+    
+    if (Array.isArray(json)) {
+      rawData = json;
+    } else if (json && typeof json === 'object') {
+      // Try to find an array in the response
+      if (Array.isArray(json.data)) {
+        rawData = json.data;
+      } else if (Array.isArray(json.prices)) {
+        rawData = json.prices;
+      } else if (Array.isArray(json.results)) {
+        rawData = json.results;
+      } else {
+        throw new Error(`No valid data array found in response for ${symbol}`);
+      }
+    } else {
+      throw new Error(`Invalid response format for ${symbol}`);
+    }
+    
+    if (rawData.length === 0) {
+      throw new Error(`No data points received for ${symbol}`);
+    }
+    
+    // Normalize and validate each data point
+    const historicalData: StockHistoricalData[] = rawData.map((item, index) => {
+      // Ensure all required fields exist and are numbers
+      const dataPoint = {
+        timestamp: 0,
+        open: 0,
+        high: 0,
+        low: 0,
+        close: 0,
+        volume: 0
+      };
+      
+      // Handle timestamp
+      if (item.timestamp || item.date || item.time) {
+        let timestamp = item.timestamp || item.date || item.time;
+        if (typeof timestamp === 'string') {
+          timestamp = new Date(timestamp).getTime();
+        } else if (typeof timestamp === 'number' && timestamp < 4000000000) {
+          // Convert seconds to milliseconds if timestamp is too small
+          timestamp *= 1000;
+        }
+        dataPoint.timestamp = timestamp;
+      } else {
+        // If no timestamp, create one based on index (last 2 years of daily data)
+        dataPoint.timestamp = Date.now() - ((rawData.length - index) * 24 * 60 * 60 * 1000);
+      }
+      
+      // Convert all numeric fields and ensure they're valid numbers
+      ['open', 'high', 'low', 'close', 'volume'].forEach(field => {
+        const value = Number(item[field]);
+        dataPoint[field] = !isNaN(value) ? value : 0;
+      });
+      
+      // Ensure OHLC values are consistent
+      const { open, high, low, close } = dataPoint;
+      if (high < Math.max(open, close)) dataPoint.high = Math.max(open, close);
+      if (low > Math.min(open, close)) dataPoint.low = Math.min(open, close);
+      
+      return dataPoint;
     });
     
-    clearTimeout(timeoutId);
+    // Sort by timestamp ascending
+    historicalData.sort((a, b) => a.timestamp - b.timestamp);
     
-    if (!response.ok) {
-      throw new Error(`API returned status ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    // Format the data
-    const historicalData: StockHistoricalData[] = data.map(item => ({
-      timestamp: typeof item.timestamp === 'string' ? new Date(item.timestamp).getTime() : item.timestamp,
-      open: Number(item.open),
-      high: Number(item.high),
-      low: Number(item.low),
-      close: Number(item.close),
-      volume: Number(item.volume || 0)
-    }));
-    
-    // Cache the result with compression
-    if (historicalData.length > 0) {
-      console.log(`Caching ${historicalData.length} data points for ${symbol}`);
-      await saveToCache(cacheKey, historicalData, HISTORICAL_CACHE_DURATION);
+    // Validate we have enough data points
+    if (historicalData.length < 50) {
+      console.warn(`Limited data available for ${symbol}: ${historicalData.length} points`);
+      return generateMockHighQualityData(symbol, timeframe);
     }
     
     return historicalData;
   } catch (error) {
     console.error(`Error fetching historical data for ${symbol}:`, error);
-    
-    // If there was an error, generate and use fallback data
-    console.log(`Generating fallback data for ${symbol}`);
-    const fallbackData = generateMockHighQualityData(symbol, timeframe);
-    await saveToCache(cacheKey, fallbackData, HISTORICAL_CACHE_DURATION / 2);
-    return fallbackData;
+    // Fall back to mock data on error
+    return generateMockHighQualityData(symbol, timeframe);
   }
 };
 
@@ -764,7 +783,7 @@ export const checkBackendHealth = async (): Promise<BackendHealthCheck> => {
   // All endpoints failed, but we'll try ONE MORE direct path as a last resort
   try {
     console.log("Trying direct server health check as last resort...");
-    const directUrl = "http://localhost:3001/api/health";
+    const directUrl = "https://elliottwaves.ai/api"; // Updated to use the correct URL
     
     const response = await fetch(directUrl, {
       mode: 'no-cors', // Try with no-cors as last resort
@@ -836,79 +855,62 @@ export async function getHistoricalPrices(
   symbol: string, 
   timeframe: string = '1d',
   forceRefresh: boolean = false,
-  forceReal: boolean = false // Add this parameter
+  forceReal: boolean = false
 ): Promise<StockHistoricalData[]> {
-  const cacheKey = `historical_prices_${symbol}_${timeframe}`;
-  const MIN_REQUIRED_POINTS = 60; // Minimum required points for analysis
-  
-  // Check cache first unless we're forcing refresh
-  if (!forceRefresh) {
-    const cachedData = await getFromCache<StockHistoricalData[]>(cacheKey);
-    if (cachedData && cachedData.length >= MIN_REQUIRED_POINTS) {
-      console.log(`Using cached historical data for ${symbol} (${timeframe})`);
-      return cachedData;
-    }
-  }
-  
-  // Define ranges to try in order - adding more granular fallbacks
-  const rangesToTry = ['max', '10y', '5y', '2y', '1y', '6mo', '3mo'];
-  let historicalData: StockHistoricalData[] = [];
-  let bestData: StockHistoricalData[] = [];
-  let bestDataPoints = 0;
-  
-  // Try different ranges until we get enough data
-  for (const range of rangesToTry) {
-    try {
-      console.log(`Fetching historical data for ${symbol} with range=${range}`);
-      historicalData = await smartFetch<StockHistoricalData[]>(
-        `/v8/finance/chart/${symbol}?interval=${timeframe}&range=${range}`,
-        () => generateMockHistoricalData(symbol, timeframe),
-        `${cacheKey}_${range}`,
-        CACHE_DURATIONS.historical,
-        forceReal
-      );
-      
-      // Keep track of the best data set we've found so far
-      if (historicalData.length > bestDataPoints) {
-        bestData = historicalData;
-        bestDataPoints = historicalData.length;
-      }
-      
-      if (historicalData.length >= MIN_REQUIRED_POINTS) {
-        console.log(`Got ${historicalData.length} data points for ${symbol} with range=${range}`);
-        
-        // Cache the result with the original cache key
-        await saveToCache(cacheKey, historicalData, CACHE_DURATIONS.historical);
-        return historicalData;
-      } else {
-        console.warn(`Insufficient data points (${historicalData.length}) for ${symbol} with range=${range}`);
-      }
-    } catch (error) {
-      console.error(`Failed to get historical data for ${symbol} with range=${range}:`, error);
-    }
-  }
-  
-  // If we have some data but not enough, try to augment it with synthetic data
-  if (bestDataPoints > 0 && bestDataPoints < MIN_REQUIRED_POINTS) {
-    console.log(`Augmenting insufficient data (${bestDataPoints} points) with synthetic data for ${symbol}`);
+  try {
+    console.log(`Fetching historical data for ${symbol} with timeframe ${timeframe}`);
     
-    // Generate synthetic data based on the pattern of existing data
-    const augmentedData = augmentHistoricalData(bestData, MIN_REQUIRED_POINTS + 10);
-    await saveToCache(cacheKey, augmentedData, CACHE_DURATIONS.historical / 2);
-    return augmentedData;
+    // Use the new URL pattern
+    const url = buildApiUrl(`/stocks/${symbol}/history`);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      },
+      cache: forceRefresh ? 'no-cache' : 'default'
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API returned status ${response.status} for ${symbol}`);
+    }
+    
+    const json = await response.json();
+    
+    // Handle both raw data and wrapped data formats
+    const data = json.data || json;
+    
+    if (!data || !Array.isArray(data)) {
+      throw new Error(`Invalid data format for ${symbol}`);
+    }
+    
+    // Format data consistently
+    const historicalData: StockHistoricalData[] = data.map(item => ({
+      timestamp: typeof item.timestamp === 'string' ? new Date(item.timestamp).getTime() : item.timestamp,
+      open: Number(item.open),
+      high: Number(item.high),
+      low: Number(item.low),
+      close: Number(item.close),
+      volume: Number(item.volume || 0)
+    }));
+    
+    return historicalData;
+  } catch (error) {
+    console.error(`Error fetching historical data for ${symbol}:`, error);
+    
+    if (forceReal) {
+      throw error;
+    }
+    
+    // If there was an error and we're not forcing real data, generate and use fallback data
+    console.log(`Generating fallback data for ${symbol}`);
+    const fallbackData = generateMockHighQualityData(symbol, timeframe);
+    return fallbackData;
   }
-  
-  // If we've tried all ranges and still don't have enough data, generate high quality fallback data
-  console.log(`Generating enhanced fallback data for ${symbol}`);
-  historicalData = generateEnhancedFallbackData(symbol, 120); // Generate 120 data points to be safe
-  await saveToCache(cacheKey, historicalData, CACHE_DURATIONS.historical / 2);
-  
-  return historicalData;
 }
 
 // Fix the CACHE_DURATIONS issue by defining it
 const CACHE_DURATIONS = {
-  historical: HISTORICAL_CACHE_DURATION,
+  historical: CACHE_DURATION,
   stockInfo: CACHE_DURATION
 };
 
@@ -1054,4 +1056,3 @@ function augmentHistoricalData(
   
   return result;
 }
-

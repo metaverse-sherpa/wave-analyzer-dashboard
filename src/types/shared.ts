@@ -1,3 +1,6 @@
+// Import Chart.js types
+import { ChartDataset, ChartTypeRegistry, Point, ScatterDataPoint, Chart } from 'chart.js';
+
 // Shared types used across the application
 export interface Wave {
   number: string | number;    // Wave number or letter (1, 2, 3, 4, 5, A, B, C)
@@ -87,6 +90,11 @@ export interface DeepSeekWaveAnalysis {
     endTime: string;
     endPrice: number;
   }[];
+  // Additional properties for enhanced analysis
+  analysis?: string;               // Text analysis explanation
+  stopLoss?: number | null;        // Suggested stop loss price
+  confidenceLevel?: 'low' | 'medium' | 'high'; // Confidence in the analysis
+  errorDetails?: string;           // Error information if analysis failed
 }
 
 export interface StockData {
@@ -133,4 +141,54 @@ export interface BackendHealthCheck {
   message: string;
   version?: string;
   timestamp?: Date; // Add the missing timestamp property
+}
+
+export interface OHLCDataPoint {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+}
+
+// Define the base type for our custom dataset
+type ChartType = keyof ChartTypeRegistry;
+type DatasetType = 'line' | 'scatter';
+type DataPoint = number | ScatterDataPoint | Point | [number, number] | null;
+
+type Anchor = 'center' | 'start' | 'end';
+type DataLabelsCallback = (context: any) => boolean | string;
+
+// Define CustomDataLabels interface
+interface CustomDataLabels {
+  display?: boolean | DataLabelsCallback;
+  formatter?: (value: any, ctx: any) => string;
+  color?: string;
+  backgroundColor?: string;
+  borderRadius?: number;
+  padding?: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
+  font?: {
+    weight: string;
+    size: number;
+  };
+  anchor?: Anchor | ((context: any) => Anchor);
+  align?: Anchor | ((context: any) => Anchor);
+  offset?: number;
+}
+
+// Update CustomChartDataset to extend Chart.js types correctly
+export interface CustomChartDataset extends Omit<ChartDataset<ChartType, DataPoint[]>, 'type'> {
+  type?: DatasetType;
+  datalabels?: CustomDataLabels;
+  z?: number;
+  isLivePrice?: boolean;
+  spanGaps?: boolean;
+  fill?: boolean | string | number;
+  tension?: number;
 }

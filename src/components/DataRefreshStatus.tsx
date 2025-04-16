@@ -63,50 +63,25 @@ const DataRefreshStatus: React.FC<DataRefreshStatusProps> = ({ isRefreshing: ext
   
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <div className="flex justify-between items-center">
-          <CardTitle className="text-lg">Automatic Data Refresh</CardTitle>
-          {isRefreshing && (
-            <Badge variant="outline" className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300">
-              Refreshing...
-            </Badge>
-          )}
-        </div>
-        <CardDescription>
-          Data is automatically refreshed every 24 hours
-        </CardDescription>
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <RefreshCw className="h-5 w-5" /> Data Updates
+        </CardTitle>
+        <CardDescription>Last refreshed {formatRefreshTime()}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Last refresh:</span>
-            </div>
-            <span className="text-sm font-medium">{formatRefreshTime()}</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Next: {getNextRefreshTime()}</span>
           </div>
-          
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Next refresh in:</span>
-            </div>
-            <span className="text-sm font-medium">{getNextRefreshTime()}</span>
-          </div>
-          
           <Button 
             onClick={handleRefresh} 
-            disabled={isRefreshing}
+            size="sm" 
             variant="outline" 
-            className="w-full"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh Now'}
+            disabled={isRefreshing}>
+              {isRefreshing ? 'Updating...' : 'Update Now'}
           </Button>
-          
-          <p className="text-xs text-muted-foreground mt-2">
-            The refresh process updates historical data and Elliott wave analyses for common stocks and major indices.
-          </p>
         </div>
       </CardContent>
     </Card>

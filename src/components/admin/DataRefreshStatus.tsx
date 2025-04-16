@@ -46,38 +46,38 @@ const DataRefreshStatus: React.FC = () => {
   };
 
   return (
-    <Card>
+    <Card className="shadow-sm">
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
-          <RefreshCw className="h-5 w-5" />
-          Automatic Data Refresh
+          <RefreshCw className="h-5 w-5" /> Data Refresh Status
         </CardTitle>
         <CardDescription>
-          Data is automatically refreshed every 24 hours
+          Monitor and control the automatic data refresh schedule
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-2">
-          <div className="grid grid-cols-2">
-            <span className="text-sm text-muted-foreground">Last refresh:</span>
-            <span className="text-sm font-medium">{formatLastRefresh()}</span>
-          </div>
-          <div className="grid grid-cols-2">
-            <span className="text-sm text-muted-foreground">Next scheduled:</span>
-            <span className="text-sm font-medium">{formatNextRefresh()}</span>
-          </div>
-          <div className="grid grid-cols-2">
-            <span className="text-sm text-muted-foreground">Time remaining:</span>
-            <span className="text-sm font-medium">{getTimeRemaining()}</span>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm font-medium">Last Refresh</p>
+              <p className="text-sm text-muted-foreground">{formatLastRefresh()}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium">Next Scheduled</p>
+              <p className="text-sm text-muted-foreground">{formatNextRefresh()}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium">Time Remaining</p>
+              <p className="text-sm text-muted-foreground">{getTimeRemaining() || 'N/A'}</p>
+            </div>
           </div>
           
-          <div className="pt-4">
+          <div>
             <Button 
-              variant="outline" 
-              size="sm" 
-              className="w-full" 
               onClick={handleManualRefresh}
               disabled={isRefreshing}
+              variant="outline"
+              className="w-full"
             >
               {isRefreshing ? (
                 <>
@@ -87,11 +87,15 @@ const DataRefreshStatus: React.FC = () => {
               ) : (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh Now
+                  Run Now
                 </>
               )}
             </Button>
           </div>
+          
+          <p className="text-xs text-muted-foreground">
+            The refresh process updates historical data and Elliott wave analyses for common stocks and major indices.
+          </p>
         </div>
       </CardContent>
     </Card>

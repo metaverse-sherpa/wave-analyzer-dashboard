@@ -6,39 +6,33 @@ import * as LZString from 'lz-string';
  */
 export async function getFromCache<T>(key: string): Promise<T | null> {
   try {
-    // Query the cache table
+    // Skip caching for historical data
+    if (key.startsWith('historical_data_')) {
+      return null;
+    }
+
     const { data, error } = await supabase
       .from('cache')
-      .select('*')
+      .select('data, timestamp, duration')
       .eq('key', key)
       .single();
+      
+    if (error) {
+      throw error;
+    }
     
-    if (error || !data) {
+    if (!data || !data.data) {
       return null;
     }
     
-    // Check if the cache has expired
-    if (data.timestamp && Date.now() - data.timestamp > data.duration) {
-      console.log(`Cache expired for ${key}`);
-      // Delete the expired cache entry
-      await supabase.from('cache').delete().eq('key', key);
+    // Check if cache has expired
+    if (data.duration && Date.now() - data.timestamp > data.duration) {
       return null;
     }
     
-    // Handle string data (historical data)
-    if (data.is_string && data.data && data.data.stringData) {
-      try {
-        return JSON.parse(data.data.stringData) as T;
-      } catch (e) {
-        console.error(`Error parsing string data for ${key}:`, e);
-        return null;
-      }
-    }
-    
-    // Regular data
-    return data.data as T;
+    return data.data;
   } catch (error) {
-    console.error(`Error retrieving ${key} from cache:`, error);
+    console.error(`Error getting ${key} from cache:`, error);
     return null;
   }
 }
@@ -48,12 +42,16 @@ export async function getFromCache<T>(key: string): Promise<T | null> {
  */
 export async function saveToCache<T>(key: string, data: T, duration: number): Promise<void> {
   try {
+    // Skip caching for historical data
+    if (key.startsWith('historical_data_')) {
+      return;
+    }
+
     // Ensure we never send null data to Supabase
     const safeData = data === null || data === undefined ? {} : data;
     
     console.log(`Saving to cache: ${key}`);
     
-    // Skip RPC call which is causing errors and use direct upsert
     const { error } = await supabase
       .from('cache')
       .upsert({
@@ -61,7 +59,7 @@ export async function saveToCache<T>(key: string, data: T, duration: number): Pr
         data: safeData, // Always provide a non-null value
         timestamp: Date.now(),
         duration,
-        is_string: key.includes('historical_data_')
+        is_string: false
       }, { onConflict: 'key' });
     
     if (error) {
@@ -127,47 +125,30 @@ function sanitizeForJson(obj: any): any {
  */
 export async function pruneCache(): Promise<void> {
   try {
-    const now = Date.now();
-    
-    // Get expired entries
-    // An entry is expired if its timestamp + duration < current time
-    const { data: expiredEntries, error: fetchError } = await supabase
+    const { data, error } = await supabase
       .from('cache')
-      .select('key')
-      .lt('timestamp', now - 3600000); // Fetch entries at least 1 hour old - removed .execute()
-    
-    if (fetchError) throw fetchError;
-    
-    // Now check each entry against its own duration
-    const keysToDelete: string[] = [];
-    
-    if (expiredEntries) {
-      for (const entry of expiredEntries) {
-        const { data: fullEntry } = await supabase
-          .from('cache')
-          .select('*')
-          .eq('key', entry.key)
-          .single();
-        
-        if (fullEntry && (now > fullEntry.timestamp + fullEntry.duration)) {
-          keysToDelete.push(entry.key);
-        }
-      }
-    }
-    
-    // Delete the expired entries
-    if (keysToDelete.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('cache')
-        .delete()
-        .in('key', keysToDelete);
+      .select('*')
+      .not('key', 'like', 'historical_data_%');
       
-      if (deleteError) throw deleteError;
+    if (error) throw error;
+    
+    if (!data) return;
+    
+    const now = Date.now();
+    const expiredKeys = data
+      .filter(item => item.duration && (now - item.timestamp > item.duration))
+      .map(item => item.key);
+    
+    if (expiredKeys.length === 0) return;
+    
+    const { error: deleteError } = await supabase
+      .from('cache')
+      .delete()
+      .in('key', expiredKeys);
       
-      console.log(`Pruned ${keysToDelete.length} expired cache entries`);
-    } else {
-      console.log('No expired cache entries found');
-    }
+    if (deleteError) throw deleteError;
+    
+    console.log(`Pruned ${expiredKeys.length} expired cache entries`);
   } catch (error) {
     console.error('Error pruning cache:', error);
   }
@@ -178,11 +159,12 @@ export async function pruneCache(): Promise<void> {
  */
 export async function clearCache(): Promise<void> {
   try {
+    // Delete all non-historical cache entries
     const { error } = await supabase
       .from('cache')
       .delete()
-      .neq('key', '');
-    
+      .not('key', 'like', 'historical_data_%');
+      
     if (error) throw error;
     
     console.log('Cache cleared successfully');
@@ -335,33 +317,6 @@ export async function testAnonKeyAccess(): Promise<boolean> {
   } catch (error) {
     console.error('Anon key test error:', error);
     return false;
-  }
-}
-
-/**
- * Gets all historical data from cache
- */
-export async function getAllHistoricalData(): Promise<Record<string, any>> {
-  try {
-    const { data, error } = await supabase
-      .from('cache')
-      .select('key, data')
-      .like('key', 'historical_data_%');
-      
-    if (error) throw error;
-    
-    const result = {};
-    if (data) {
-      for (const item of data) {
-        const key = item.key.replace('historical_data_', '');
-        result[key] = item.data;
-      }
-    }
-    
-    return result;
-  } catch (error) {
-    console.error('Error getting all historical data:', error);
-    return {};
   }
 }
 

@@ -145,11 +145,11 @@ const ApiStatusCheck: React.FC<ApiStatusCheckProps> = ({ onStatusChange }) => {
             </li>
             <li>
               <a 
-                href="http://localhost:3001/api/health" 
+                href="https://elliottwaves.ai/api/health" 
                 target="_blank" 
                 className="text-blue-600 hover:underline"
               >
-                http://localhost:3001/api/health
+                https://elliottwaves.ai/api/health
               </a> (direct)
             </li>
           </ul>

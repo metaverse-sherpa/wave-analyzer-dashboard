@@ -1,9 +1,8 @@
 import { WaveAnalysisResult } from "@/utils/elliottWaveAnalysis";
-import { StockHistoricalData } from "@/services/yahooFinanceService";
 import { toast } from "@/lib/toast";
 
 // Import the validation functions from cacheService
-import { getFromCacheWithValidation, isCacheExpired } from '@/services/cacheService';
+import { getFromCacheWithValidation, saveToCache } from '@/services/cacheService';
 import { supabase } from '@/lib/supabase';
 
 // Update cache duration to 24 hours (in milliseconds)
@@ -11,7 +10,6 @@ const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
 // Storage key prefixes
 const WAVE_STORAGE_KEY_PREFIX = 'wave_analysis_';
-const HISTORICAL_STORAGE_KEY_PREFIX = 'historical_data_';
 
 // Wave Analysis - existing functions
 export const storeWaveAnalysis = (
@@ -20,44 +18,64 @@ export const storeWaveAnalysis = (
   analysis: WaveAnalysisResult
 ): void => {
   try {
+    const key = `${WAVE_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
+    
+    // Store in localStorage
     localStorage.setItem(
-      `${WAVE_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`,
+      key,
       JSON.stringify({
         analysis,
         timestamp: Date.now()
       })
     );
+    
+    // Also store in Supabase cache
+    console.log(`Saving wave analysis for ${symbol} to Supabase cache`);
+    saveToCache(key, analysis, CACHE_DURATION)
+      .then(() => console.log(`Successfully saved wave analysis for ${symbol} to Supabase cache`))
+      .catch(err => console.error(`Failed to save wave analysis for ${symbol} to Supabase:`, err));
+      
   } catch (error) {
     console.error('Error storing wave analysis:', error);
     toast.error('Failed to store analysis data locally');
   }
 };
 
-// Add Historical Data storage
-export const storeHistoricalData = (
-  symbol: string,
-  timeframe: string,
-  historicalData: StockHistoricalData[]
-): void => {
-  try {
-    localStorage.setItem(
-      `${HISTORICAL_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`,
-      JSON.stringify({
-        historicalData,
-        timestamp: Date.now()
-      })
-    );
-  } catch (error) {
-    console.error('Error storing historical data:', error);
-  }
-};
-
-export const retrieveHistoricalData = (
-  symbol: string,
+// Rest of existing functions
+export const retrieveWaveAnalysis = async (
+  symbol: string, 
   timeframe: string
-): { historicalData: StockHistoricalData[]; timestamp: number } | null => {
+): Promise<{ analysis: WaveAnalysisResult; timestamp: number } | null> => {
   try {
-    const data = localStorage.getItem(`${HISTORICAL_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`);
+    const key = `${WAVE_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
+    
+    // First try to get data from Supabase
+    console.log(`Trying to retrieve wave analysis for ${symbol} from Supabase cache`);
+    const supabaseData = await getFromCacheWithValidation<WaveAnalysisResult>(
+      key, 
+      isWaveAnalysisDataValid
+    );
+    
+    if (supabaseData) {
+      // Get the timestamp from the cache entry
+      const { data: cacheEntry } = await supabase
+        .from('cache')
+        .select('timestamp')
+        .eq('key', key)
+        .single();
+        
+      const timestamp = cacheEntry?.timestamp || Date.now();
+      
+      console.log(`Successfully retrieved wave analysis for ${symbol} from Supabase cache`);
+      return {
+        analysis: supabaseData,
+        timestamp
+      };
+    }
+    
+    // Fall back to localStorage if not in Supabase
+    console.log(`No Supabase cache entry found for ${symbol}, trying localStorage`);
+    const data = localStorage.getItem(key);
     
     if (!data) {
       return null;
@@ -65,50 +83,7 @@ export const retrieveHistoricalData = (
     
     return JSON.parse(data);
   } catch (error) {
-    console.error('Error retrieving historical data:', error);
-    return null;
-  }
-};
-
-// Get all stored historical data
-export const getAllHistoricalData = (): Record<string, { historicalData: StockHistoricalData[]; timestamp: number }> => {
-  try {
-    const historicalData: Record<string, { historicalData: StockHistoricalData[]; timestamp: number }> = {};
-    
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith(HISTORICAL_STORAGE_KEY_PREFIX)) {
-        const data = localStorage.getItem(key);
-        if (data) {
-          const parsedData = JSON.parse(data);
-          const symbolKey = key.replace(HISTORICAL_STORAGE_KEY_PREFIX, '');
-          historicalData[symbolKey] = parsedData;
-        }
-      }
-    });
-    
-    return historicalData;
-  } catch (error) {
-    console.error('Error retrieving all historical data:', error);
-    return {};
-  }
-};
-
-// Rest of existing functions
-export const retrieveWaveAnalysis = (
-  symbol: string, 
-  timeframe: string
-): { analysis: WaveAnalysisResult; timestamp: number } | null => {
-  try {
-    const key = `${WAVE_STORAGE_KEY_PREFIX}${symbol}_${timeframe}`;
-    const data = localStorage.getItem(key);
-    
-    if (data) {
-      return JSON.parse(data);
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Error retrieving wave analysis:', error);
+    console.error(`Error retrieving wave analysis for ${symbol}:`, error);
     toast.error('Failed to retrieve analysis data');
     return null;
   }
@@ -118,11 +93,6 @@ export const retrieveWaveAnalysis = (
 export const isAnalysisExpired = (timestamp: number): boolean => {
   const now = Date.now();
   return (now - timestamp) > CACHE_DURATION;
-};
-
-// Add this function for historical data
-export const isHistoricalDataExpired = (timestamp: number): boolean => {
-  return Date.now() - timestamp > CACHE_DURATION;
 };
 
 // Clear all analyses from local storage

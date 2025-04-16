@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { StockHistoricalData } from '@/services/yahooFinanceService';
-import { Wave, FibTarget } from '@/types/shared';
+import { Wave, FibTarget, OHLCDataPoint, CustomChartDataset } from '@/types/shared';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import {formatTimestamp} from '@/utils/dateUtils';
@@ -20,7 +20,8 @@ import {
   ChartOptions,  // Add this import,
   ScatterController,  // Add this import
   LineController,
-  BarController   // Add any other controllers you might use
+  BarController,   // Add any other controllers you might use
+  ChartTypeRegistry
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { AlertCircle } from 'lucide-react';
@@ -202,33 +203,13 @@ interface StockDetailChartProps {
   symbol: string;
   data: StockHistoricalData[];
   waves: Wave[];
-  invalidWaves?: Wave[];  // Add this property
   currentWave: Wave;
   fibTargets: FibTarget[];
   selectedWave?: Wave | null;
   onClearSelection?: () => void;
   livePrice?: number;
-  viewMode?: 'all' | 'current'; // Add this prop
-  errorMessage?: string | null; // Add this prop to receive error messages
-}
-
-// Define OHLCDataPoint interface
-interface OHLCDataPoint {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
-
-// Replace the CustomChartDataset interface with this simplified version
-type CustomChartDataset = {
-  type: 'line' | 'scatter';
-  label: string;
-  data: any[];
-  z?: number;
-  isLivePrice?: boolean;
-  [key: string]: any; // Allow any other ChartJS properties
+  viewMode?: 'all' | 'current';
+  errorMessage?: string | null;
 }
 
 const StockDetailChart: React.FC<StockDetailChartProps> = ({
@@ -239,10 +220,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   fibTargets,
   selectedWave,
   onClearSelection,
-  livePrice, // Use the prop passed from the parent component
-  invalidWaves,
-  viewMode,
-  errorMessage // Receive error message from parent
+  livePrice,
+  viewMode = 'current',
+  errorMessage
 }) => {
   const { settings } = useAdminSettings();
   const chartPaddingDays = settings.chartPaddingDays;
@@ -643,12 +623,12 @@ const generateWaveConnectionData = (filteredWaves: Wave[]): CustomChartDataset |
 };
 
 // Update your chartData definition to use a more flexible type
-const chartData = {
+const chartData: ChartData<keyof ChartTypeRegistry> = {
   labels: ohlcData.map(d => new Date(d.timestamp).toLocaleDateString()),
   datasets: [
     // Price data as an area chart
     {
-      type: 'line',
+      type: 'line' as const,
       label: symbol,
       data: ohlcData.map((d, index) => createSafeDataPoint(index, d.close)),
       borderColor: 'rgba(76, 175, 80, 0.5)',
@@ -663,7 +643,7 @@ const chartData = {
       datalabels: {
         display: false
       }
-    } as CustomChartDataset,
+    } as unknown as ChartDataset<keyof ChartTypeRegistry>,
     
     // Add wave connections as a single white line
     // Filter waves according to current view mode
@@ -681,7 +661,7 @@ const chartData = {
       });
       
       const connection = generateWaveConnectionData(filteredWaves);
-      return connection ? [connection] : [];
+      return connection ? [connection as unknown as ChartDataset<keyof ChartTypeRegistry>] : [];
     })()),
     
     // Wave lines - individual points with labels
@@ -721,13 +701,6 @@ const chartData = {
         const effectiveStartIndex = startIndex === -1 ? 0 : startIndex;
         const effectiveEndIndex = endIndex === -1 ? ohlcData.length - 1 : endIndex;
         
-        // Check invalidation
-        const isInvalidated = invalidWaves?.some(invalidWave => 
-          invalidWave.number === wave.number && 
-          Math.abs(getTimestampValue(invalidWave.startTimestamp) - 
-                   getTimestampValue(wave.startTimestamp)) < 86400000
-        );
-        
         // Create data array with nulls except at start AND end points
         const dataArray = Array(ohlcData.length).fill(null);
         
@@ -744,29 +717,26 @@ const chartData = {
         }
         
         return {
-          type: 'scatter',
-          label: `Wave ${wave.number}${isInvalidated ? ' (Invalidated)' : ''}`,
+          type: 'scatter' as const,
+          label: `Wave ${wave.number}`,
           data: dataArray,
-          backgroundColor: isInvalidated ? 'rgba(255, 0, 0, 0.7)' : 'white',
-          borderColor: isInvalidated ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.5)',
-          borderWidth: isInvalidated ? 2 : 1,
+          backgroundColor: 'white',
+          borderColor: 'rgba(0, 0, 0, 0.5)',
+          borderWidth: 1,
           pointRadius: (ctx: any) => {
             // Only show points at start of wave if it's not a completed Wave 5
             // For completed waves, especially Wave 5, we don't want a point at the start
             if (ctx.dataIndex === effectiveStartIndex) {
-              return isInvalidated ? 6 : (wave.number === 5 && wave.isComplete ? 0 : 4);
+              return wave.number === 5 && wave.isComplete ? 0 : 4;
             }
             return 0;
           },
-          pointHoverRadius: isInvalidated ? 8 : 6,
-          pointStyle: isInvalidated ? 'crossRot' : 'circle',
+          pointHoverRadius: 6,
+          pointStyle: 'circle',
           z: 15,
           datalabels: {
             // The issue is with your display condition - it's too restrictive
             display: (ctx: any) => {
-              // Always show labels for invalidated waves at the start point
-              if (isInvalidated) return ctx.dataIndex === effectiveStartIndex;
-              
               // For valid completed waves, show at the end point
               if (wave.isComplete && wave.endPrice) {
                 return ctx.dataIndex === effectiveEndIndex;
@@ -776,33 +746,29 @@ const chartData = {
               return ctx.dataIndex === effectiveStartIndex;
             },
             formatter: (value: any, ctx: any) => {
-              // Only show X for invalidated waves and only at the start point
-              if (isInvalidated && ctx.dataIndex === effectiveStartIndex) {
-                return '❌';
-              }
               // For normal waves, show the wave number
               return `${wave.number}`;
             },
             color: 'white',
-            backgroundColor: isInvalidated ? 'rgba(255, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
             borderRadius: 4,
             padding: { left: 6, right: 6, top: 2, bottom: 2 },
             font: {
               weight: 'bold',
-              size: isInvalidated ? 14 : 10,
+              size: 10,
             },
             // Position the label directly over the point for invalidated waves
-            anchor: isInvalidated ? 'center' : 'end',
-            align: isInvalidated ? 'center' : 'bottom',
-            offset: isInvalidated ? 0 : 5
+            anchor: 'end',
+            align: 'bottom',
+            offset: 5
           }
-        } as CustomChartDataset;
+        } as unknown as ChartDataset<keyof ChartTypeRegistry>;
       })
       .filter(Boolean), // Filter out nulls for skipped waves
 
     // Add current price line with dashed style
     ...(effectiveCurrentPrice ? [{
-      type: 'line',
+      type: 'line' as const,
       label: 'Current Price',
       data: ohlcData.map((_, index) => createSafeDataPoint(index, effectiveCurrentPrice)),
       borderColor: 'rgba(255, 255, 255, 0.6)',
@@ -816,7 +782,7 @@ const chartData = {
       datalabels: {
         display: false
       }
-    }] : []) as CustomChartDataset[],
+    }] : []) as unknown as ChartDataset<keyof ChartTypeRegistry>[],
     // Add Fibonacci targets for incomplete waves
     ...(currentWave && !currentWave.isComplete && fibTargets && fibTargets.length > 0 ? 
       fibTargets
@@ -842,7 +808,7 @@ const chartData = {
           
           // Create the fib target dataset
           return {
-            type: 'line',
+            type: 'line' as const,
             label: `${target.label}: $${target.price.toFixed(2)}`,
             data: ohlcData.map((_, i) => {
               // Create a straight line from start point to end point
@@ -890,14 +856,14 @@ const chartData = {
               anchor: 'center',
               offset: 10
             }
-          } as CustomChartDataset;
+          } as unknown as ChartDataset<keyof ChartTypeRegistry>;
         }).filter(Boolean)
     : []),
 
     // Then add a new dataset specifically for the incomplete current wave
     // Add this right after the waves mapping code
     ...(currentWave && !currentWave.isComplete ? [{
-      type: 'line',
+      type: 'line' as const,
       label: `Current Wave ${currentWave.number} (In Progress)`,
       data: ohlcData.map((d, index) => {
         // Find the index for the start of the current wave
@@ -986,7 +952,7 @@ const chartData = {
       }
     }] : [])
   ]
-} as unknown as ChartData;
+} as ChartData<keyof ChartTypeRegistry>;
 
 // Handle Wave A projection zone
 const wave4 = waves.find(w => w.number === 4 && w.isComplete);
@@ -1008,7 +974,7 @@ if (latestWave && latestWave.number === 5 && latestWave.isComplete) {
       
       // Add a shaded zone showing potential Wave A territory
       chartData.datasets.push({
-        type: 'line',
+        type: 'line' as const,
         label: 'Potential Wave A Zone (38.2%)',
         data: ohlcData.map((_, i) => {
           if (i >= wave5EndIdx) {
@@ -1028,10 +994,10 @@ if (latestWave && latestWave.number === 5 && latestWave.isComplete) {
         datalabels: {
           display: false
         }
-      } as CustomChartDataset);
+      } as unknown as ChartDataset<keyof ChartTypeRegistry>);
       
       chartData.datasets.push({
-        type: 'line',
+        type: 'line' as const,
         label: 'Potential Wave A Zone (61.8%)',
         data: ohlcData.map((_, i) => {
           if (i >= wave5EndIdx) {
@@ -1051,11 +1017,11 @@ if (latestWave && latestWave.number === 5 && latestWave.isComplete) {
         datalabels: {
           display: false
         }
-      } as CustomChartDataset);
+      } as unknown as ChartDataset<keyof ChartTypeRegistry>);
       
       // Add price labels for the retracement levels
       chartData.datasets.push({
-        type: 'line',
+        type: 'line' as const,
         label: `Wave A 38.2% Target: $${targetA382.toFixed(2)}`,
         data: Array(ohlcData.length).fill(null),
         // Just add a single point at the end for the label
@@ -1069,7 +1035,7 @@ if (latestWave && latestWave.number === 5 && latestWave.isComplete) {
         datalabels: {
           display: false
         }
-      } as CustomChartDataset);
+      } as unknown as ChartDataset<keyof ChartTypeRegistry>);
       
       console.log(`Added Wave A projection zone for ${symbol} after Wave 5 completion`);
       console.log(`Wave A targets: 38.2% at $${targetA382.toFixed(2)}, 61.8% at $${targetA618.toFixed(2)}`);
@@ -1077,7 +1043,7 @@ if (latestWave && latestWave.number === 5 && latestWave.isComplete) {
   }
 }
 
-const options = {
+const options: ChartOptions<'line'> = {
   responsive: true,
   maintainAspectRatio: false,
   animation: {
@@ -1264,31 +1230,12 @@ useEffect(() => {
 }, [waves, ohlcData]);
 
 useEffect(() => {
-  if (invalidWaves && invalidWaves.length > 0) {
-    console.log(`Chart received ${invalidWaves.length} invalid waves`);
-    console.log("Sample invalid wave:", invalidWaves[0]);
-    
-    // Check for wave 2 invalidations specifically
-    const wave2Invalidations = invalidWaves.filter(w => w.number === 2);
-    if (wave2Invalidations.length > 0) {
-      console.log(`Found ${wave2Invalidations.length} Wave 2 invalidations`);
-    }
-  } else {
-    console.log("Chart received no invalid waves!");
-  }
-}, [invalidWaves]);
-
-useEffect(() => {
   console.log("Chart data prepared:", {
     datasets: chartData.datasets.length,
     dataPoints: ohlcData.length,
-    hasInvalidWaves: invalidWaves && invalidWaves.length > 0
+    hasInvalidWaves: false
   });
-  
-  if (invalidWaves?.length > 0) {
-    console.log("Sample invalidation point:", invalidWaves[0]);
-  }
-}, [chartData, ohlcData, invalidWaves]);
+}, [chartData, ohlcData]);
 
 // Add this defensive check before returning the chart component
 // Return early if no data or ohlcData is empty

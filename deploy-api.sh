@@ -12,6 +12,19 @@ fi
 # Navigate to the API directory
 cd api-backend
 
+# Handle DeepSeek API Key
+if [ -z "$VITE_PUBLIC_DEEPSEEK_API_KEY" ]; then
+  read -p "Enter your DeepSeek API Key (leave blank to skip): " DEEPSEEK_API_KEY
+  
+  if [ ! -z "$DEEPSEEK_API_KEY" ]; then
+    echo "Setting DEEPSEEK_API_KEY as a secret..."
+    npx wrangler secret put DEEPSEEK_API_KEY <<< "$DEEPSEEK_API_KEY"
+  fi
+else
+  echo "Using DEEPSEEK_API_KEY from environment"
+  npx wrangler secret put DEEPSEEK_API_KEY <<< "$VITE_PUBLIC_DEEPSEEK_API_KEY"
+fi
+
 # Check if TELEGRAM_BOT_TOKEN is already in environment (from .env.local or system env)
 if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
   # Only prompt if not already defined

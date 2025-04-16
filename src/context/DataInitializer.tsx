@@ -21,7 +21,7 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
   const safetyCalled = useRef(false);
   
   // Add this at the top of the DataInitializer component (around line 25-30)
-  const DISABLE_ALL_AUTO_INITIALIZATION = true; // Master switch to disable all initialization
+  const DISABLE_ALL_AUTO_INITIALIZATION = false; // Master switch to disable all initialization
 
   // Check if we already have analysis data in the context
   const hasExistingAnalyses = Object.keys(analyses).length > 0;
@@ -120,7 +120,7 @@ const DataInitializer: React.FC<DataInitializerProps> = ({ onDataLoaded, onError
         let analysisSuccessCount = 0;
         
         // Add a config flag that can be toggled if needed in the future
-        const ENABLE_AUTO_ANALYSIS = false;
+        const ENABLE_AUTO_ANALYSIS = true;
         const analysisSymbols = ENABLE_AUTO_ANALYSIS ? symbols.slice(0, 3) : [];
         
         for (const symbol of analysisSymbols) {

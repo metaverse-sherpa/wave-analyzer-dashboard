@@ -5,30 +5,19 @@
  * @returns The API base URL with no trailing slash
  */
 export const getApiBaseUrl = (): string => {
-  // Use environment variable if available
+  // In development, always use the local proxy which is configured in vite.config.ts
+  if (import.meta.env.DEV) {
+    return '';  // Use relative URL to work with Vite proxy
+  }
+
+  // In production, use environment variable if available
   const envApiUrl = import.meta.env.VITE_API_BASE_URL;
-  
-  // Secondary API fallback
-  const fallbackApiUrl = import.meta.env.VITE_FALLBACK_API_URL || 'https://www.elliottwaves.ai/api';
-  
-  // Check if API health check is already run and found primary API to be down
-  const usingFallback = sessionStorage.getItem('using_fallback_api') === 'true';
-  
-  if (usingFallback) {
-    console.log('[API Config] Using fallback API URL:', fallbackApiUrl);
-    return fallbackApiUrl;
-  }
-  
   if (envApiUrl) {
-    // Remove trailing slash if present
-    const cleanUrl = envApiUrl.endsWith('/') ? envApiUrl.slice(0, -1) : envApiUrl;
-    console.log('[API Config] Using configured API URL:', cleanUrl);
-    return cleanUrl;
+    return envApiUrl.endsWith('/') ? envApiUrl.slice(0, -1) : envApiUrl;
   }
-  
-  // Fallback to localhost for development
-  console.log('[API Config] Using local development URL');
-  return 'http://localhost:3001';
+
+  // Fallback to relative URL in production
+  return '/api';
 };
 
 /**
@@ -46,17 +35,15 @@ export const switchToFallbackApi = (): void => {
  */
 export const buildApiUrl = (endpoint: string): string => {
   const baseUrl = getApiBaseUrl();
-  
-  // Remove leading slash if present on endpoint
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
   
-  // Don't add /api prefix when using external API
-  if (baseUrl.includes('://')) {
-    return `${baseUrl}/${cleanEndpoint}`;
+  // In development or when using relative URLs, ensure the /api prefix
+  if (!baseUrl || !baseUrl.includes('://')) {
+    return `/api/${cleanEndpoint}`;
   }
   
-  // For local development, add /api prefix
-  return `${baseUrl}/api/${cleanEndpoint}`;
+  // For absolute URLs, use as is
+  return `${baseUrl}/${cleanEndpoint}`;
 };
 
 /**
@@ -125,6 +112,7 @@ export interface BackendHealthCheck {
   status: 'ok' | 'error';
   message: string;
   timestamp: Date;
+  version?: string;
 }
 
 // Check if the API is available
@@ -152,10 +140,9 @@ export const checkBackendHealth = async () => {
         timestamp: new Date()
       };
     }
-    
     return {
       status: 'error',
-      message: `API responded with status ${response.status}`,
+      message: 'API health check failed',
       timestamp: new Date()
     };
   } catch (error) {

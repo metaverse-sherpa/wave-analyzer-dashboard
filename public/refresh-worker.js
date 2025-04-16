@@ -57,7 +57,7 @@ self.addEventListener('message', (event) => {
       break;
       
     case 'FULL_DATA_REFRESH':
-      // Special action: Clear cache and reload historical data, then analyze waves
+      // Special action: Load historical data and analyze waves
       handleFullDataRefresh(payload);
       break;
   }
@@ -82,10 +82,10 @@ function handleInit(payload) {
 }
 
 /**
- * Handle a full data refresh operation - similar to clicking "Load Historical Data" followed by "Analyze Waves"
+ * Handle a full data refresh operation
  */
 async function handleFullDataRefresh(payload) {
-  const { stockCount = 100, cacheExpiryDays = 7 } = payload?.options || {};
+  const { stockCount = 100 } = payload?.options || {};
   const operationId = 'full_data_refresh';
   
   try {
@@ -101,17 +101,7 @@ async function handleFullDataRefresh(payload) {
       timestamp: Date.now()
     });
     
-    // Step 1: Clear historical data cache only (not wave analysis cache)
-    self.postMessage({ 
-      action: 'OPERATION_STATUS',
-      step: 'clear_caches',
-      message: 'Clearing historical data cache...',
-      progress: 5
-    });
-    
-    await clearHistoricalCache();
-    
-    // Step 2: Load historical data
+    // Step 1: Get top stocks
     self.postMessage({ 
       action: 'OPERATION_STATUS',
       step: 'load_historical_data',
@@ -122,57 +112,16 @@ async function handleFullDataRefresh(payload) {
     const topStocks = await fetchTopStocks(stockCount);
     const totalStocks = topStocks.length;
     
+    // Step 2: Process each stock
     for (let i = 0; i < totalStocks; i++) {
       const stock = topStocks[i];
       const symbol = stock.symbol;
-      
-      self.postMessage({ 
-        action: 'OPERATION_STATUS',
-        step: 'loading_stock_data',
-        message: `Loading historical data for ${symbol} (${i+1}/${totalStocks})`,
-        progress: 10 + Math.floor((i / totalStocks) * 40)
-      });
-      
-      await loadHistoricalDataForSymbol(symbol, cacheExpiryDays);
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-    
-    // Step 3: Run wave analysis only for stocks that need it
-    self.postMessage({ 
-      action: 'OPERATION_STATUS',
-      step: 'analyze_waves',
-      message: 'Starting wave analysis...',
-      progress: 50
-    });
-    
-    for (let i = 0; i < totalStocks; i++) {
-      const stock = topStocks[i];
-      const symbol = stock.symbol;
-      
-      // Check last analysis time for this symbol
-      try {
-        const { data: existingAnalysis } = await fetch(`${apiEndpoint}/wave-analysis/${symbol}`, {
-          headers: { 'Authorization': `Bearer ${refreshToken}` }
-        }).then(r => r.json());
-        
-        const lastAnalysisTime = existingAnalysis?.timestamp || 0;
-        const timeSinceLastAnalysis = Date.now() - lastAnalysisTime;
-        const ANALYSIS_COOLDOWN = 24 * 60 * 60 * 1000; // 24 hours
-        
-        if (timeSinceLastAnalysis < ANALYSIS_COOLDOWN) {
-          console.log(`[Refresh Worker] Skipping analysis for ${symbol}, last analysis was ${Math.round(timeSinceLastAnalysis / (60 * 60 * 1000))} hours ago`);
-          continue;
-        }
-      } catch (error) {
-        console.warn(`[Refresh Worker] Error checking last analysis time for ${symbol}:`, error);
-        // Continue with analysis if we can't check the last time
-      }
       
       self.postMessage({ 
         action: 'OPERATION_STATUS',
         step: 'analyzing_waves',
         message: `Analyzing waves for ${symbol} (${i+1}/${totalStocks})`,
-        progress: 50 + Math.floor((i / totalStocks) * 45)
+        progress: Math.floor((i / totalStocks) * 90) + 10
       });
       
       await analyzeWavesForSymbol(symbol);
@@ -193,64 +142,6 @@ async function handleFullDataRefresh(payload) {
     });
   } finally {
     activeOperations.delete(operationId);
-  }
-}
-
-/**
- * Clear the historical data cache 
- */
-async function clearHistoricalCache() {
-  try {
-    // Ensure proper URL formation
-    const apiUrl = `${apiEndpoint}/clear-cache`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshToken}`
-      },
-      body: JSON.stringify({
-        cacheType: 'historical_data'
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('[Refresh Worker] Clear cache error:', error);
-    throw error;
-  }
-}
-
-/**
- * Clear the wave analysis data cache
- */
-async function clearWaveAnalysisCache() {
-  try {
-    // Ensure proper URL formation
-    const apiUrl = `${apiEndpoint}/clear-cache`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshToken}`
-      },
-      body: JSON.stringify({
-        cacheType: 'wave_analysis'
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('[Refresh Worker] Clear wave analysis cache error:', error);
-    throw error;
   }
 }
 
@@ -276,54 +167,19 @@ async function fetchTopStocks(limit = 100) {
 /**
  * Load historical data for a specific symbol
  */
-async function loadHistoricalDataForSymbol(symbol, cacheExpiryDays) {
+async function loadHistoricalDataForSymbol(symbol) {
   try {
-    const apiUrl = `${apiEndpoint}/stocks/historical/${symbol}?timeframe=2y&interval=1d`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
+    const apiUrl = `${apiEndpoint}/stocks/${symbol}/history`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
     const response = await fetch(apiUrl);
     
     if (!response.ok) {
       throw new Error(`API error: ${response.status}`);
     }
     
-    const data = await response.json();
-    
-    // Store the data to Supabase via API endpoint
-    await storeHistoricalData(symbol, data, cacheExpiryDays);
-    
-    return data;
+    const json = await response.json();
+    return json.data || json;
   } catch (error) {
     console.error(`[Refresh Worker] Error loading historical data for ${symbol}:`, error);
-    throw error;
-  }
-}
-
-/**
- * Store historical data in Supabase
- */
-async function storeHistoricalData(symbol, data, cacheExpiryDays) {
-  try {
-    const apiUrl = `${apiEndpoint}/store-historical`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshToken}`
-      },
-      body: JSON.stringify({
-        symbol,
-        timeframe: '1d',
-        data,
-        duration: cacheExpiryDays * 24 * 60 * 60 * 1000,
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error(`[Refresh Worker] Error storing data for ${symbol}:`, error);
     throw error;
   }
 }
@@ -333,6 +189,10 @@ async function storeHistoricalData(symbol, data, cacheExpiryDays) {
  */
 async function analyzeWavesForSymbol(symbol) {
   try {
+    // First get historical data
+    const historicalData = await loadHistoricalDataForSymbol(symbol);
+    
+    // Then analyze waves
     const apiUrl = `${apiEndpoint}/analyze-waves`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -343,8 +203,8 @@ async function analyzeWavesForSymbol(symbol) {
       body: JSON.stringify({
         symbol,
         timeframe: '1d',
-        force: true,
-        storeInCache: true  // Add explicit flag to store results in cache
+        historicalData,
+        force: true
       })
     });
     
@@ -352,32 +212,7 @@ async function analyzeWavesForSymbol(symbol) {
       throw new Error(`API error: ${response.status}`);
     }
     
-    const result = await response.json();
-    
-    // Store the wave analysis in Supabase via our API endpoint
-    const storeUrl = `${apiEndpoint}/store-wave-analysis`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
-    await fetch(storeUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshToken}`
-      },
-      body: JSON.stringify({
-        symbol,
-        timeframe: '1d',
-        waveAnalysis: result
-      })
-    }).then(response => {
-      if (!response.ok) {
-        console.error(`[Refresh Worker] Error storing wave analysis for ${symbol}: ${response.status}`);
-      } else {
-        console.log(`[Refresh Worker] Successfully stored wave analysis for ${symbol} in Supabase`);
-      }
-    }).catch(error => {
-      console.error(`[Refresh Worker] Error storing wave analysis for ${symbol}:`, error);
-    });
-    
-    return result;
+    return await response.json();
   } catch (error) {
     console.error(`[Refresh Worker] Error analyzing waves for ${symbol}:`, error);
     throw error;
@@ -430,18 +265,6 @@ async function executeTask(id, task, params) {
     let result = null;
     
     switch (task) {
-      case 'FETCH_MARKET_DATA':
-        result = await fetchMarketData(params);
-        break;
-        
-      case 'ANALYZE_PATTERNS':
-        result = await analyzePatterns(params);
-        break;
-        
-      case 'UPDATE_REVERSALS':
-        result = await updateReversals(params);
-        break;
-        
       case 'FULL_DATA_REFRESH':
         result = await handleFullDataRefresh(params);
         break;
@@ -468,134 +291,6 @@ async function executeTask(id, task, params) {
       timestamp: Date.now(),
       error: error.message || 'Unknown error'
     });
-  }
-}
-
-/**
- * Fetch market data from the API
- */
-async function fetchMarketData(params) {
-  const { symbols, timeframe } = params;
-  
-  if (!symbols || !symbols.length) {
-    throw new Error('No symbols provided for market data fetch');
-  }
-  
-  const requestId = `market_${Date.now()}`;
-  
-  try {
-    // Track this fetch operation
-    activeFetches.set(requestId, true);
-    
-    // Fix: Remove the duplicate /api path
-    const apiUrl = `${apiEndpoint}/historical-data`;
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshToken}`
-      },
-      body: JSON.stringify({
-        symbols,
-        timeframe: timeframe || '1d'
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('[Refresh Worker] Market data fetch error:', error);
-    throw error;
-  } finally {
-    activeFetches.delete(requestId);
-  }
-}
-
-/**
- * Analyze patterns in the provided data
- */
-async function analyzePatterns(params) {
-  const { data, options } = params;
-  
-  if (!data) {
-    throw new Error('No data provided for pattern analysis');
-  }
-  
-  const requestId = `analyze_${Date.now()}`;
-  
-  try {
-    // Track this fetch operation
-    activeFetches.set(requestId, true);
-    
-    // Fix: Remove the duplicate /api path
-    const apiUrl = `${apiEndpoint}/analyze-patterns`;
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshToken}`
-      },
-      body: JSON.stringify({
-        data,
-        options
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error('[Refresh Worker] Pattern analysis error:', error);
-    throw error;
-  } finally {
-    activeFetches.delete(requestId);
-  }
-}
-
-/**
- * Update reversals data
- */
-async function updateReversals(params) {
-  const { symbols, force } = params;
-  
-  const requestId = `reversals_${Date.now()}`;
-  
-  try {
-    // Track this fetch operation
-    activeFetches.set(requestId, true);
-    
-    // Fix: Remove the duplicate /api path
-    const apiUrl = `${apiEndpoint}/update-reversals`;
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshToken}`
-      },
-      body: JSON.stringify({
-        symbols: symbols || [],
-        force: force || false
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error('[Refresh Worker] Reversals update error:', error);
-    throw error;
-  } finally {
-    activeFetches.delete(requestId);
   }
 }
 

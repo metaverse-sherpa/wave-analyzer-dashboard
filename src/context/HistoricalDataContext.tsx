@@ -1,41 +1,13 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import { fetchHistoricalData } from '@/services/yahooFinanceService';
 import type { StockHistoricalData } from '@/types/shared';
-import { supabase } from '@/lib/supabase';
-import { saveToCache } from '@/services/cacheService';
 
 // Helper function for timestamp normalization
 function normalizeTimestamp(timestamp: number | string | undefined): number {
-  try {
-    if (timestamp === undefined || timestamp === null) {
-      return Date.now();
-    }
-
-    if (typeof timestamp === 'string') {
-      const parsed = parseInt(timestamp, 10);
-      if (!isNaN(parsed)) {
-        return parsed < 4000000000 ? parsed * 1000 : parsed;
-      }
-      const dateValue = new Date(timestamp).getTime();
-      if (!isNaN(dateValue)) {
-        return dateValue;
-      }
-      return Date.now();
-    }
-
-    if (timestamp < 4000000000) {
-      timestamp *= 1000;
-    }
-
-    const date = new Date(timestamp);
-    if (!isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
-      return timestamp;
-    }
-
-    return Date.now();
-  } catch (error) {
-    return Date.now();
+  if (typeof timestamp === 'string') {
+    return new Date(timestamp).getTime();
   }
+  return timestamp || Date.now();
 }
 
 interface HistoricalDataContextValue {
@@ -47,7 +19,6 @@ interface HistoricalDataContextValue {
 
 const HistoricalDataContext = createContext<HistoricalDataContextValue | null>(null);
 
-// Define the provider component as a named function declaration
 export function HistoricalDataProvider({ children }: { children: React.ReactNode }) {
   const [historicalData, setHistoricalData] = useState<Record<string, StockHistoricalData[]>>({});
 
@@ -58,41 +29,32 @@ export function HistoricalDataProvider({ children }: { children: React.ReactNode
   ): Promise<StockHistoricalData[]> => {
     const cacheKey = `${symbol}_${timeframe}`;
     
-    const { data: cachedItem } = await supabase
-      .from('cache')
-      .select('data')
-      .eq('key', `historical_data_${symbol}_${timeframe}`)
-      .single();
-      
-    const cached = cachedItem?.data;
-    if (!forceRefresh && cached) {
-      return cached.map((item: StockHistoricalData) => ({
-        ...item,
-        timestamp: normalizeTimestamp(item.timestamp)
-      }));
+    // Check in-memory state first if not forcing refresh
+    if (!forceRefresh && historicalData[cacheKey]) {
+      return historicalData[cacheKey];
     }
     
     try {
-      const data = await fetchHistoricalData(symbol, timeframe, forceRefresh);
+      const data = await fetchHistoricalData(symbol, timeframe);
       
+      // Normalize timestamps
       const normalizedData = data.map(item => ({
         ...item,
         timestamp: normalizeTimestamp(item.timestamp)
       }));
       
+      // Update in-memory state
       setHistoricalData(prev => ({
         ...prev,
         [cacheKey]: normalizedData
       }));
-      
-      await saveToCache(`historical_data_${symbol}_${timeframe}`, normalizedData, 7 * 24 * 60 * 60 * 1000);
       
       return normalizedData;
     } catch (error) {
       console.error(`Failed to fetch historical data for ${symbol}:`, error);
       return [];
     }
-  }, []);
+  }, [historicalData]);
 
   const preloadHistoricalData = useCallback(async (symbols: string[]): Promise<void> => {
     await Promise.all(symbols.map(symbol => getHistoricalData(symbol)));
@@ -114,21 +76,18 @@ export function HistoricalDataProvider({ children }: { children: React.ReactNode
     }
   }, []);
 
-  const value = useMemo(() => ({
-    historicalData,
-    getHistoricalData,
-    preloadHistoricalData,
-    clearHistoricalData
-  }), [historicalData, getHistoricalData, preloadHistoricalData, clearHistoricalData]);
-
   return (
-    <HistoricalDataContext.Provider value={value}>
+    <HistoricalDataContext.Provider value={{
+      historicalData,
+      getHistoricalData,
+      preloadHistoricalData,
+      clearHistoricalData
+    }}>
       {children}
     </HistoricalDataContext.Provider>
   );
 }
 
-// Define and export the hook as a named export
 export function useHistoricalData(): HistoricalDataContextValue {
   const context = useContext(HistoricalDataContext);
   if (!context) {

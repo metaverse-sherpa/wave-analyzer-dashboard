@@ -13,6 +13,8 @@ export interface DataRefreshContextType {
   };
   startBackgroundRefresh: () => Worker | null;
   stopBackgroundRefresh: () => void;
+  // New function to refresh Elliott Wave analysis for all stocks
+  refreshElliottWaveAnalysis: (options?: { isScheduled?: boolean; ignoreCache?: boolean }) => Promise<boolean>;
 }
 
 // Create and export the context

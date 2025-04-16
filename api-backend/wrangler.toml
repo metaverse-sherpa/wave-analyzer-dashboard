@@ -21,6 +21,7 @@ enabled = true
 ENABLE_MOCK_DATA = "false"
 ENABLE_CACHING = "true"
 APP_VERSION = "0.0.9"
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1"
 
 # Comment out the KV namespace binding until you have a valid KV namespace ID
 # To create a KV namespace, run: npx wrangler kv:namespace create CACHE_STORAGE
