@@ -58,4 +58,12 @@ export async function fetchHistoricalData(symbol: string, period = '1y', interva
   return json.data || json;
 }
 
+export const fetchStockQuote = async (symbol: string) => {
+  const response = await fetch(`/api/stocks/${symbol}/quote`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch quote for ${symbol}`);
+  }
+  return response.json();
+};
+
 // Add other API functions as needed

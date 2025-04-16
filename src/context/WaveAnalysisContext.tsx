@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef, ReactNode } from 'react';
 import { analyzeElliottWaves } from '@/utils/elliottWaveAnalysis';
 import { storeWaveAnalysis, retrieveWaveAnalysis, isAnalysisExpired } from '@/services/databaseService';
 import type { WaveAnalysisResult, StockHistoricalData, Wave, FibTarget, DeepSeekWaveAnalysis } from '@/types/shared';
@@ -44,6 +44,7 @@ export type AnalysisEvent = {
 interface WaveAnalysisWithTimestamp {
   analysis: WaveAnalysisResult;
   timestamp: number;
+  isLoaded: boolean;
 }
 
 // Update the context interface to use the correct type
@@ -58,7 +59,8 @@ export interface WaveAnalysisContextType {
 // Update the WaveAnalysisContextValue interface to include allAnalyses
 interface WaveAnalysisContextValue {
   analyses: Record<string, WaveAnalysisResult>;
-  allAnalyses: Record<string, WaveAnalysisWithTimestamp>; // Add this line
+  allAnalyses: Record<string, WaveAnalysisWithTimestamp>; 
+  isDataLoaded: boolean; // Add this line
   getAnalysis: (symbol: string, historicalData: StockHistoricalData[], force?: boolean, silent?: boolean) => Promise<WaveAnalysisResult | null>;
   preloadAnalyses: (symbols: string[]) => Promise<void>;
   clearAnalysis: (symbol?: string) => void;
@@ -67,12 +69,14 @@ interface WaveAnalysisContextValue {
   cancelAllAnalyses: () => void;
   analysisEvents: AnalysisEvent[];
   loadAllAnalysesFromSupabase: () => Promise<void>;
+  loadCacheTableData: () => Promise<void>;
 }
 
-// Update the default context value to include allAnalyses
+// Create context with a default value (but don't export it - we'll only export the hook)
 const WaveAnalysisContext = createContext<WaveAnalysisContextValue>({
   analyses: {},
-  allAnalyses: {}, // Add this line
+  allAnalyses: {},
+  isDataLoaded: false, // Add this line
   getAnalysis: async () => null,
   preloadAnalyses: async () => {},
   clearAnalysis: () => {},
@@ -80,11 +84,12 @@ const WaveAnalysisContext = createContext<WaveAnalysisContextValue>({
   cancelAnalysis: () => {},
   cancelAllAnalyses: () => {},
   analysisEvents: [],
-  loadAllAnalysesFromSupabase: async () => {}
+  loadAllAnalysesFromSupabase: async () => {},
+  loadCacheTableData: async () => {}
 });
 
 // 3. Export the provider component
-export const WaveAnalysisProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export function WaveAnalysisProvider({ children }: { children: ReactNode }) {
   // NOTE: This is a legacy/simple provider. Do not use in place of the main WaveAnalysisProvider.
   // TODO: Refactor or remove if not needed.
   const [waveData, setWaveData] = useState<Record<string, WaveAnalysisResult>>({});
@@ -130,10 +135,274 @@ export const WaveAnalysisProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, []);
 
+  const [analyses, setAnalyses] = useState<Record<string, WaveAnalysisResult>>({});
+  const [allAnalyses, setAllAnalyses] = useState<Record<string, WaveAnalysisWithTimestamp>>({});
+  const [analysisEvents, setAnalysisEvents] = useState<AnalysisEvent[]>([]);
+  const initialLoadPerformed = useRef(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Add improved validation helpers at the top
+  function isValidWave(wave: any): boolean {
+    return wave && 
+           wave.startTime && 
+           wave.endTime && 
+           typeof wave.startPrice === 'number' && 
+           typeof wave.endPrice === 'number' &&
+           wave.number !== undefined;
+  }
+
+  function isValidCurrentWave(wave: any): boolean {
+    return wave && 
+           wave.startTime && 
+           typeof wave.startPrice === 'number' &&
+           wave.number !== undefined;
+  }
+
+  // Update loadAllAnalysesFromSupabase implementation
+  const loadAllAnalysesFromSupabase = useCallback(async () => {
+    if (initialLoadPerformed.current) {
+      console.log('Skipping load - already performed');
+      return;
+    }
+
+    try {
+      console.log('Fetching wave analyses from Supabase...');
+      const { data: cacheEntries, error } = await supabase
+        .from('cache')
+        .select('*')
+        .like('key', 'wave_analysis_%')
+        .order('timestamp', { ascending: false });
+
+      if (error) {
+        console.error('Supabase query error:', error);
+        throw error;
+      }
+
+      if (!cacheEntries || cacheEntries.length === 0) {
+        console.log('No wave analyses found in cache');
+        await new Promise<void>(resolve => {
+          setAllAnalyses({});
+          setTimeout(() => {
+            initialLoadPerformed.current = true;
+            setIsLoaded(true);
+            resolve();
+          }, 0);
+        });
+        return;
+      }
+
+      console.log(`Found ${cacheEntries.length} wave analyses in cache`);
+      const analysisMap: Record<string, WaveAnalysisWithTimestamp> = {};
+      const processingErrors: any[] = [];
+      
+      for (const entry of cacheEntries) {
+        try {
+          if (!entry.key || !entry.data) {
+            console.warn(`Invalid cache entry found: ${JSON.stringify(entry)}`);
+            continue;
+          }
+
+          // Extract symbol from key (format: wave_analysis_SYMBOL_TIMEFRAME)
+          const [, , symbol, timeframe] = entry.key.split('_');
+          if (!symbol) {
+            console.warn(`Invalid key format: ${entry.key}`);
+            continue;
+          }
+
+          const key = `${symbol}:${timeframe || '1d'}`;
+          
+          // Parse if string data
+          let analysisData = typeof entry.data === 'string' ? JSON.parse(entry.data) : entry.data;
+          
+          // Handle nested data structure
+          if (analysisData.data && analysisData.status === 'success') {
+            analysisData = analysisData.data;
+          }
+
+          // Validate and transform the analysis data
+          const transformedData: WaveAnalysisResult = {
+            waves: Array.isArray(analysisData.waves) ? analysisData.waves : [],
+            invalidWaves: Array.isArray(analysisData.invalidWaves) ? analysisData.invalidWaves : [],
+            currentWave: analysisData.currentWave || null,
+            fibTargets: Array.isArray(analysisData.fibTargets) ? analysisData.fibTargets : [],
+            trend: analysisData.trend || 'neutral',
+            impulsePattern: !!analysisData.impulsePattern,
+            correctivePattern: !!analysisData.correctivePattern
+          };
+
+          analysisMap[key] = {
+            analysis: transformedData,
+            timestamp: entry.timestamp,
+            isLoaded: true
+          };
+
+        } catch (error) {
+          processingErrors.push({ entry: entry.key, error });
+          console.error(`Error processing entry ${entry.key}:`, error);
+        }
+      }
+
+      const processedCount = Object.keys(analysisMap).length;
+      console.log(`Successfully processed ${processedCount} valid analyses out of ${cacheEntries.length} total entries`);
+      if (processingErrors.length > 0) {
+        console.warn(`Encountered ${processingErrors.length} errors while processing analyses:`, processingErrors);
+      }
+
+      // Update state and mark as loaded
+      await new Promise<void>(resolve => {
+        setAllAnalyses(analysisMap);
+        setTimeout(() => {
+          initialLoadPerformed.current = true;
+          setIsLoaded(true);
+          resolve();
+        }, 0);
+      });
+
+    } catch (error) {
+      console.error('Error loading analyses from Supabase:', error);
+      throw error;
+    }
+  }, []); // Remove supabase from dependencies since it's stable
+
+  const getAnalysis = useCallback(async (
+    symbol: string, 
+    historicalData: StockHistoricalData[], 
+    force?: boolean, 
+    silent?: boolean
+  ): Promise<WaveAnalysisResult | null> => {
+    try {
+      // Implement actual analysis logic here
+      const result = await getDeepSeekWaveAnalysis(symbol, historicalData);
+      const analysis = convertDeepSeekToWaveAnalysis(result, historicalData);
+      
+      setAnalyses(prev => ({
+        ...prev,
+        [symbol]: analysis
+      }));
+      
+      setAllAnalyses(prev => ({
+        ...prev,
+        [symbol]: {
+          analysis,
+          timestamp: Date.now(),
+          isLoaded: true
+        }
+      }));
+      
+      return analysis;
+    } catch (error) {
+      console.error(`Error analyzing ${symbol}:`, error);
+      return null;
+    }
+  }, []);
+
+  const preloadAnalyses = useCallback(async (symbols: string[]) => {
+    // Implement preloading logic
+    // This could pre-fetch analyses for a list of symbols
+  }, []);
+
+  const clearAnalysis = useCallback((symbol?: string) => {
+    if (symbol) {
+      setAnalyses(prev => {
+        const next = { ...prev };
+        delete next[symbol];
+        return next;
+      });
+      setAllAnalyses(prev => {
+        const next = { ...prev };
+        delete next[symbol];
+        return next;
+      });
+    } else {
+      setAnalyses({});
+      setAllAnalyses({});
+    }
+  }, []);
+
+  const clearCache = useCallback(() => {
+    setAnalyses({});
+    setAllAnalyses({});
+    setAnalysisEvents([]);
+  }, []);
+
+  const cancelAnalysis = useCallback((symbol: string) => {
+    // Add logic to cancel ongoing analysis for a symbol
+    setAnalysisEvents(prev => [
+      ...prev,
+      {
+        symbol,
+        status: 'error',
+        timestamp: Date.now(),
+        message: 'Analysis cancelled'
+      }
+    ]);
+  }, []);
+
+  const cancelAllAnalyses = useCallback(() => {
+    // Add logic to cancel all ongoing analyses
+    setAnalysisEvents(prev => [
+      ...prev,
+      {
+        symbol: 'all',
+        status: 'error',
+        timestamp: Date.now(),
+        message: 'All analyses cancelled'
+      }
+    ]);
+  }, []);
+
+  const loadCacheTableData = async () => {
+    try {
+      // This should delegate to loadAllAnalysesFromSupabase since that's the existing
+      // function that loads data from the database
+      await loadAllAnalysesFromSupabase();
+    } catch (error) {
+      console.error('Error loading cache table data:', error);
+      throw error;
+    }
+  };
+
+  const value = {
+    analyses,
+    allAnalyses,
+    isDataLoaded: isLoaded, // Use the state instead of the ref
+    getAnalysis,
+    preloadAnalyses,
+    clearAnalysis,
+    clearCache,
+    cancelAnalysis,
+    cancelAllAnalyses,
+    analysisEvents,
+    loadAllAnalysesFromSupabase,
+    loadCacheTableData,
+  };
+
+  // Fix the automatic load effect to prevent infinite loops
+  useEffect(() => {
+    const loadData = async () => {
+      if (AUTO_LOAD_ANALYSES_FROM_SUPABASE && !initialLoadPerformed.current) {
+        try {
+          await loadAllAnalysesFromSupabase();
+          // Only mark as performed after successful load
+          initialLoadPerformed.current = true;
+        } catch (error) {
+          console.error('Error in initial wave analyses load:', error);
+          // Only reset on specific errors, not all errors
+          if (error.message?.includes('network') || error.message?.includes('connection')) {
+            initialLoadPerformed.current = false;
+          }
+        }
+      }
+    };
+
+    loadData();
+  }, []); // No dependencies - runs once on mount
+
   // Provide a value that matches WaveAnalysisContextValue
-  const value: WaveAnalysisContextValue = {
+  const legacyValue: WaveAnalysisContextValue = {
     analyses: waveData,
     allAnalyses: {}, // Not implemented in this legacy provider
+    isDataLoaded: false, // Add this line
     getAnalysis: async () => null, // Not implemented in this legacy provider
     preloadAnalyses: async () => {},
     clearAnalysis: () => {},
@@ -142,6 +411,7 @@ export const WaveAnalysisProvider: React.FC<{ children: React.ReactNode }> = ({ 
     cancelAllAnalyses: () => {},
     analysisEvents: [],
     loadAllAnalysesFromSupabase: async () => {},
+    loadCacheTableData: async () => {}
   };
 
   return (
@@ -149,133 +419,110 @@ export const WaveAnalysisProvider: React.FC<{ children: React.ReactNode }> = ({ 
       {children}
     </WaveAnalysisContext.Provider>
   );
-};
+}
 
 // 4. Export the hook separately - this is what components will use
 // Use function declaration for the hook instead of const assignment
-export function useWaveAnalysis(): WaveAnalysisContextValue {
+export function useWaveAnalysis() {
   const context = useContext(WaveAnalysisContext);
-  
   if (!context) {
-    console.error('useWaveAnalysis must be used within a WaveAnalysisProvider');
-    
-    return {
-      analyses: {},
-      allAnalyses: {},
-      getAnalysis: async () => null,
-      preloadAnalyses: async () => {},
-      clearAnalysis: () => {},
-      clearCache: () => {},
-      cancelAnalysis: () => {},
-      cancelAllAnalyses: () => {},
-      analysisEvents: [],
-      loadAllAnalysesFromSupabase: async () => {}
-    };
+    throw new Error('useWaveAnalysis must be used within a WaveAnalysisProvider');
   }
-  
   return context;
 }
 
+// Update convertDeepSeekToWaveAnalysis to properly handle currentWave
 function convertDeepSeekToWaveAnalysis(
   deepSeekAnalysis: DeepSeekWaveAnalysis, 
   historicalData: StockHistoricalData[]
 ): WaveAnalysisResult {
-  // Defensive check: If deepSeekAnalysis is completely missing or null
   if (!deepSeekAnalysis) {
     console.error('DeepSeek API returned null or undefined response');
     return createEmptyAnalysisResult();
   }
 
   try {
-    // Convert completed waves to our Wave format with comprehensive error handling
     const waves: Wave[] = [];
+    const fibTargets: FibTarget[] = [];
+    let currentWave: Wave | null = null;
     
-    // Process completed waves with careful error handling
+    // Process completed waves first
     if (Array.isArray(deepSeekAnalysis.completedWaves)) {
       deepSeekAnalysis.completedWaves.forEach(wave => {
-        if (!wave) return; // Skip null/undefined waves
-        
-        try {
-          // Safely handle wave number which could be undefined
-          const waveNumber = wave.number !== undefined ? wave.number : '?';
-          
-          waves.push({
-            number: typeof waveNumber === 'string' ? waveNumber : String(waveNumber),
-            startTimestamp: wave.startTime ? new Date(wave.startTime).getTime() : Date.now(),
-            endTimestamp: wave.endTime ? new Date(wave.endTime).getTime() : Date.now(),
-            startPrice: typeof wave.startPrice === 'number' ? wave.startPrice : 0,
-            endPrice: typeof wave.endPrice === 'number' ? wave.endPrice : 0,
-            type: determineWaveType(waveNumber),
-            isComplete: true,
-            isImpulse: isImpulseWave(waveNumber)
-          });
-        } catch (waveError) {
-          console.error('Error processing completed wave:', waveError);
-          // Continue with next wave instead of failing entire analysis
+        if (!wave || !wave.startTime || !wave.endTime || 
+            typeof wave.startPrice !== 'number' || 
+            typeof wave.endPrice !== 'number') {
+          return;
         }
+        
+        const waveNumber = wave.number !== undefined ? wave.number : '?';
+        const newWave = {
+          number: waveNumber,
+          startTimestamp: new Date(wave.startTime).getTime(),
+          endTimestamp: new Date(wave.endTime).getTime(),
+          startPrice: wave.startPrice,
+          endPrice: wave.endPrice,
+          type: determineWaveType(waveNumber),
+          isComplete: true,
+          isImpulse: isImpulseWave(waveNumber)
+        };
+        
+        waves.push(newWave);
       });
     }
     
-    // Add current wave with comprehensive error handling
-    if (deepSeekAnalysis.currentWave) {
-      try {
-        const currentWaveNumber = deepSeekAnalysis.currentWave.number !== undefined 
-          ? deepSeekAnalysis.currentWave.number 
-          : '?';
-          
-        waves.push({
-          number: typeof currentWaveNumber === 'string' 
-            ? currentWaveNumber 
-            : String(currentWaveNumber),
-          startTimestamp: deepSeekAnalysis.currentWave.startTime 
-            ? new Date(deepSeekAnalysis.currentWave.startTime).getTime() 
-            : Date.now(),
-          startPrice: typeof deepSeekAnalysis.currentWave.startPrice === 'number' 
-            ? deepSeekAnalysis.currentWave.startPrice 
-            : 0,
-          // No end properties for current wave as it's ongoing
-          type: determineWaveType(currentWaveNumber),
-          isComplete: false,
-          isImpulse: isImpulseWave(currentWaveNumber)
-        });
-      } catch (currentWaveError) {
-        console.error('Error processing current wave:', currentWaveError);
-        // Continue execution instead of failing entire analysis
-      }
+    // Process current wave
+    if (deepSeekAnalysis.currentWave && 
+        deepSeekAnalysis.currentWave.startTime && 
+        typeof deepSeekAnalysis.currentWave.startPrice === 'number') {
+      
+      const currentWaveNumber = deepSeekAnalysis.currentWave.number !== undefined 
+        ? deepSeekAnalysis.currentWave.number 
+        : '?';
+        
+      currentWave = {
+        number: currentWaveNumber,
+        startTimestamp: new Date(deepSeekAnalysis.currentWave.startTime).getTime(),
+        startPrice: deepSeekAnalysis.currentWave.startPrice,
+        type: determineWaveType(currentWaveNumber),
+        isComplete: false,
+        isImpulse: isImpulseWave(currentWaveNumber)
+      };
+      
+      waves.push(currentWave);
     }
     
-    // Convert Fibonacci targets with comprehensive error handling
-    const fibTargets: FibTarget[] = [];
+    // Process Fibonacci targets
     if (Array.isArray(deepSeekAnalysis.fibTargets)) {
       deepSeekAnalysis.fibTargets.forEach(target => {
-        if (!target) return; // Skip null/undefined targets
+        if (!target || typeof target.price !== 'number') return;
         
         try {
           fibTargets.push({
             level: target.level ? parseFloat(target.level) : 0,
-            price: typeof target.price === 'number' ? target.price : 0,
+            price: target.price,
             label: target.label || '',
             isExtension: target.level ? parseFloat(target.level) > 1.0 : false,
             isCritical: target.level === '0.618' || target.level === '1.0'
           });
         } catch (targetError) {
-          console.error('Error processing fib target:', targetError);
-          // Continue with next target instead of failing
+          console.warn('Error processing fib target:', targetError);
         }
       });
     }
-    
+
     return {
       waves,
-      invalidWaves: [], // DeepSeek doesn't provide invalidated waves
-      currentWave: waves.length > 0 ? waves[waves.length - 1] : null,
+      invalidWaves: [],
+      currentWave: currentWave || waves[waves.length - 1] || null,
       fibTargets,
-      trend: (deepSeekAnalysis.trend as 'bullish' | 'bearish' | 'neutral') || 'neutral',
-      impulsePattern: waves.some(w => typeof w.number === 'string' && w.number === '5'),
-      correctivePattern: waves.some(w => typeof w.number === 'string' && w.number === 'C')
+      trend: deepSeekAnalysis.trend || 'neutral',
+      impulsePattern: waves.some(w => w.number === 5),
+      correctivePattern: waves.some(w => w.number === 'C')
     };
+
   } catch (error) {
-    console.error('Error converting DeepSeek analysis to WaveAnalysisResult:', error);
+    console.error('Error converting DeepSeek analysis:', error);
     return createEmptyAnalysisResult();
   }
 }

@@ -8,6 +8,7 @@ import { ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import LightweightChart from '@/components/LightweightChart';
 import type { StockData, StockHistoricalData, WaveAnalysisResult } from '@/types/shared';
+import { fetchStockQuote } from '@/lib/api';
 
 interface StockCardProps {
   stock: StockData;
@@ -16,7 +17,8 @@ interface StockCardProps {
   searchQuery?: string;
 }
 
-export const StockCard = ({ stock, historicalData = [], onSelect, searchQuery = '' }: StockCardProps & { searchQuery?: string }) => {
+export const StockCard = ({ stock: initialStock, historicalData = [], onSelect, searchQuery = '' }: StockCardProps & { searchQuery?: string }) => {
+  const [stock, setStock] = useState(initialStock);
   const { analyses } = useWaveAnalysis();
   const cacheKey = `${stock.symbol}:1d`;
   const waveAnalysis = analyses[cacheKey] as WaveAnalysisResult | undefined;
@@ -72,6 +74,20 @@ export const StockCard = ({ stock, historicalData = [], onSelect, searchQuery = 
     // Pass the stock to the onClick handler - we don't need to pass waveAnalysis
     // as it's already in the shared context
     onSelect(stock.symbol);
+  };
+
+  const fetchLatestPrice = async () => {
+    try {
+      const quote = await fetchStockQuote(stock.symbol);
+      setStock(prevStock => ({
+        ...prevStock,
+        regularMarketPrice: quote.regularMarketPrice,
+        regularMarketChange: quote.regularMarketChange,
+        regularMarketChangePercent: quote.regularMarketChangePercent
+      }));
+    } catch (error) {
+      console.error('Error fetching latest price:', error);
+    }
   };
   
   return (

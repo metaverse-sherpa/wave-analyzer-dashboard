@@ -156,6 +156,47 @@ export default {
         }
       }
 
+      // Single stock quote endpoint
+      if (path.match(/^\/stocks\/[^/]+\/quote/) || path.match(/^\/stocks\/[^/]+$/)) {
+        const symbol = path.split('/')[2];
+        console.log(`Processing quote request for symbol: ${symbol}`);
+        
+        try {
+          const quote = await yahooFinance.quote(symbol);
+          
+          if (!quote) {
+            throw new Error(`No quote data available for ${symbol}`);
+          }
+
+          const formattedQuote = {
+            symbol: quote.symbol,
+            shortName: quote.shortName,
+            price: quote.regularMarketPrice,
+            change: quote.regularMarketChange,
+            changePercent: quote.regularMarketChangePercent,
+            volume: quote.regularMarketVolume,
+            avgVolume: quote.averageVolume,
+            marketCap: quote.marketCap,
+            name: quote.shortName || quote.longName || quote.symbol
+          };
+          
+          return new Response(JSON.stringify({
+            status: 'success',
+            data: formattedQuote
+          }), { headers });
+        } catch (error) {
+          console.error(`Error fetching quote for ${symbol}: ${error.message}`);
+          return new Response(JSON.stringify({
+            status: 'error',
+            error: `Failed to get quote for ${symbol}`,
+            message: error.message
+          }), { 
+            status: 500,
+            headers
+          });
+        }
+      }
+
       // Clear cache endpoint
       if (path === '/clear-cache' && request.method === 'POST') {
         return await handleClearCache(request, env, ctx);
@@ -208,6 +249,61 @@ export default {
           console.error(`Error generating market sentiment: ${error.message}`);
           // ...existing error handling code...
         }
+      }
+
+      // Market news endpoint
+      if (path === '/market/news') {
+        try {
+          const cacheKey = 'market_news';
+          const now = Date.now();
+
+          // Check cache first
+          if (CACHE[cacheKey] && now - CACHE[cacheKey].expires < 0) {
+            return new Response(JSON.stringify(CACHE[cacheKey].data), { headers });
+          }
+
+          // Get fresh news data using Yahoo Finance search
+          const result = await yahooFinance.search('^GSPC', {
+            lang: 'en-US',
+            region: 'US',
+            newsCount: 10
+          });
+
+          if (!result?.news || !Array.isArray(result.news)) {
+            throw new Error("No valid news data received");
+          }
+
+          // Format the news data
+          const formattedNews = result.news.map(item => ({
+            title: item.title,
+            publisher: item.publisher,
+            link: item.link,
+            publishedAt: item.providerPublishTime,
+            summary: item.summary || ''
+          }));
+
+          // Cache for 15 minutes
+          CACHE[cacheKey] = {
+            data: formattedNews,
+            expires: now + (15 * 60 * 1000)
+          };
+
+          return new Response(JSON.stringify(formattedNews), { headers });
+        } catch (error) {
+          console.error(`Error getting market news: ${error.message}`);
+          return new Response(JSON.stringify({
+            error: 'Failed to get market news',
+            message: error.message
+          }), {
+            status: 500,
+            headers
+          });
+        }
+      }
+
+      // Add this case to handle logs
+      if (path === '/log') {
+        return await handleBrowserLogs(request);
       }
 
       // Fallback for unhandled routes
@@ -528,4 +624,30 @@ function calculateWaveDistribution(analysisData) {
     acc[wave] = Math.round((count / total) * 100);
     return acc;
   }, {});
+}
+
+// Handle browser logs
+async function handleBrowserLogs(request) {
+  const { log } = await request.json();
+  
+  // Write to Supabase for persistence
+  const { error } = await supabase
+    .from('browser_logs')
+    .insert([{ 
+      timestamp: new Date().toISOString(),
+      log: log
+    }]);
+
+  if (error) {
+    console.error('Error writing browser log:', error);
+    return new Response(JSON.stringify({ error: 'Failed to write log' }), {
+      status: 500,
+      headers: corsHeaders
+    });
+  }
+
+  return new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: corsHeaders
+  });
 }

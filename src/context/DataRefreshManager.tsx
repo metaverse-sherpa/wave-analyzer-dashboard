@@ -5,6 +5,7 @@ import { marketIndexes } from '@/config/marketIndexes';
 import { useAdminSettings } from './AdminSettingsContext';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
+import { DataRefreshContext, type DataRefreshContextType } from './DataRefreshContext';
 
 // Define some commonly tracked symbols for analysis
 const COMMON_SYMBOLS = [
@@ -27,23 +28,6 @@ interface Progress {
   current: number;
   currentSymbol: string | null;
 }
-
-// Export the interface
-export interface DataRefreshContextType {
-  lastRefreshTime: number | null;
-  refreshStatus: RefreshStatus;
-  isRefreshing: boolean;
-  progress: Progress;
-  handleManualRefresh: () => Promise<void>;
-  cancelRefresh: () => void;
-  startBackgroundRefresh: () => Worker | null;
-  stopBackgroundRefresh: () => void;
-  refreshData: () => Promise<void>;
-  refreshElliottWaveAnalysis: (options?: { isScheduled?: boolean; ignoreCache?: boolean }) => Promise<boolean>;
-}
-
-// Create and export the context
-export const DataRefreshContext = createContext<DataRefreshContextType | undefined>(undefined);
 
 const BROADCAST_CHANNEL_NAME = 'wave-analyzer-refresh-status';
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -72,7 +56,8 @@ const safePostMessage = (channel: BroadcastChannel | null, message: any) => {
   }
 };
 
-export const DataRefreshProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+// Named export for the provider component
+export function DataRefreshProvider({ children }: { children: React.ReactNode }) {
   // State variables
   const [lastRefreshTime, setLastRefreshTime] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -862,11 +847,10 @@ export const DataRefreshProvider: React.FC<{ children: React.ReactNode }> = ({ c
     refreshStatus,
     isRefreshing,
     progress,
-    handleManualRefresh,
+    refreshData: handleManualRefresh,
     cancelRefresh,
     startBackgroundRefresh,
     stopBackgroundRefresh,
-    refreshData,
     refreshElliottWaveAnalysis
   };
 
@@ -875,12 +859,13 @@ export const DataRefreshProvider: React.FC<{ children: React.ReactNode }> = ({ c
       {children}
     </DataRefreshContext.Provider>
   );
-};
+}
 
-export const useDataRefresh = () => {
+// Named export for the hook using function declaration instead of const assignment
+export function useDataRefresh(): DataRefreshContextType {
   const context = useContext(DataRefreshContext);
   if (!context) {
     throw new Error('useDataRefresh must be used within a DataRefreshProvider');
   }
   return context;
-};
+}

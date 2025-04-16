@@ -5,13 +5,12 @@ import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { loadAllAnalysesFromSupabase } = useWaveAnalysis();
+  const { loadCacheTableData } = useWaveAnalysis();
 
   useEffect(() => {
-    // Load wave analyses when the Index component mounts
-    // This is still useful for the Dashboard
-    loadAllAnalysesFromSupabase();
-  }, [loadAllAnalysesFromSupabase]);
+    // Updated to use loadCacheTableData
+    loadCacheTableData();
+  }, [loadCacheTableData]);
   
   return (
     <main>

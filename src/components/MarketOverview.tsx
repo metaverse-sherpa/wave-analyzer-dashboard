@@ -10,20 +10,54 @@ import ReversalsLastUpdated from './ReversalsLastUpdated';
 import MarketSentimentAI from './MarketSentimentAI';
 import { Badge } from '@/components/ui/badge';
 
-// Keep this helper function at the top
-const getTimestampValue = (timestamp: any): number => {
-  if (!timestamp) return 0;
+// Helper function to determine if a wave is bullish
+const isBullishWave = (waveNumber: string | number | undefined): boolean => {
+  if (!waveNumber) return false;
   
-  if (typeof timestamp === 'number') {
-    return timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+  // Handle numeric waves (both string and number types)
+  if (typeof waveNumber === 'number' || !isNaN(Number(waveNumber))) {
+    const num = Number(waveNumber);
+    return [1, 3, 5].includes(num);
   }
-  if (timestamp instanceof Date) {
-    return timestamp.getTime();
+  
+  // For lettered waves (corrective pattern)
+  // Only Wave B is bullish (moves against the main corrective trend)
+  return waveNumber === 'B';
+};
+
+// Update the timestamp handling helper
+const getTimestampValue = (timestamp: any): number => {
+  if (!timestamp) return Date.now();
+  
+  try {
+    // Handle numeric timestamps
+    if (typeof timestamp === 'number') {
+      // Convert seconds to milliseconds if needed
+      if (timestamp < 4000000000) {
+        timestamp = timestamp * 1000;
+      }
+      return timestamp;
+    }
+    
+    // Handle Date objects
+    if (timestamp instanceof Date) {
+      return timestamp.getTime();
+    }
+    
+    // Handle string timestamps
+    if (typeof timestamp === 'string') {
+      const parsed = new Date(timestamp).getTime();
+      if (!isNaN(parsed)) {
+        return parsed;
+      }
+    }
+    
+    // Fallback to current time if invalid
+    return Date.now();
+  } catch (error) {
+    console.warn('Error processing timestamp:', error);
+    return Date.now();
   }
-  if (typeof timestamp === 'string') {
-    return new Date(timestamp).getTime();
-  }
-  return 0;
 };
 
 // Format a date to show how recent it is (e.g., "2d ago", "5h ago")
@@ -49,61 +83,106 @@ const getTimeAgo = (timestamp: number): string => {
 
 const MarketOverview: React.FC = () => {
   const navigate = useNavigate();
-  const { analyses } = useWaveAnalysis();
+  const { allAnalyses, isDataLoaded } = useWaveAnalysis();
   const [showMoreBullish, setShowMoreBullish] = useState(false);
   const [showMoreBearish, setShowMoreBearish] = useState(false);
   const [bullishWaveFilter, setBullishWaveFilter] = useState<string | number | null>(null);
   const [bearishWaveFilter, setBearishWaveFilter] = useState<string | number | null>(null);
 
-  // Categorize stocks based on wave analysis
-  const categorizedStocks = useMemo(() => {
+  // Debug log when component mounts or allAnalyses changes
+  useEffect(() => {
+    console.log('MarketOverview - Current analyses:', {
+      count: Object.keys(allAnalyses).length,
+      isDataLoaded,
+      sampleKeys: Object.keys(allAnalyses).slice(0, 3)
+    });
+  }, [allAnalyses, isDataLoaded]);
+
+  // Wave categorization logic
+  const { bullishStocks, bearishStocks } = useMemo(() => {
     const bullish: { symbol: string; wave: string | number; startTimestamp: number }[] = [];
     const bearish: { symbol: string; wave: string | number; startTimestamp: number }[] = [];
 
-    Object.entries(analyses).forEach(([key, analysis]) => {
-      if (!analysis?.currentWave) return;
+    if (!allAnalyses) {
+      console.warn('allAnalyses is null or undefined');
+      return { bullishStocks: [], bearishStocks: [] };
+    }
 
+    Object.entries(allAnalyses).forEach(([key, entry]) => {
       try {
-        const [symbol] = key.split(':');
-        const { currentWave } = analysis;
-        const startTimestamp = getTimestampValue(currentWave.startTimestamp);
+        if (!entry?.analysis || !entry.isLoaded) {
+          console.warn(`Invalid or unloaded entry for ${key}:`, entry);
+          return;
+        }
 
-        // Enhanced wave categorization logic
-        if (typeof currentWave.number === 'number') {
-          // Impulse waves (1,3,5) are bullish
-          // Corrective waves (2,4) are bearish
-          if ([1, 3, 5].includes(currentWave.number)) {
-            bullish.push({ symbol, wave: currentWave.number, startTimestamp });
-          } else if ([2, 4].includes(currentWave.number)) {
-            bearish.push({ symbol, wave: currentWave.number, startTimestamp });
-          }
-        } else if (typeof currentWave.number === 'string') {
-          // Wave B is typically bullish in a corrective pattern
-          // Waves A and C are bearish retracements
-          if (currentWave.number === 'B') {
-            bullish.push({ symbol, wave: currentWave.number, startTimestamp });
-          } else if (['A', 'C'].includes(currentWave.number)) {
-            bearish.push({ symbol, wave: currentWave.number, startTimestamp });
-          }
+        const { analysis } = entry;
+        const [symbol] = key.split(':');
+        
+        if (!symbol) {
+          console.warn(`Invalid key format: ${key}`);
+          return;
+        }
+
+        // Determine current wave - first try currentWave, then last wave in array
+        let waveNumber: string | number | undefined;
+        let startTimestamp: number;
+
+        if (analysis.currentWave?.number !== undefined) {
+          // Use currentWave if available and valid
+          waveNumber = analysis.currentWave.number;
+          startTimestamp = getTimestampValue(analysis.currentWave.startTimestamp);
+        } else if (analysis.waves?.length > 0) {
+          // Fall back to last wave in the array
+          const lastWave = analysis.waves[analysis.waves.length - 1];
+          waveNumber = lastWave.number;
+          startTimestamp = getTimestampValue(lastWave.startTimestamp);
+        } else {
+          console.warn(`No valid wave data found for ${key}`);
+          return;
+        }
+
+        // Skip invalid wave numbers
+        if (waveNumber === undefined || waveNumber === null) {
+          console.warn(`Invalid wave number for ${key}`);
+          return;
+        }
+
+        // Categorize based on wave number
+        const bullishWave = isBullishWave(waveNumber);
+        if (bullishWave) {
+          bullish.push({ symbol, wave: waveNumber, startTimestamp });
+          console.log(`[DEBUG] Categorized ${symbol} Wave ${waveNumber} as bullish`);
+        } else {
+          bearish.push({ symbol, wave: waveNumber, startTimestamp });
+          console.log(`[DEBUG] Categorized ${symbol} Wave ${waveNumber} as bearish`);
         }
       } catch (error) {
-        console.error(`Error categorizing ${key}:`, error);
+        console.error(`Error processing ${key}:`, error);
       }
     });
 
+    // Debug: Log final categorization counts
+    console.log('Final categorization:', {
+      bullishCount: bullish.length,
+      bearishCount: bearish.length,
+      sampleBullish: bullish.slice(0, 3).map(s => `${s.symbol}:${s.wave}`),
+      sampleBearish: bearish.slice(0, 3).map(s => `${s.symbol}:${s.wave}`)
+    });
+
+    // Sort by most recent first
     return {
-      bullish: bullish.sort((a, b) => b.startTimestamp - a.startTimestamp),
-      bearish: bearish.sort((a, b) => b.startTimestamp - a.startTimestamp)
+      bullishStocks: bullish.sort((a, b) => b.startTimestamp - a.startTimestamp),
+      bearishStocks: bearish.sort((a, b) => b.startTimestamp - a.startTimestamp)
     };
-  }, [analyses]);
+  }, [allAnalyses]);
 
   // Get available waves for filtering
   const availableWaves = useMemo(() => {
     const bullish = new Set<string | number>();
     const bearish = new Set<string | number>();
 
-    categorizedStocks.bullish.forEach(stock => bullish.add(stock.wave));
-    categorizedStocks.bearish.forEach(stock => bearish.add(stock.wave));
+    bullishStocks.forEach(stock => bullish.add(stock.wave));
+    bearishStocks.forEach(stock => bearish.add(stock.wave));
 
     // Sort waves numerically/alphabetically
     const sortWaves = (waves: (string | number)[]) => {
@@ -119,24 +198,24 @@ const MarketOverview: React.FC = () => {
       bullish: sortWaves(Array.from(bullish)),
       bearish: sortWaves(Array.from(bearish))
     };
-  }, [categorizedStocks]);
+  }, [bullishStocks, bearishStocks]);
 
   // Filter stocks based on selected wave
   const filteredStocks = useMemo(() => {
     return {
       bullish: bullishWaveFilter 
-        ? categorizedStocks.bullish.filter(stock => stock.wave === bullishWaveFilter)
-        : categorizedStocks.bullish,
+        ? bullishStocks.filter(stock => stock.wave === bullishWaveFilter)
+        : bullishStocks,
       bearish: bearishWaveFilter
-        ? categorizedStocks.bearish.filter(stock => stock.wave === bearishWaveFilter)
-        : categorizedStocks.bearish
+        ? bearishStocks.filter(stock => stock.wave === bearishWaveFilter)
+        : bearishStocks
     };
-  }, [categorizedStocks, bullishWaveFilter, bearishWaveFilter]);
+  }, [bullishStocks, bearishStocks, bullishWaveFilter, bearishWaveFilter]);
 
   // Calculate market sentiment
   const marketSentiment = useMemo(() => {
-    const bullish = categorizedStocks.bullish.length;
-    const bearish = categorizedStocks.bearish.length;
+    const bullish = bullishStocks.length;
+    const bearish = bearishStocks.length;
     const total = bullish + bearish;
     
     if (total === 0) {
@@ -173,7 +252,7 @@ const MarketOverview: React.FC = () => {
       neutralPercentage: 0,
       overallSentiment
     };
-  }, [categorizedStocks]);
+  }, [bullishStocks, bearishStocks]);
 
   // Format waves for display
   const formatWaves = (waves: (string | number)[]) => {

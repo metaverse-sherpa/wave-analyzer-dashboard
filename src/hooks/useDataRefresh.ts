@@ -1,9 +1,8 @@
 import { useContext } from 'react';
-import { DataRefreshContext, DataRefreshContextType } from '@/context/DataRefreshManager';
+import { DataRefreshContext } from '@/context/DataRefreshContext';
+import type { DataRefreshContextType } from '@/context/DataRefreshContext';
 
-/**
- * Hook to access the DataRefresh context
- */
+// Use named export for consistent pattern
 export function useDataRefresh(): DataRefreshContextType {
   const context = useContext(DataRefreshContext);
   

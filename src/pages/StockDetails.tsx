@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-rea
 import StockDetailChart from "@/components/StockDetailChart";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { fetchStockQuote } from '@/lib/api';
 import { 
   fetchHistoricalData, 
   fetchTopStocks 
@@ -177,18 +178,14 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
 
         // Get latest stock info
         try {
-          const response = await fetch(apiUrl(`/stocks/${symbol}`));
-          if (response.ok) {
-            const stockInfo = await response.json();
-            setStockData({
-              ...stockInfo,
-              symbol
-            });
-            
-            // Update live price if available
-            if (stockInfo.regularMarketPrice) {
-              setLivePrice(stockInfo.regularMarketPrice);
-            }
+          const stockInfo = await fetchStockQuote(symbol);
+          setStockData({
+            ...stockInfo,
+            symbol
+          });
+          
+          if (stockInfo.price) {
+            setLivePrice(stockInfo.price);
           }
         } catch (stockErr) {
           console.error('Error fetching stock data:', stockErr);
@@ -207,12 +204,9 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     // Set up live price updates
     const priceInterval = setInterval(async () => {
       try {
-        const response = await fetch(apiUrl(`/stocks/${symbol}`));
-        if (response.ok) {
-          const data = await response.json();
-          if (data && typeof data.regularMarketPrice === 'number') {
-            setLivePrice(data.regularMarketPrice);
-          }
+        const data = await fetchStockQuote(symbol);
+        if (data && typeof data.price === 'number') {
+          setLivePrice(data.price);
         }
       } catch (error) {
         console.error(`Error updating live price: ${error}`);
@@ -501,23 +495,11 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               )}
             </CardContent>
           </Card>
-
-          {/* Add WaveInvalidations component */}
-          <Card>
-            <CardContent className="pt-6">
-              <h3 className="text-lg font-medium mb-4">Wave Invalidations</h3>
-              {loading ? (
-                <Skeleton className="h-24 w-full" />
-              ) : (
-                <WaveInvalidations invalidWaves={analysis.invalidWaves} />
-              )}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </ErrorBoundary>
   );
-  
+
   // If running in Telegram, use the TelegramLayout
   if (isTelegram) {
     return (
@@ -526,7 +508,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
       </TelegramLayout>
     );
   }
-  
+
   // Otherwise use regular layout
   return stockDetailsContent;
 };

@@ -160,7 +160,10 @@ type DataPoint = number | ScatterDataPoint | Point | [number, number] | null;
 type Anchor = 'center' | 'start' | 'end';
 type DataLabelsCallback = (context: any) => boolean | string;
 
-// Define CustomDataLabels interface
+// Define proper font weight type to match Chart.js Font type
+type FontWeight = 'normal' | 'bold' | 'bolder' | 'lighter' | number;
+
+// Define CustomDataLabels interface with correct font type
 interface CustomDataLabels {
   display?: boolean | DataLabelsCallback;
   formatter?: (value: any, ctx: any) => string;
@@ -174,7 +177,7 @@ interface CustomDataLabels {
     bottom: number;
   };
   font?: {
-    weight: string;
+    weight: FontWeight;
     size: number;
   };
   anchor?: Anchor | ((context: any) => Anchor);
@@ -182,7 +185,7 @@ interface CustomDataLabels {
   offset?: number;
 }
 
-// Update CustomChartDataset to extend Chart.js types correctly
+// Update CustomChartDataset with the corrected CustomDataLabels interface
 export interface CustomChartDataset extends Omit<ChartDataset<ChartType, DataPoint[]>, 'type'> {
   type?: DatasetType;
   datalabels?: CustomDataLabels;

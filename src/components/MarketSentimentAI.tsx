@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { apiUrl } from '@/utils/apiConfig';
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { getAIMarketSentiment } from '@/services/aiMarketService';
 
 interface MarketSentimentAIProps {
   bullishCount: number;
@@ -39,24 +40,38 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
         setLoading(true);
         setError(null);
 
-        const response = await fetch(apiUrl('/market/sentiment'));
-        if (!response.ok) {
-          throw new Error('Failed to fetch market sentiment');
-        }
+        // Use the local service instead of direct API call
+        const result = await getAIMarketSentiment({
+          bullishCount,
+          bearishCount,
+          neutralCount,
+          overallSentiment
+        });
 
-        const data = await response.json();
-        setSentiment(data);
+        // Transform the result to match component's expected format
+        setSentiment({
+          analysis: result.analysis,
+          stats: {
+            totalStocks: bullishCount + bearishCount + neutralCount,
+            bullishPercentage: Math.round((bullishCount / (bullishCount + bearishCount + neutralCount)) * 100),
+            bearishPercentage: Math.round((bearishCount / (bullishCount + bearishCount + neutralCount)) * 100),
+            neutralPercentage: Math.round((neutralCount / (bullishCount + bearishCount + neutralCount)) * 100)
+          },
+          waveDistribution: {}, // This will be populated by the API if available
+          timestamp: new Date(result.timestamp).toISOString()
+        });
       } catch (err) {
         console.error('Error fetching market sentiment:', err);
-        setError((err as Error).message);
+        setError((err as Error).message || 'Failed to fetch market sentiment');
       } finally {
         setLoading(false);
       }
     };
 
     fetchMarketSentiment();
-  }, []);
+  }, [bullishCount, bearishCount, neutralCount, overallSentiment]);
 
+  // Rest of the component remains the same
   if (loading) {
     return (
       <Card>
@@ -120,27 +135,29 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
       <CardContent className="pt-6">
         <div className="space-y-4">
           {/* Wave Distribution */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {Object.entries(sentiment.waveDistribution)
-              .sort(([a], [b]) => {
-                // Sort numeric waves first, then alphabetical
-                const aNum = parseInt(a);
-                const bNum = parseInt(b);
-                if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
-                if (!isNaN(aNum)) return -1;
-                if (!isNaN(bNum)) return 1;
-                return a.localeCompare(b);
-              })
-              .map(([wave, percentage]) => (
-                <Badge
-                  key={wave}
-                  variant="outline"
-                  className={`px-2 py-0.5 ${getWaveColor(wave)}`}
-                >
-                  Wave {wave}: {percentage}%
-                </Badge>
-              ))}
-          </div>
+          {Object.keys(sentiment.waveDistribution).length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {Object.entries(sentiment.waveDistribution)
+                .sort(([a], [b]) => {
+                  // Sort numeric waves first, then alphabetical
+                  const aNum = parseInt(a);
+                  const bNum = parseInt(b);
+                  if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+                  if (!isNaN(aNum)) return -1;
+                  if (!isNaN(bNum)) return 1;
+                  return a.localeCompare(b);
+                })
+                .map(([wave, percentage]) => (
+                  <Badge
+                    key={wave}
+                    variant="outline"
+                    className={`px-2 py-0.5 ${getWaveColor(wave)}`}
+                  >
+                    Wave {wave}: {percentage}%
+                  </Badge>
+                ))}
+            </div>
+          )}
 
           {/* AI Analysis */}
           <div className="prose prose-sm dark:prose-invert max-w-none">

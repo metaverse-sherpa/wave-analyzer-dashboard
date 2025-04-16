@@ -50,8 +50,8 @@ export async function getAIMarketSentiment(
   }, 
   waveAnalyses: Record<string, { analysis: WaveAnalysisResult, timestamp: number }> = {},
   forceRefresh: boolean = false,
-  skipApiCall: boolean = false, // Add this parameter
-  abortSignal?: AbortSignal // Add abort signal parameter
+  skipApiCall: boolean = false,
+  abortSignal?: AbortSignal
 ): Promise<MarketSentimentResult> {
   try {
     // Check cache first unless we're forcing a refresh
@@ -68,7 +68,6 @@ export async function getAIMarketSentiment(
     // Get symbols from wave analyses
     const symbols = Object.keys(waveAnalyses).map(key => key.split('_')[0]);
     
-    // Skip API call if requested (helpful for debugging)
     let marketInsightsResult: MarketInsightsResult;
     if (skipApiCall) {
       marketInsightsResult = {
@@ -80,7 +79,7 @@ export async function getAIMarketSentiment(
       try {
         marketInsightsResult = await fetchMarketInsights(symbols);
       } catch (apiError) {
-        console.error("Failed to fetch any market insights, using mockup data", apiError);
+        console.error("Failed to fetch market insights, using mockup data", apiError);
         marketInsightsResult = {
           content: generateMockInsights(symbols),
           isMock: true,
@@ -90,38 +89,43 @@ export async function getAIMarketSentiment(
     }
     
     try {
-      // Check if DeepSeek API key exists
       const apiKey = import.meta.env.VITE_PUBLIC_DEEPSEEK_API_KEY;
       
-      // If no API key is available, use a fallback approach instead
       if (!apiKey) {
         console.warn("No DeepSeek API key found, using local sentiment generation");
         return generateLocalSentimentResult(marketData, analysisInsights, marketInsightsResult);
       }
       
-      // Create a combined abort signal with a timeout if no external signal is provided
-      const timeoutSignal = abortSignal || AbortSignal.timeout(10000);
+      // Create a combined abort controller with a timeout
+      const timeoutController = new AbortController();
+      const timeout = setTimeout(() => timeoutController.abort(), 15000); // 15 second timeout
       
-      // Call DeepSeek API with enhanced context
-      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          messages: [
-            {
-              role: "system",
-              content: `You are an expert market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
-              You analyze market patterns, news, and analyst insights to provide concise, actionable market sentiment summaries.`
-            },
-            {
-              role: "user",
-              content: `Generate a brief market sentiment analysis based on this market data:
-              
-Bullish stocks: ${marketData.bullishCount} 
+      // Combine user-provided abort signal with timeout signal
+      const combinedSignal = abortSignal 
+        ? AbortSignal.any([abortSignal, timeoutController.signal])
+        : timeoutController.signal;
+
+      // Retry the API call up to 3 times with exponential backoff
+      const apiCall = async () => {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [
+              {
+                role: "system",
+                content: `You are an expert market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
+                You analyze market patterns, news, and analyst insights to provide concise, actionable market sentiment summaries.`
+              },
+              {
+                role: "user",
+                content: `Generate a brief market sentiment analysis based on this market data:
+                
+Bullish stocks: ${marketData.bullishCount}
 Bearish stocks: ${marketData.bearishCount}
 Neutral stocks: ${marketData.neutralCount}
 Overall sentiment: ${marketData.overallSentiment}
@@ -135,35 +139,37 @@ ${marketInsightsResult.content}
 ${marketInsightsResult.isMock ? "Note: Some market data is simulated due to API limitations." : ""}
 Include specific references to current market events or news mentioned in the insights.
 Keep your response under 120 words and focus on what this means for investors.`
-            }
-          ],
-          temperature: 0.3,
-          max_tokens: 250
-        }),
-        signal: timeoutSignal
-      });
-      
-      if (!response.ok) {
-        console.warn(`DeepSeek API error: ${response.status}`);
-        // Fall back to local generation if API fails
-        return generateLocalSentimentResult(marketData, analysisInsights, marketInsightsResult);
-      }
-      
-      const result = await response.json();
-      const sentimentAnalysis = result.choices[0].message.content;
-      
-      // Create the complete result with metadata
-      const sentimentResult: MarketSentimentResult = {
-        analysis: sentimentAnalysis,
-        isMockData: marketInsightsResult.isMock,
-        sourcesUsed: ['Elliott Wave analysis', 'DeepSeek AI', ...marketInsightsResult.sourcesUsed],
-        timestamp: Date.now()
+              }
+            ],
+            temperature: 0.3,
+            max_tokens: 250
+          }),
+          signal: combinedSignal
+        });
+        
+        if (!response.ok) {
+          throw new Error(`DeepSeek API error: ${response.status}`);
+        }
+        
+        return response.json();
       };
-      
-      // Save to cache
-      await saveToCache(sentimentResult);
-      
-      return sentimentResult;
+
+      try {
+        const result = await retry(apiCall, 3, 1000);
+        const sentimentAnalysis = result.choices[0].message.content;
+        
+        const sentimentResult: MarketSentimentResult = {
+          analysis: sentimentAnalysis,
+          isMockData: marketInsightsResult.isMock,
+          sourcesUsed: ['Elliott Wave analysis', 'DeepSeek AI', ...marketInsightsResult.sourcesUsed],
+          timestamp: Date.now()
+        };
+        
+        await saveToCache(sentimentResult);
+        return sentimentResult;
+      } finally {
+        clearTimeout(timeout);
+      }
     } catch (error) {
       console.error('Error with DeepSeek API:', error);
       // Fall back to local generation if anything fails
@@ -171,7 +177,7 @@ Keep your response under 120 words and focus on what this means for investors.`
     }
   } catch (error) {
     console.error('Error getting AI market sentiment:', error);
-    // Final fallback
+    // Final fallback with basic analysis
     return {
       analysis: `Market analysis based on ${marketData.bullishCount} bullish and ${marketData.bearishCount} bearish stocks suggests a ${marketData.overallSentiment.toLowerCase()} trend. Elliott Wave patterns indicate potential for continued momentum in the current direction.`,
       isMockData: true,

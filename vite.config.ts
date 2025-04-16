@@ -31,11 +31,9 @@ export default defineConfig(({ mode }) => {
           // Keep the rewrite to match how the worker expects paths
           rewrite: (path) => path.replace(/^\/api/, ''),
           configure: (proxy, options) => {
+            // Only log proxy errors, not every request
             proxy.on('error', (err, req, res) => {
-              console.log('proxy error', err);
-            });
-            proxy.on('proxyReq', (proxyReq, req, res) => {
-              console.log('Proxying to:', proxyReq.path);
+              console.error('Proxy error:', err);
             });
           }
         }

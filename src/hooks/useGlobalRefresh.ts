@@ -65,17 +65,21 @@ export const useGlobalRefresh = () => {
         const batch = symbolsToProcess.slice(i, i + concurrencyLimit);
         const promises = batch.map(async symbol => {
           try {
-            const url = apiUrl(`/stocks/${symbol}/quote`);
+            // Update to use the correct endpoint that returns stock data
+            const url = apiUrl(`/stocks/${symbol}`);
             console.log(`Fetching fresh price for ${symbol} from: ${url}`);
             
             const response = await fetchWithRetry(url);
-            const data = await response.json();
+            const responseData = await response.json();
             
-            if (data && (data.regularMarketPrice || data.price || data.lastPrice)) {
-              const price = data.regularMarketPrice || data.price || data.lastPrice;
-              if (typeof price === 'number' && price > 0) {
-                priceMap[symbol] = price;
-                return;
+            if (responseData.status === 'success' && responseData.data) {
+              const data = responseData.data;
+              if (data && (data.regularMarketPrice || data.price || data.lastPrice)) {
+                const price = data.regularMarketPrice || data.price || data.lastPrice;
+                if (typeof price === 'number' && price > 0) {
+                  priceMap[symbol] = price;
+                  return;
+                }
               }
             }
             errors.push(`Invalid price data for ${symbol}`);

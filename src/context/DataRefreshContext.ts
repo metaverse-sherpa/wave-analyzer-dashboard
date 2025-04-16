@@ -1,9 +1,13 @@
 import { createContext } from 'react';
 
+// Type for refresh status
+type RefreshStatus = 'idle' | 'in-progress' | 'error';
+
 // Type for the refresh context
 export interface DataRefreshContextType {
   lastRefreshTime: number | null;
   isRefreshing: boolean;
+  refreshStatus: RefreshStatus;
   refreshData: () => Promise<void>;
   cancelRefresh: () => void;
   progress: {
