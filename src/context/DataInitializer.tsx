@@ -14,6 +14,8 @@ const DataInitializer: FC<DataInitializerProps> = ({ onDataLoaded, onError }) =>
   const previousAnalysesCount = useRef(0);
   const loadAttempts = useRef(0);
   const maxLoadAttempts = 3;
+  const initStarted = useRef(false);
+  const alreadyRunningInitRef = useRef(false);
 
   useEffect(() => {
     const analysesCount = Object.keys(allAnalyses).length;
@@ -29,11 +31,12 @@ const DataInitializer: FC<DataInitializerProps> = ({ onDataLoaded, onError }) =>
 
       if (!hasCalledOnDataLoaded.current) {
         hasCalledOnDataLoaded.current = true;
+        console.log("Data successfully loaded from DataInitializer");
         onDataLoaded();
       }
     }
-    // Handle case where data is marked as loaded but no analyses found
-    else if (isDataLoaded && analysesCount === 0) {
+    // Only retry loading if we've never loaded any data before
+    else if (isDataLoaded && analysesCount === 0 && previousAnalysesCount.current === 0) {
       console.warn("Data marked as loaded but no analyses found", {
         attempts: loadAttempts.current,
         maxAttempts: maxLoadAttempts
@@ -54,31 +57,55 @@ const DataInitializer: FC<DataInitializerProps> = ({ onDataLoaded, onError }) =>
   }, [allAnalyses, isDataLoaded, loadAllAnalysesFromSupabase, onDataLoaded, onError]);
 
   useEffect(() => {
+    // If data is already loaded or we're already initializing, skip initialization
+    if (isDataLoaded || alreadyRunningInitRef.current) {
+      console.log("Skipping DataInitializer init - data already loaded or initialization in progress");
+      return;
+    }
+    
     const initializeData = async () => {
-      if (!isDataLoaded) {
-        try {
-          await loadAllAnalysesFromSupabase();
-        } catch (error) {
-          console.error('Data initialization error:', {
-            error,
-            message: error instanceof Error ? error.message : 'Unknown error',
-            attempts: loadAttempts.current
-          });
-
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to load analysis data. Please try refreshing the page.",
-            duration: 7000,
-          });
-          
-          onError("Failed to initialize data");
+      // Prevent concurrent initializations
+      if (initStarted.current) return;
+      
+      alreadyRunningInitRef.current = true;
+      initStarted.current = true;
+      
+      try {
+        // Check if analyses are already loaded by Index component
+        const analysesCount = Object.keys(allAnalyses).length;
+        if (analysesCount > 0) {
+          console.log(`DataInitializer found ${analysesCount} analyses already loaded, skipping load`);
+          if (!hasCalledOnDataLoaded.current) {
+            hasCalledOnDataLoaded.current = true;
+            onDataLoaded();
+          }
+          return;
         }
+        
+        console.log("DataInitializer loading analyses from Supabase");
+        await loadAllAnalysesFromSupabase();
+      } catch (error) {
+        console.error('Data initialization error:', {
+          error,
+          message: error instanceof Error ? error.message : 'Unknown error',
+          attempts: loadAttempts.current
+        });
+
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load analysis data. Please try refreshing the page.",
+          duration: 7000,
+        });
+        
+        onError("Failed to initialize data");
+      } finally {
+        alreadyRunningInitRef.current = false;
       }
     };
 
     initializeData();
-  }, [isDataLoaded, loadAllAnalysesFromSupabase, onError, toast]);
+  }, [isDataLoaded, loadAllAnalysesFromSupabase, onError, toast, allAnalyses, onDataLoaded]);
 
   return null;
 };

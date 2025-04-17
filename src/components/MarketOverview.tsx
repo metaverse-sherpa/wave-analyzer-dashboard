@@ -89,15 +89,6 @@ const MarketOverview: React.FC = () => {
   const [bullishWaveFilter, setBullishWaveFilter] = useState<string | number | null>(null);
   const [bearishWaveFilter, setBearishWaveFilter] = useState<string | number | null>(null);
 
-  // Debug log when component mounts or allAnalyses changes
-  useEffect(() => {
-    console.log('MarketOverview - Current analyses:', {
-      count: Object.keys(allAnalyses).length,
-      isDataLoaded,
-      sampleKeys: Object.keys(allAnalyses).slice(0, 3)
-    });
-  }, [allAnalyses, isDataLoaded]);
-
   // Wave categorization logic
   const { bullishStocks, bearishStocks } = useMemo(() => {
     const bullish: { symbol: string; wave: string | number; startTimestamp: number }[] = [];
@@ -108,10 +99,10 @@ const MarketOverview: React.FC = () => {
       return { bullishStocks: [], bearishStocks: [] };
     }
 
+    // Process and categorize in a single loop
     Object.entries(allAnalyses).forEach(([key, entry]) => {
       try {
         if (!entry?.analysis || !entry.isLoaded) {
-          console.warn(`Invalid or unloaded entry for ${key}:`, entry);
           return;
         }
 
@@ -119,7 +110,6 @@ const MarketOverview: React.FC = () => {
         const [symbol] = key.split(':');
         
         if (!symbol) {
-          console.warn(`Invalid key format: ${key}`);
           return;
         }
 
@@ -137,36 +127,24 @@ const MarketOverview: React.FC = () => {
           waveNumber = lastWave.number;
           startTimestamp = getTimestampValue(lastWave.startTimestamp);
         } else {
-          console.warn(`No valid wave data found for ${key}`);
           return;
         }
 
         // Skip invalid wave numbers
         if (waveNumber === undefined || waveNumber === null) {
-          console.warn(`Invalid wave number for ${key}`);
           return;
         }
 
         // Categorize based on wave number
-        const bullishWave = isBullishWave(waveNumber);
-        if (bullishWave) {
+        const isBullish = isBullishWave(waveNumber);
+        if (isBullish) {
           bullish.push({ symbol, wave: waveNumber, startTimestamp });
-          console.log(`[DEBUG] Categorized ${symbol} Wave ${waveNumber} as bullish`);
         } else {
           bearish.push({ symbol, wave: waveNumber, startTimestamp });
-          console.log(`[DEBUG] Categorized ${symbol} Wave ${waveNumber} as bearish`);
         }
       } catch (error) {
         console.error(`Error processing ${key}:`, error);
       }
-    });
-
-    // Debug: Log final categorization counts
-    console.log('Final categorization:', {
-      bullishCount: bullish.length,
-      bearishCount: bearish.length,
-      sampleBullish: bullish.slice(0, 3).map(s => `${s.symbol}:${s.wave}`),
-      sampleBearish: bearish.slice(0, 3).map(s => `${s.symbol}:${s.wave}`)
     });
 
     // Sort by most recent first
@@ -175,6 +153,31 @@ const MarketOverview: React.FC = () => {
       bearishStocks: bearish.sort((a, b) => b.startTimestamp - a.startTimestamp)
     };
   }, [allAnalyses]);
+
+  // Debug log once - only when component mounts or allAnalyses changes
+  useEffect(() => {
+    // Only log when we have actual data
+    if (allAnalyses && Object.keys(allAnalyses).length > 0) {
+      // Use a ref to track if we've already logged this set of data before
+      const analysesCount = Object.keys(allAnalyses).length;
+      
+      console.log('MarketOverview - Current analyses:', {
+        count: analysesCount,
+        isDataLoaded,
+        sampleKeys: Object.keys(allAnalyses).slice(0, 3)
+      });
+      
+      // Only log the categorization if we have data to categorize
+      if (bullishStocks.length > 0 || bearishStocks.length > 0) {
+        console.log('Final categorization:', {
+          bullishCount: bullishStocks.length,
+          bearishCount: bearishStocks.length,
+          sampleBullish: bullishStocks.slice(0, 3).map(s => `${s.symbol}:${s.wave}`),
+          sampleBearish: bearishStocks.slice(0, 3).map(s => `${s.symbol}:${s.wave}`)
+        });
+      }
+    }
+  }, [bullishStocks.length, bearishStocks.length, allAnalyses, isDataLoaded]);
 
   // Get available waves for filtering
   const availableWaves = useMemo(() => {

@@ -227,6 +227,14 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
         if (newWorker) {
           setWorker(newWorker);
           console.log('Background refresh worker initialized');
+          
+          // Disable automatic Elliott Wave Analysis refreshes - it only needs to be loaded once
+          if (refreshWorkerRef.current) {
+            refreshWorkerRef.current.postMessage({ 
+              action: 'DISABLE_ELLIOTT_WAVE_AUTO_REFRESH', 
+              id: requestIdCounterRef.current++ 
+            });
+          }
         }
         
         // Set up heartbeat to keep worker alive
@@ -234,7 +242,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           if (refreshWorkerRef.current) {
             refreshWorkerRef.current.postMessage({ 
               action: 'PING', 
-              id: requestIdCounterRef.current 
+              id: requestIdCounterRef.current++ 
             });
           }
         }, HEARTBEAT_INTERVAL);
