@@ -443,7 +443,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           
           // Then trigger wave analysis with the fresh data
           // Using silent mode to avoid UI notifications
-          await getAnalysis(symbol, historicalData, true, true);
+          await getAnalysis(symbol);
           
           console.log(`Wave analysis completed for ${symbol}`);
           

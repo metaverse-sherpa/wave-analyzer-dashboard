@@ -1,7 +1,13 @@
 import { supabase } from '@/lib/supabase';
 import { getHistoricalPrices } from '@/services/yahooFinanceService';
 import { getDeepSeekWaveAnalysis } from '@/api/deepseekApi';
-import { StockHistoricalData, DeepSeekWaveAnalysis } from '@/types/shared';
+import { StockHistoricalData, DeepSeekWaveAnalysis, WaveAnalysis } from '@/types/shared';
+
+interface AnalysisScheduleItem {
+  symbol: string;
+  interval: string;
+  lastAnalyzed: number;
+}
 
 // Function to get all stock symbols from profiles table
 export async function getAllStockSymbols(): Promise<string[]> {
@@ -109,4 +115,78 @@ export async function updateAllWaveAnalyses(): Promise<{
   
   console.log(`Completed batch Elliott Wave analysis: ${results.success} successful, ${results.failed} failed`);
   return results;
+}
+
+/**
+ * Schedule for periodic analysis of stock data
+ * This helps keep the analysis data up to date without requiring manual refreshes
+ */
+export async function scheduleWaveAnalysis() {
+  try {
+    // Get list of stocks to analyze from database
+    const { data: scheduleData, error } = await supabase
+      .from('analysis_schedule')
+      .select('*')
+      .order('last_analyzed', { ascending: true })
+      .limit(5);
+    
+    if (error) {
+      console.error('Error fetching analysis schedule:', error);
+      return;
+    }
+    
+    if (!scheduleData || scheduleData.length === 0) {
+      console.log('No stocks scheduled for analysis');
+      return;
+    }
+    
+    // Process each scheduled item
+    for (const item of scheduleData) {
+      const schedule: AnalysisScheduleItem = {
+        symbol: item.symbol,
+        interval: item.interval,
+        lastAnalyzed: item.last_analyzed
+      };
+      
+      try {
+        // Get historical data
+        const historicalData = await getHistoricalPrices(schedule.symbol, schedule.interval, true);
+        
+        if (!historicalData || historicalData.length === 0) {
+          console.warn(`No historical data available for ${schedule.symbol}`);
+          continue;
+        }
+        
+        // Run wave analysis
+        const analysis = await getDeepSeekWaveAnalysis(schedule.symbol, historicalData);
+        
+        // Update analysis in database
+        const { error: updateError } = await supabase
+          .from('wave_analyses')
+          .upsert({
+            symbol: schedule.symbol,
+            interval: schedule.interval,
+            analysis: analysis,
+            last_updated: Math.floor(Date.now() / 1000)
+          });
+          
+        if (updateError) {
+          console.error(`Error updating analysis for ${schedule.symbol}:`, updateError);
+        } else {
+          // Update schedule
+          await supabase
+            .from('analysis_schedule')
+            .update({ last_analyzed: Math.floor(Date.now() / 1000) })
+            .eq('symbol', schedule.symbol)
+            .eq('interval', schedule.interval);
+            
+          console.log(`Updated analysis for ${schedule.symbol}`);
+        }
+      } catch (err) {
+        console.error(`Error analyzing ${schedule.symbol}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('Error in scheduled wave analysis:', err);
+  }
 }

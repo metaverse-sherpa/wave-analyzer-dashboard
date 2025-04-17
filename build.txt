@@ -1,0 +1,568 @@
+
+> vite_react_shadcn_ts@1.0.0 build
+> tsc && vite build
+
+src/api/deepseekApi.ts(4,71): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/components/AIAnalysis.tsx(5,15): error TS2724: '"@/types/shared"' has no exported member named 'WaveAnalysisResult'. Did you mean 'WaveAnalysis'?
+src/components/AIAnalysis.tsx(5,35): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/components/AnalysisStatusTracker.tsx(9,11): error TS2339: Property 'analysisEvents' does not exist on type 'WaveAnalysisContextType'.
+src/components/chart/FibonacciTargets.tsx(11,11): error TS2339: Property 'analyses' does not exist on type 'WaveAnalysisContextType'.
+src/components/chart/FibonacciTargets.tsx(11,21): error TS2339: Property 'getAnalysis' does not exist on type 'WaveAnalysisContextType'.
+src/components/chart/waveChartUtils.ts(1,16): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/components/chart/waveChartUtils.ts(1,37): error TS2305: Module '"@/types/shared"' has no exported member 'ChartPoint'.
+src/components/chart/waveChartUtils.ts(2,10): error TS2305: Module '"@/types/shared"' has no exported member 'WAVE_COLORS'.
+src/components/chart/waveChartUtils.ts(41,18): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/chart/waveChartUtils.ts(145,40): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/chart/waveChartUtils.ts(184,29): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(14,31): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(17,58): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(18,25): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(19,43): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(34,63): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(35,61): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(37,26): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/chart/WaveLine.tsx(43,11): error TS2339: Property 'analyses' does not exist on type 'WaveAnalysisContextType'.
+src/components/LightweightChart.tsx(4,15): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/components/MarketOverview.tsx(86,11): error TS2339: Property 'allAnalyses' does not exist on type 'WaveAnalysisContextType'.
+src/components/MarketOverview.tsx(86,24): error TS2339: Property 'isDataLoaded' does not exist on type 'WaveAnalysisContextType'.
+src/components/MarketOverview.tsx(113,21): error TS2339: Property 'analysis' does not exist on type 'unknown'.
+src/components/MarketOverview.tsx(113,40): error TS2339: Property 'isLoaded' does not exist on type 'unknown'.
+src/components/MarketOverview.tsx(118,17): error TS2339: Property 'analysis' does not exist on type '{}'.
+src/components/ReversalsList.tsx(28,11): error TS2339: Property 'analyses' does not exist on type 'WaveAnalysisContextType'.
+src/components/ReversalsList.tsx(35,22): error TS2339: Property 'currentWave' does not exist on type 'unknown'.
+src/components/ReversalsList.tsx(35,47): error TS2339: Property 'fibTargets' does not exist on type 'unknown'.
+src/components/ReversalsList.tsx(39,17): error TS2339: Property 'currentWave' does not exist on type '{}'.
+src/components/ReversalsList.tsx(39,30): error TS2339: Property 'fibTargets' does not exist on type '{}'.
+src/components/ReversalsList.tsx(43,34): error TS2339: Property 'currentWave' does not exist on type 'unknown'.
+src/components/SimpleCandlestickChart.tsx(27,11): error TS2339: Property 'analyses' does not exist on type 'WaveAnalysisContextType'.
+src/components/SimpleCandlestickChart.tsx(27,21): error TS2339: Property 'getAnalysis' does not exist on type 'WaveAnalysisContextType'.
+src/components/SimpleCandlestickChart.tsx(45,57): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/SimpleCandlestickChart.tsx(80,49): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/SimpleCandlestickChart.tsx(80,78): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockCard.tsx(10,15): error TS2305: Module '"@/types/shared"' has no exported member 'StockData'.
+src/components/StockCard.tsx(10,26): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/components/StockCard.tsx(10,47): error TS2724: '"@/types/shared"' has no exported member named 'WaveAnalysisResult'. Did you mean 'WaveAnalysis'?
+src/components/StockCard.tsx(22,11): error TS2339: Property 'analyses' does not exist on type 'WaveAnalysisContextType'.
+src/components/StockDetailChart.tsx(300,43): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(300,81): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(301,42): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(305,48): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(309,41): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(310,41): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(319,60): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(361,18): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(361,59): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(362,58): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(367,67): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(481,35): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(481,88): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(494,29): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(494,62): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(494,74): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(495,29): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(495,62): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(495,74): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(502,88): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(504,26): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(511,28): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(512,38): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(513,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(515,66): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(515,87): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(516,90): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(518,70): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(564,29): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(567,70): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(568,58): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(580,29): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(583,70): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(584,58): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(592,37): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(592,60): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(593,55): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(593,105): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(595,45): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(599,39): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(600,37): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(612,20): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(614,61): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(616,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(622,33): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(629,29): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(629,50): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(638,26): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(638,45): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(645,32): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(678,39): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(683,60): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(690,81): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(700,38): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(707,38): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(707,79): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(741,39): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(743,44): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(746,58): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(750,32): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(776,34): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(777,59): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(782,47): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(794,60): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(804,35): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(807,53): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(821,35): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(821,53): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(822,35): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(822,53): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(824,32): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(824,59): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(825,33): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(825,51): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(826,43): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(826,60): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(827,31): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(827,48): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(830,72): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(832,34): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(833,34): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(984,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(985,27): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(986,16): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(986,42): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(987,23): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(988,21): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1002,13): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1003,14): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1003,32): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1011,60): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1014,50): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1015,48): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1018,78): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1048,16): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1048,54): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1049,16): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/StockDetailChart.tsx(1049,52): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/components/WavePatternChart.tsx(6,11): error TS2339: Property 'analyses' does not exist on type 'WaveAnalysisContextType'.
+src/components/WavePatternChart.tsx(16,32): error TS2339: Property 'currentWave' does not exist on type 'unknown'.
+src/components/WavePatternChart.tsx(16,56): error TS2339: Property 'currentWave' does not exist on type 'unknown'.
+src/components/WavePatternChart.tsx(17,37): error TS2339: Property 'currentWave' does not exist on type 'unknown'.
+src/components/WaveSequencePagination.tsx(81,29): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(81,62): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(100,25): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(101,25): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(116,36): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(117,59): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(117,83): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(119,37): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(119,60): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(120,37): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(120,68): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(123,36): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(123,51): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(130,44): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(138,43): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(143,45): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(145,32): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(148,36): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(155,29): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(159,30): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(159,62): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(166,39): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(169,54): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/components/WaveSequencePagination.tsx(175,91): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/context/DataInitializer.tsx(12,11): error TS2339: Property 'loadAllAnalysesFromSupabase' does not exist on type 'WaveAnalysisContextType'.
+src/context/DataInitializer.tsx(12,40): error TS2339: Property 'allAnalyses' does not exist on type 'WaveAnalysisContextType'.
+src/context/DataInitializer.tsx(12,53): error TS2339: Property 'isDataLoaded' does not exist on type 'WaveAnalysisContextType'.
+src/context/DataRefreshManager.tsx(87,11): error TS2339: Property 'getAnalysis' does not exist on type 'WaveAnalysisContextType'.
+src/context/HistoricalDataContext.tsx(3,15): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/context/WaveAnalysisContext.tsx(29,21): error TS2345: Argument of type 'DeepSeekWaveAnalysis' is not assignable to parameter of type 'SetStateAction<WaveAnalysis>'.
+  Type 'DeepSeekWaveAnalysis' is missing the following properties from type 'WaveAnalysis': patterns, rawAnalysis
+src/pages/Admin.tsx(17,27): error TS2724: '"@/types/shared"' has no exported member named 'WaveAnalysisResult'. Did you mean 'WaveAnalysis'?
+src/pages/Admin.tsx(202,11): error TS2339: Property 'getAnalysis' does not exist on type 'WaveAnalysisContextType'.
+src/pages/Admin.tsx(202,41): error TS2339: Property 'analysisEvents' does not exist on type 'WaveAnalysisContextType'.
+src/pages/Admin.tsx(202,57): error TS2339: Property 'cancelAllAnalyses' does not exist on type 'WaveAnalysisContextType'.
+src/pages/Admin.tsx(202,76): error TS2339: Property 'clearCache' does not exist on type 'WaveAnalysisContextType'.
+src/pages/Admin.tsx(898,40): error TS2339: Property 'waves' does not exist on type 'WaveAnalysis'.
+src/pages/Admin.tsx(900,33): error TS2345: Argument of type '(prev: Record<string, WaveAnalysisEntry>) => { [x: string]: WaveAnalysisEntry | { analysis: WaveAnalysis; timestamp: number; isLoaded: true; }; }' is not assignable to parameter of type 'SetStateAction<Record<string, WaveAnalysisEntry>>'.
+  Type '(prev: Record<string, WaveAnalysisEntry>) => { [x: string]: WaveAnalysisEntry | { analysis: WaveAnalysis; timestamp: number; isLoaded: true; }; }' is not assignable to type '(prevState: Record<string, WaveAnalysisEntry>) => Record<string, WaveAnalysisEntry>'.
+    Type '{ [x: string]: WaveAnalysisEntry | { analysis: WaveAnalysis; timestamp: number; isLoaded: true; }; }' is not assignable to type 'Record<string, WaveAnalysisEntry>'.
+      'string' index signatures are incompatible.
+        Type 'WaveAnalysisEntry | { analysis: WaveAnalysis; timestamp: number; isLoaded: true; }' is not assignable to type 'WaveAnalysisEntry'.
+          Type '{ analysis: WaveAnalysis; timestamp: number; isLoaded: true; }' is not assignable to type 'WaveAnalysisEntry'.
+            Types of property 'analysis' are incompatible.
+              Type 'WaveAnalysis' is missing the following properties from type '{ [key: string]: any; waves: Wave[]; invalidWaves: Wave[]; currentWave: Wave; fibTargets: FibTarget[]; trend: "bullish" | "bearish" | "neutral"; impulsePattern?: boolean; correctivePattern?: boolean; }': waves, invalidWaves, currentWave, fibTargets, trend
+src/pages/Admin.tsx(912,40): error TS2339: Property 'waves' does not exist on type 'WaveAnalysis'.
+src/pages/Admin.tsx(913,35): error TS2339: Property 'trend' does not exist on type 'WaveAnalysis'.
+src/pages/Admin.tsx(914,41): error TS2339: Property 'currentWave' does not exist on type 'WaveAnalysis'.
+src/pages/Admin.tsx(1274,38): error TS2339: Property 'waves' does not exist on type 'WaveAnalysis'.
+src/pages/Admin.tsx(1279,35): error TS2339: Property 'waves' does not exist on type 'WaveAnalysis'.
+src/pages/Admin.tsx(1681,40): error TS2352: Conversion of type '{ analysis: { waves: any; invalidWaves: any; currentWave: { number: string | number; startTimestamp: number; startPrice: number; type: "corrective"; isComplete: boolean; isImpulse: boolean; }; fibTargets: any; trend: any; impulsePattern: any; correctivePattern: any; }; timestamp: number; isLoaded: true; }' to type 'WaveAnalysisEntry' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  The types of 'analysis.currentWave' are incompatible between these types.
+    Type '{ number: string | number; startTimestamp: number; startPrice: number; type: "corrective"; isComplete: boolean; isImpulse: boolean; }' is missing the following properties from type 'Wave': startIndex, endIndex, degree, subwaves
+src/pages/Index.tsx(8,11): error TS2339: Property 'loadCacheTableData' does not exist on type 'WaveAnalysisContextType'.
+src/pages/StockDetails.tsx(18,21): error TS2724: '"@/types/shared"' has no exported member named 'WaveAnalysisResult'. Did you mean 'WaveAnalysis'?
+src/pages/StockDetails.tsx(18,41): error TS2305: Module '"@/types/shared"' has no exported member 'StockData'.
+src/pages/StockDetails.tsx(18,52): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/pages/StockDetails.tsx(54,35): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(54,67): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(54,97): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(55,35): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(55,67): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(55,97): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(393,62): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(393,86): error TS2339: Property 'startTimestamp' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(455,22): error TS2345: Argument of type 'WaveAnalysis' is not assignable to parameter of type 'SetStateAction<string>'.
+src/pages/StockDetails.tsx(458,43): error TS2339: Property 'currentWave' does not exist on type 'WaveAnalysis'.
+src/pages/StockDetails.tsx(459,38): error TS2339: Property 'trend' does not exist on type 'WaveAnalysis'.
+src/pages/StockDetails.tsx(532,61): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/pages/StockDetails.tsx(534,32): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/pages/TelegramEntryPoint.tsx(17,11): error TS2339: Property 'analyses' does not exist on type 'WaveAnalysisContextType'.
+src/services/aiMarketService.ts(2,10): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/services/aiMarketService.ts(2,31): error TS2724: '"@/types/shared"' has no exported member named 'WaveAnalysisResult'. Did you mean 'WaveAnalysis'?
+src/services/yahooFinanceService.ts(3,3): error TS2305: Module '"@/types/shared"' has no exported member 'StockData'.
+src/services/yahooFinanceService.ts(4,3): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/services/yahooFinanceService.ts(5,3): error TS2305: Module '"@/types/shared"' has no exported member 'BackendHealthCheck'.
+src/types/chart.ts(1,32): error TS2305: Module '"./shared"' has no exported member 'StockHistoricalData'.
+src/utils/chartUtils.ts(1,10): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/utils/elliottWaveAnalysis.ts(146,43): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(162,35): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(172,46): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(172,66): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(172,87): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(175,55): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(175,89): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(177,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(177,57): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(178,29): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(178,46): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(192,36): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(207,19): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(207,39): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(209,9): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(210,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(219,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(220,23): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(231,18): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(232,50): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(232,70): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(245,40): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(248,13): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(280,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(280,79): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(281,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(281,79): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(282,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(282,82): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(284,22): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(284,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(284,69): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(286,53): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(287,55): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(287,78): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(290,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(290,57): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(291,29): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(291,46): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(304,33): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(308,29): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(309,29): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(330,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(331,20): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(365,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(365,79): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(366,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(366,79): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(367,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(367,79): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(368,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(368,82): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(370,22): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(370,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(371,22): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(371,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(372,22): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(372,45): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(375,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(375,57): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(376,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(376,57): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(377,29): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(377,46): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(383,35): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(385,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(392,35): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(394,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(401,36): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(403,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(410,36): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(412,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(419,37): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(421,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(429,41): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(431,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(438,40): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(440,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(451,28): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(453,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(471,24): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(472,65): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(474,9): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(475,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(476,38): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(491,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(491,49): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(491,70): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(493,62): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(496,41): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(496,58): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(498,29): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(498,46): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(512,33): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(515,9): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(526,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(527,20): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(535,24): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(537,9): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(538,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(555,22): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(555,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(555,63): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(557,55): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(557,89): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(560,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(560,57): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(562,31): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(562,48): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(580,33): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(593,9): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(605,7): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(606,20): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(627,22): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(627,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(628,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(628,43): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(632,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(632,57): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(634,45): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(634,62): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(649,31): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(649,48): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(663,33): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(666,9): error TS2353: Object literal may only specify known properties, and 'level' does not exist in type 'FibTarget'.
+src/utils/elliottWaveAnalysis.ts(678,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(695,38): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(695,65): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(697,22): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(698,22): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(704,18): error TS2339: Property 'isImpulse' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(704,40): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(706,18): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(707,18): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(728,98): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(733,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(733,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(734,45): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(736,144): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(742,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(742,42): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(742,77): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(748,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(748,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(748,98): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(915,5): error TS2820: Type '"corrective"' is not assignable to type '"impulse" | "correction"'. Did you mean '"correction"'?
+src/utils/elliottWaveAnalysis.ts(1129,42): error TS2339: Property 'restartFromTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1181,52): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1182,56): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1198,7): error TS2322: Type '"impulse" | "corrective"' is not assignable to type '"impulse" | "correction"'.
+  Type '"corrective"' is not assignable to type '"impulse" | "correction"'. Did you mean '"correction"'?
+src/utils/elliottWaveAnalysis.ts(1206,12): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1210,12): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1237,20): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1238,20): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1239,20): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1240,20): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1241,20): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1249,56): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1255,20): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1256,20): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1257,20): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1258,20): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1259,20): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1276,57): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1298,34): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1300,41): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1300,58): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1304,41): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1305,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1310,91): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1316,24): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1317,24): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1318,24): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1319,24): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1320,24): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1348,46): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1348,64): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1362,46): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1362,64): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1377,35): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1386,27): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1386,43): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1387,27): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1387,43): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1400,22): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1408,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1408,59): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1415,53): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1415,70): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1416,86): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1439,22): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1446,34): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1446,54): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1448,52): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1448,69): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1449,56): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1449,74): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1467,45): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1467,62): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1530,30): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1540,42): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1544,65): error TS2339: Property 'isInvalidated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1544,92): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1549,61): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1553,44): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1556,13): error TS2353: Object literal may only specify known properties, and 'isComplete' does not exist in type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1563,19): error TS2339: Property 'endTimestamp' does not exist on type '{ isComplete: any; startIndex: number; endIndex: number; degree: number; type: "impulse" | "correction"; subwaves: Wave[]; }'.
+src/utils/elliottWaveAnalysis.ts(1563,33): error TS2339: Property 'endPrice' does not exist on type '{ isComplete: any; startIndex: number; endIndex: number; degree: number; type: "impulse" | "correction"; subwaves: Wave[]; }'.
+src/utils/elliottWaveAnalysis.ts(1567,60): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1568,21): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1568,35): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1572,95): error TS2339: Property 'number' does not exist on type '{ isComplete: any; startIndex: number; endIndex: number; degree: number; type: "impulse" | "correction"; subwaves: Wave[]; }'.
+src/utils/elliottWaveAnalysis.ts(1578,9): error TS2322: Type '{ isComplete: any; startIndex: number; endIndex: number; degree: number; type: "impulse" | "correction"; subwaves: Wave[]; } | { number: number; startTimestamp: number; startPrice: number; type: "corrective"; isComplete: false; }' is not assignable to type 'Wave'.
+  Object literal may only specify known properties, and 'number' does not exist in type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1586,39): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1587,42): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1687,66): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1691,48): error TS2339: Property 'isImpulse' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1692,25): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1692,48): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1693,25): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1693,48): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1695,47): error TS2339: Property 'isImpulse' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1696,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1697,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1703,50): error TS2339: Property 'isImpulse' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1704,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1704,64): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1704,87): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1705,40): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1705,64): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1705,88): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1718,17): error TS2353: Object literal may only specify known properties, and 'isComplete' does not exist in type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1731,26): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1738,46): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1738,64): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1739,66): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1747,19): error TS2353: Object literal may only specify known properties, and 'number' does not exist in type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1748,46): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1749,42): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1793,37): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1794,103): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1805,15): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1805,33): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1805,51): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1805,68): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1806,92): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1806,112): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1811,16): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1811,49): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1812,113): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1823,18): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1823,43): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1824,83): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1824,114): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1849,12): error TS2339: Property 'isImpulse' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1851,33): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1851,51): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1851,68): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1854,34): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1854,52): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1854,70): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1862,12): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1863,33): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1867,12): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1869,24): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1870,35): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1875,12): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1878,24): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1879,35): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1900,50): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1903,17): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1904,17): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1905,17): error TS2339: Property 'isInvalidated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1906,17): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1907,17): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1908,17): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1909,17): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1910,17): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1910,56): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1911,17): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1924,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1927,24): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1928,32): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1932,21): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1933,21): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1934,21): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1935,21): error TS2339: Property 'isInvalidated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1936,21): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1937,21): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1938,21): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1939,21): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1940,21): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1950,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1953,24): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1954,32): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1958,21): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1959,21): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1960,21): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1961,21): error TS2339: Property 'isInvalidated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1962,21): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1963,21): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1964,21): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1965,21): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1966,21): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1976,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1981,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1984,24): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1985,32): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1989,21): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1990,21): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1991,21): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1992,21): error TS2339: Property 'isInvalidated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1993,21): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1994,21): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1995,21): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1996,21): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(1997,21): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2008,19): error TS2339: Property 'number' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2011,24): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2012,32): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2016,21): error TS2339: Property 'isComplete' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2017,21): error TS2339: Property 'isValid' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2018,21): error TS2339: Property 'isTerminated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2019,21): error TS2339: Property 'isInvalidated' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2020,21): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2021,21): error TS2339: Property 'endTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2022,21): error TS2339: Property 'invalidationTimestamp' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2023,21): error TS2339: Property 'invalidationPrice' does not exist on type 'Wave'.
+src/utils/elliottWaveAnalysis.ts(2024,21): error TS2339: Property 'invalidationRule' does not exist on type 'Wave'.
+src/utils/marketAnalysisUtils.ts(1,10): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/utils/scheduledWaveAnalysis.ts(4,10): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/utils/scheduledWaveAnalysis.ts(42,64): error TS2554: Expected 1 arguments, but got 2.
+src/utils/waveAnalysis.ts(1,21): error TS2305: Module '"@/types/shared"' has no exported member 'StockHistoricalData'.
+src/utils/waveAnalysis.ts(1,42): error TS2724: '"@/types/shared"' has no exported member named 'WaveAnalysisResult'. Did you mean 'WaveAnalysis'?
+src/utils/waveAnalysis.ts(47,7): error TS2322: Type '"impulse" | "corrective"' is not assignable to type '"impulse" | "correction"'.
+  Type '"corrective"' is not assignable to type '"impulse" | "correction"'. Did you mean '"correction"'?
+src/utils/waveAnalysis.ts(95,19): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/waveAnalysis.ts(95,40): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/waveAnalysis.ts(96,14): error TS2339: Property 'endPrice' does not exist on type 'Wave'.
+src/utils/waveAnalysis.ts(96,34): error TS2339: Property 'startPrice' does not exist on type 'Wave'.
+src/utils/waveAnalysis.ts(104,28): error TS2367: This comparison appears to be unintentional because the types '"impulse" | "correction"' and '"corrective"' have no overlap.

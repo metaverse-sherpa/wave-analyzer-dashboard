@@ -1,43 +1,30 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge"; // Add this import
+import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowUpRight, ArrowDownRight, AlertCircle } from "lucide-react";
 import StockDetailChart from "@/components/StockDetailChart";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { fetchStockQuote } from '@/lib/api';
-import { 
-  fetchHistoricalData, 
-  fetchTopStocks 
-} from "@/services/yahooFinanceService";
-import { 
-  analyzeElliottWaves 
-} from "@/utils/elliottWaveAnalysis";
-import { 
-  storeWaveAnalysis, 
-  retrieveWaveAnalysis, 
-  isAnalysisExpired 
-} from "@/services/databaseService";
 import { toast } from "@/lib/toast";
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext';
-import SimpleCandlestickChart from '@/components/SimpleCandlestickChart';
 import WaveSequencePagination from '@/components/WaveSequencePagination';
 import { Card, CardContent } from "@/components/ui/card";
 import { getWavePatternDescription } from '@/components/chart/waveChartUtils';
 import type { Wave, WaveAnalysisResult, StockData, StockHistoricalData } from '@/types/shared';
 import { isCacheExpired } from '@/utils/cacheUtils';
 import { supabase } from '@/lib/supabase';
-import { formatChartData } from '@/utils/chartUtils';
-import { getElliottWaveAnalysis } from '@/api/deepseekApi';
-import { apiUrl } from '@/utils/apiConfig'; // Add this import at the top
-import { useAuth } from '@/context/AuthContext'; // Add this import
-import { usePreview } from '@/context/PreviewContext'; // Add import
+import { apiUrl } from '@/utils/apiConfig';
+import { useAuth } from '@/context/AuthContext';
+import { usePreview } from '@/context/PreviewContext';
 import TelegramLayout from '@/components/layout/TelegramLayout';
 import { useTelegram } from '@/context/TelegramContext';
+import { convertDeepSeekToWaveAnalysis } from '@/utils/wave-analysis';
+import { getCachedWaveAnalysis } from '@/utils/wave-analysis';
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -45,46 +32,41 @@ interface StockDetailsProps {
 
 const defaultStock: StockData = {
   symbol: '',
-  name: '', // Add required name field
+  name: '',
   shortName: '',
-  price: 0,  // Add required price field
-  change: 0, // Add required change field
-  changePercent: 0, // Add required changePercent field 
-  volume: 0, // Add required volume field
+  price: 0,
+  change: 0,
+  changePercent: 0,
+  volume: 0,
   regularMarketPrice: 0,
   regularMarketChange: 0,
   regularMarketChangePercent: 0,
-  regularMarketVolume: 0,
   averageVolume: 0,
   marketCap: 0,
   fiftyTwoWeekLow: 0,
   fiftyTwoWeekHigh: 0,
 };
 
-// Add this helper function near the top of your StockDetails.tsx file
-// This will sort waves by timestamp (newest first) and give us the most recent waves
 const getMostRecentWaves = (waves: Wave[], count: number = 7): Wave[] => {
-  // Create a copy of waves, then sort by timestamp descending (newest first)
   return [...waves]
     .sort((a, b) => {
       const aTimestamp = typeof a.startTimestamp === 'number' ? a.startTimestamp : Date.parse(a.startTimestamp as string);
       const bTimestamp = typeof b.startTimestamp === 'number' ? b.startTimestamp : Date.parse(b.startTimestamp as string);
       return bTimestamp - aTimestamp;
     })
-    .slice(0, count); // Take only the first 'count' waves
+    .slice(0, count);
 };
 
-const MAX_CACHE_AGE_DAYS = 1; // Only use cache if less than a week old
+const MAX_CACHE_AGE_DAYS = 1;
 
 const getAgeString = (timestamp: number): string => {
   const now = Date.now();
   const diffMs = now - timestamp;
-  
-  // Convert to days/hours/minutes
+
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
   const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  
+
   if (diffDays > 0) {
     return `${diffDays} day${diffDays === 1 ? '' : 's'}`;
   } else if (diffHours > 0) {
@@ -111,7 +93,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     trend: 'neutral',
     impulsePattern: false,
     correctivePattern: false,
-    invalidWaves: []  // Add this to match WaveAnalysisResult interface
+    invalidWaves: []
   });
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'all' | 'current'>('current');
@@ -120,105 +102,63 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
   const [error, setError] = useState<string | null>(null);
 
   const { getHistoricalData } = useHistoricalData();
-  const { getAnalysis } = useWaveAnalysis();
 
-  // Load data effect
   useEffect(() => {
-    const loadData = async () => {
+    const fetchData = async () => {
       setLoading(true);
       setError(null);
-      
+
       if (!symbol) {
         setLoading(false);
         setError("No stock symbol provided");
         return;
       }
-      
+
       try {
-        // Always fetch fresh historical data from backend API
         const historicalData = await getHistoricalData(symbol, '1d', true);
-        
+
         if (!historicalData || historicalData.length < 50) {
-          console.warn(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points (minimum 50 required)`);
+          console.warn(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points`);
           setHistoricalData(historicalData || []);
-          setError(`Insufficient historical data for ${symbol}: ${historicalData?.length || 0} points available (minimum 50 required for wave analysis)`);
+          setError(`Insufficient historical data for ${symbol}`);
         } else {
           setHistoricalData(historicalData);
-          setError(null);
-          
-          // Get Elliott Wave analysis using DeepSeek API
-          try {
-            const waveAnalysis = await getAnalysis(symbol, historicalData);
-            
-            // Ensure we have valid analysis with required properties
-            if (waveAnalysis) {
-              const safeAnalysis = {
-                ...waveAnalysis,
-                waves: waveAnalysis.waves || [],
-                invalidWaves: waveAnalysis.invalidWaves || [],
-                fibTargets: waveAnalysis.fibTargets || [],
-                currentWave: waveAnalysis.currentWave || null,
-                trend: waveAnalysis.trend || 'neutral',
-                impulsePattern: !!waveAnalysis.impulsePattern,
-                correctivePattern: !!waveAnalysis.correctivePattern
-              };
-              
-              setAnalysis(safeAnalysis);
-              console.log('Wave analysis loaded:', {
-                waves: safeAnalysis.waves.length,
-                invalidWaves: safeAnalysis.invalidWaves.length,
-                currentWave: safeAnalysis.currentWave?.number
-              });
-            }
-          } catch (analysisErr) {
-            console.error('Error getting wave analysis:', analysisErr);
-            setError(`Failed to analyze waves: ${(analysisErr as Error).message}`);
+
+          const { data: cachedAnalysis } = await supabase
+            .from('cache')
+            .select('data')
+            .eq('key', `ai_elliott_wave_${symbol}`)
+            .single();
+
+          if (cachedAnalysis?.data) {
+            const waveAnalysis = convertDeepSeekToWaveAnalysis(cachedAnalysis.data, historicalData);
+            setAnalysis(waveAnalysis);
+          } else {
+            console.log(`No cached analysis available for ${symbol}`);
+            setAnalysis(null);
           }
         }
 
-        // Get latest stock info
-        try {
-          const stockInfo = await fetchStockQuote(symbol);
-          setStockData({
-            ...stockInfo,
-            symbol
-          });
-          
-          if (stockInfo.price) {
-            setLivePrice(stockInfo.price);
-          }
-        } catch (stockErr) {
-          console.error('Error fetching stock data:', stockErr);
-        }
+        const stockInfo = await fetchStockQuote(symbol);
+        setStockData({
+          ...stockInfo,
+          symbol
+        });
 
+        if (stockInfo.price) {
+          setLivePrice(stockInfo.price);
+        }
       } catch (error) {
-        console.error('Error loading data:', error);
-        setError(`Failed to load data: ${(error as Error).message}`);
+        console.error('Error fetching data:', error);
+        setError(`Failed to fetch data: ${(error as Error).message}`);
       } finally {
         setLoading(false);
       }
     };
 
-    loadData();
-    
-    // Set up live price updates
-    const priceInterval = setInterval(async () => {
-      try {
-        const data = await fetchStockQuote(symbol);
-        if (data && typeof data.price === 'number') {
-          setLivePrice(data.price);
-        }
-      } catch (error) {
-        console.error(`Error updating live price: ${error}`);
-      }
-    }, 30000); // Update every 30 seconds
-
-    return () => {
-      clearInterval(priceInterval);
-    };
+    fetchData();
   }, [symbol]);
 
-  // Add this useEffect to fetch the live price
   useEffect(() => {
     const fetchLivePrice = async () => {
       if (!symbol) return;
@@ -238,59 +178,45 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     };
 
     fetchLivePrice();
-    
-    // Set up a 30-second refresh interval for the price
+
     const refreshInterval = setInterval(fetchLivePrice, 30000);
     return () => clearInterval(refreshInterval);
   }, [symbol]);
 
-  // Add this to StockDetails.tsx, right before returning the JSX
-  useEffect(() => {
-    // Debug on mount to check if invalidWaves are being included
-    if (analysis?.invalidWaves?.length > 0) {
-      console.log(`Found ${analysis.invalidWaves.length} invalid waves:`, 
-        analysis.invalidWaves.map(w => `Wave ${w.number} (${new Date(w.invalidationTimestamp).toLocaleDateString()})`));
-    } else {
-      console.log("No invalid waves found in analysis");
-    }
-  }, [analysis?.invalidWaves]);
-  
   const handleBackClick = () => {
     navigate('/');
   };
-  
+
   if (!symbol) {
     return <div>Invalid stock symbol</div>;
   }
-  
+
   const regularMarketPrice = stockData?.regularMarketPrice || 0;
   const regularMarketChange = stockData?.regularMarketChange || 0;
   const regularMarketChangePercent = stockData?.regularMarketChangePercent || 0;
-  
+
   const formattedPrice = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2
   }).format(regularMarketPrice);
-  
+
   const formattedChange = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2
   }).format(Math.abs(regularMarketChange));
-  
+
   const formattedPercent = `${Math.abs(regularMarketChangePercent).toFixed(2)}%`;
-  
+
   const isPositive = regularMarketChange >= 0;
-  
+
   const stockDetailsContent = (
     <ErrorBoundary>
       <div className="container mx-auto px-4 py-6">
-        {/* Header with back button, stock info, and radio buttons all in one row */}
         {!loading && stockData && (
           <div className="flex flex-col space-y-2 mb-4">
-            {/* Back button - separate row on mobile, hidden on desktop */}
-            {!isTelegram && ( // Don't show back button if in Telegram - use Telegram's native back button
+            {!isTelegram && (
               <div className="flex sm:hidden items-center">
                 <Button 
                   variant="ghost"
@@ -303,10 +229,8 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               </div>
             )}
 
-            {/* Top row: Back button on desktop and stock name */}
             <div className="flex items-center justify-between">
-              {/* Left side: Back button - visible only on desktop */}
-              {!isTelegram && ( // Don't show back button if in Telegram
+              {!isTelegram && (
                 <div className="hidden sm:flex items-center">
                   <Button 
                     variant="ghost"
@@ -319,14 +243,12 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 </div>
               )}
 
-              {/* Center: Stock name and symbol - centered on mobile, left-aligned on desktop */}
               <div className={`flex-grow ${isTelegram ? 'text-center' : 'text-center sm:text-left'}`}>
                 <h1 className="text-xl md:text-2xl font-bold truncate px-2 sm:px-0">
                   {stockData.name || stockData.shortName} ({stockData.symbol})
                 </h1>
               </div>
 
-              {/* Right side: Placeholder to maintain centering - only on desktop */}
               {!isTelegram && (
                 <div className="hidden sm:flex items-center invisible">
                   <Button variant="ghost" className="opacity-0">Back</Button>
@@ -334,9 +256,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               )}
             </div>
             
-            {/* Bottom row: Stock price and change percentage - row that stacks on mobile */}
             <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${isTelegram ? 'pl-4' : 'sm:pl-14 pl-4'}`}>
-              {/* Left side: Stock price and change percentage */}
               <div className="flex items-center">
                 <span className="text-lg font-mono">{formattedPrice}</span>
                 <span className={`flex items-center ml-2 ${isPositive ? "text-bullish" : "text-bearish"}`}>
@@ -345,7 +265,6 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                 </span>
               </div>
               
-              {/* Right side: Current/All radio buttons (moved to new row on mobile) */}
               <RadioGroup 
                 defaultValue="current" 
                 onValueChange={(value) => setViewMode(value as 'all' | 'current')}
@@ -364,7 +283,6 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           </div>
         )}
 
-        {/* Show loading skeleton if data is still loading */}
         {loading && (
           <div className="flex flex-col space-y-2 mb-4">
             <div className="flex items-center justify-between">
@@ -380,11 +298,9 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
           </div>
         )}
 
-        {/* Main content area */}
         <div className="space-y-6">
-          {/* Chart section */}
           <div className="relative mb-8">
-            {(!user && isPreviewMode) && ( // Check both conditions
+            {(!user && isPreviewMode) && (
               <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
                 <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
                   <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
@@ -396,7 +312,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               </div>
             )}
             
-            <div className={(!user && isPreviewMode) ? "blur-premium" : ""}> {/* Apply blur class when both conditions met */}
+            <div className={(!user && isPreviewMode) ? "blur-premium" : ""}>
               {loading ? (
                 <Skeleton className="w-full h-[500px]" />
               ) : analysis ? (
@@ -408,14 +324,13 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                   fibTargets={analysis.fibTargets}
                   selectedWave={selectedWave}
                   onClearSelection={() => setSelectedWave(null)}
-                  livePrice={livePrice} // Pass the live price
-                  viewMode={viewMode} // Add the viewMode prop here
+                  livePrice={livePrice}
+                  viewMode={viewMode}
                 />
               ) : null}
             </div>
           </div>
 
-          {/* AI Analysis - Moved here to come directly below the chart for mobile */}
           <Card>
             <CardContent className="pt-6">
               <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
@@ -445,7 +360,6 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             </CardContent>
           </Card>
 
-          {/* Elliott Wave Analysis - Now will appear after AI Analysis on mobile */}
           <Card>
             <CardContent className="pt-6">
               <h3 className="text-lg font-medium mb-4">Elliott Wave Analysis</h3>
@@ -454,7 +368,7 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
               ) : (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <h4 className="text-sm font-medium">Recent Wave Sequence</h4> {/* Updated label */}
+                    <h4 className="text-sm font-medium">Recent Wave Sequence</h4>
                     <Badge variant="outline">
                       {analysis?.waves.length || 0} waves detected (showing most recent 7)
                     </Badge>
@@ -467,16 +381,14 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
                           "Analyzing detected wave patterns and market positions."}
                       </p>
                       
-                      {/* Add WaveSequencePagination here */}
                       <div className="mt-4">
                         <WaveSequencePagination 
                           waves={analysis?.waves || []}
-                          invalidWaves={analysis?.invalidWaves || []} // Add this line
-                          selectedWave={selectedWave} // Pass the same selected wave here
-                          currentWave={analysis.currentWave} // Add this prop
-                          fibTargets={analysis.fibTargets}   // Add this prop
+                          invalidWaves={analysis?.invalidWaves || []}
+                          selectedWave={selectedWave}
+                          currentWave={analysis.currentWave}
+                          fibTargets={analysis.fibTargets}
                           onWaveSelect={(wave) => {
-                            // Compare startTimestamp instead of id
                             if (selectedWave && selectedWave.startTimestamp === wave.startTimestamp) {
                               setSelectedWave(null);
                             } else {
@@ -500,7 +412,6 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     </ErrorBoundary>
   );
 
-  // If running in Telegram, use the TelegramLayout
   if (isTelegram) {
     return (
       <TelegramLayout title={symbol} showBackButton={true}>
@@ -509,18 +420,15 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
     );
   }
 
-  // Otherwise use regular layout
   return stockDetailsContent;
 };
 
-// Define the AIAnalysis props
 interface AIAnalysisProps {
   symbol: string;
-  analysis: WaveAnalysisResult; // Add this prop
+  analysis: WaveAnalysisResult;
   historicalData: StockHistoricalData[];
 }
 
-// Replace the AIAnalysis component
 const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalData }) => {
   const [aiInsight, setAiInsight] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
@@ -529,7 +437,6 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalDat
   const [trend, setTrend] = useState<string | null>(null);
   
   useEffect(() => {
-    // Only fetch if we have the required data
     if (!symbol || historicalData.length === 0) {
       setLoading(false);
       setError("Insufficient data to perform analysis");
@@ -541,59 +448,20 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalDat
       setError(null);
       
       try {
-        // First check cache with 24-hour expiration
-        const { data: cachedResult, error } = await supabase
-          .from('cache')
-          .select('data, timestamp')
-          .eq('key', `ai_elliott_wave_${symbol}`)
-          .single();
+        // Use the dedicated function for cached analysis
+        const analysisData = await getCachedWaveAnalysis(symbol);
         
-        // Use cache if available and less than 24 hours old
-        if (!error && cachedResult?.data && 
-            (Date.now() - cachedResult.timestamp) < 24 * 60 * 60 * 1000) {
-          console.log(`Using cached AI analysis for ${symbol} (age: ${getAgeString(cachedResult.timestamp)})`);
-          
-          setAiInsight(cachedResult.data);
-          
-          // Extract wave number and trend from the cached result
-          const waveMatch = cachedResult.data.match(/WAVE:\s*(\w+)/i);
-          const trendMatch = cachedResult.data.match(/TREND:\s*(\w+)/i);
-          
-          if (waveMatch && waveMatch[1]) setWaveNumber(waveMatch[1]);
-          if (trendMatch && trendMatch[1]) setTrend(trendMatch[1].toLowerCase());
-          
-          setLoading(false);
-          return;
+        setAiInsight(JSON.stringify(analysisData)); // Convert to string since setAiInsight expects a string
+        
+        if (typeof analysisData === 'object') {
+          const waveNumber = analysisData.currentWave?.number;
+          const trend = analysisData.trend;
+          if (waveNumber) setWaveNumber(String(waveNumber));
+          if (trend) setTrend(trend);
         }
-        
-        console.log(`Getting fresh AI analysis for ${symbol}`);
-        
-        // If no cache or expired, get fresh analysis
-        const result = await getElliottWaveAnalysis(symbol, historicalData);
-        
-        // Save to cache with 24-hour duration
-        await supabase
-          .from('cache')
-          .upsert({
-            key: `ai_elliott_wave_${symbol}`,
-            data: result,
-            timestamp: Date.now(),
-            duration: 24 * 60 * 60 * 1000,
-            is_string: true
-          }, { onConflict: 'key' });
-        
-        setAiInsight(result);
-        
-        // Extract wave number and trend
-        const waveMatch = result.match(/WAVE:\s*(\w+)/i);
-        const trendMatch = result.match(/TREND:\s*(\w+)/i);
-        
-        if (waveMatch && waveMatch[1]) setWaveNumber(waveMatch[1]);
-        if (trendMatch && trendMatch[1]) setTrend(trendMatch[1].toLowerCase());
-        
-      } catch (error) {
-        console.error('Error getting AI analysis:', error);
-        setError(`Failed to generate AI analysis: ${(error as Error).message}`);
+      } catch (err) {
+        console.error('Error fetching AI analysis:', err);
+        setError("Failed to load analysis");
       } finally {
         setLoading(false);
       }
@@ -604,7 +472,6 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalDat
   
   return (
     <div className="space-y-4">
-      {/* Header section with wave information */}
       {!loading && !error && waveNumber && (
         <div className="flex items-center mb-2">
           <div className="bg-muted rounded-md px-3 py-1 text-sm font-medium">
@@ -622,7 +489,6 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalDat
         </div>
       )}
       
-      {/* Loading state */}
       {loading ? (
         <>
           <Skeleton className="h-4 w-full" />
@@ -650,12 +516,10 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalDat
   );
 };
 
-// Define the WaveInvalidations props
 interface WaveInvalidationsProps {
   invalidWaves: Wave[];
 }
 
-// Add the WaveInvalidations component
 const WaveInvalidations: React.FC<WaveInvalidationsProps> = ({ invalidWaves }) => {
   return (
     <div className="space-y-4">

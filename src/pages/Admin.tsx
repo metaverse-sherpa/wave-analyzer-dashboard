@@ -14,7 +14,13 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
 import { useHistoricalData } from '@/context/HistoricalDataContext'; // Fix this import
-import { Wave, FibTarget, WaveAnalysisResult } from '@/types/shared';
+import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
+import DataRefreshStatus from '@/components/DataRefreshStatus'; // Add this import
+import BackgroundRefreshControl, { REFRESH_COMPLETED_EVENT } from "@/components/BackgroundRefreshControl"; // Import the BackgroundRefreshControl component and event
+import WavePatternChart from '@/components/WavePatternChart';
+import { getAdminDirectAnalysis } from '@/api/deepseekApi';
+import { convertDeepSeekToWaveAnalysis } from '@/utils/wave-analysis';
+import { DeepSeekWaveAnalysis, DeepSeekAnalysis, Wave, FibTarget, WaveAnalysisResult, WaveAnalysis, HistoricalDataPoint } from '@/types/shared'; // Consolidated imports
 import ApiStatusCheck from '@/components/ApiStatusCheck';
 import { supabase } from '@/lib/supabase';
 import {
@@ -29,12 +35,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { buildApiUrl } from '@/config/apiConfig';  // Add this import if it doesn't exist
 import { FavoritesManager } from '@/components/FavoritesManager';
 import UserManagement from '@/components/admin/UserManagement';
-import DataRefreshStatus from '@/components/DataRefreshStatus'; // Add this import
-import BackgroundRefreshControl, { REFRESH_COMPLETED_EVENT } from "@/components/BackgroundRefreshControl"; // Import the BackgroundRefreshControl component and event
-import WavePatternChart from '@/components/WavePatternChart';
 
 // Add this at the top of Admin.tsx with other interfaces
 declare global {
@@ -185,8 +187,34 @@ const fetchHistoricalData = async (symbol: string, timeframe: string = '1d') => 
   }
 };
 
+const getAnalysis = async (symbol: string): Promise<WaveAnalysis | null> => {
+  try {
+    const historicalData = await fetchHistoricalData(symbol);
+    const analysisRaw = await getAdminDirectAnalysis(symbol, historicalData);
+    
+    // Convert DeepSeekAnalysis to DeepSeekWaveAnalysis before passing to convertDeepSeekToWaveAnalysis
+    const deepSeekWaveAnalysis: DeepSeekWaveAnalysis = {
+      symbol: analysisRaw.symbol,
+      analysis: analysisRaw.analysis,
+      timestamp: analysisRaw.timestamp,
+      waves: [], // Add missing required property
+      currentWave: null,
+      fibTargets: [],
+      trend: 'neutral',
+      invalidWaves: [],
+      impulsePattern: false,
+      correctivePattern: false
+    };
+    
+    return convertDeepSeekToWaveAnalysis(deepSeekWaveAnalysis, historicalData);
+  } catch (error) {
+    console.error('Error getting analysis:', error);
+    return null;
+  }
+};
+
 const AdminDashboard: React.FC = () => {
-  const { getAnalysis, analysisEvents, cancelAllAnalyses, clearCache } = useWaveAnalysis();
+  const { getAnalysis: getWaveAnalysis, analysisEvents, cancelAllAnalyses, clearCache } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
   const [isLoading, setIsLoading] = useState(false);
   const [historicalData, setHistoricalData] = useState<Record<string, HistoricalDataEntry>>({});
@@ -201,7 +229,7 @@ const AdminDashboard: React.FC = () => {
 
       setIsLoading(true);
       try {
-        await getAnalysis('AAPL', historicalData.AAPL.data);
+        await getWaveAnalysis('AAPL');
       } catch (error) {
         console.error('Error loading wave analysis:', error);
       } finally {
@@ -210,7 +238,7 @@ const AdminDashboard: React.FC = () => {
     };
 
     loadAnalysis();
-  }, [historicalData?.AAPL, getAnalysis]);
+  }, [historicalData?.AAPL, getWaveAnalysis]);
 
   // Show loading state
   if (isLoading) {
@@ -504,7 +532,7 @@ const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'histori
   }
 }, [supabase, toast]);
 
-  // 2. NOW define functions that depend on loadCacheData
+// Add this function to analyze waves using the dedicated admin analysis function
 const analyzeWaves = useCallback(async () => {
   if (!selectedAnalysisType || !selectedStockList || !selectedStockFilter) {
     toast.error('Please select all required options');
@@ -521,147 +549,102 @@ const analyzeWaves = useCallback(async () => {
       
       if (error) {
         console.error('Error clearing AI analysis cache:', error);
-        toast.error('Failed to clear AI analysis cache');
-        return;
+        toast.error('Failed to clear analysis cache');
       }
-      
-      toast.success('DeepSeek AI analysis cache cleared');
     } catch (error) {
-      console.error('Error clearing AI analysis cache:', error);
-      toast.error('Failed to clear AI analysis cache');
-      return;
+      console.error('Error clearing cache:', error);
     }
   }
 
-  setIsRefreshing(true);
+  // Start the analysis process
+  setAnalysisProgress({
+    total: selectedStockList.length,
+    current: 0,
+    inProgress: true,
+    currentSymbol: selectedStockList[0]
+  });
+
   try {
-    // Get list of stocks from cache table where key starts with stock_
-    const { data: stockProfiles, error: profileError } = await supabase
-      .from('cache')
-      .select('key')
-      .like('key', 'stock_%');
-      
-    if (profileError) {
-      throw profileError;
-    }
+    let waveAnalyzed = 0;
     
-    // Extract stock symbols from the keys
-    const stockSymbols = (stockProfiles || [])
-      .map(profile => profile.key.replace('stock_', ''))
-      .filter(symbol => symbol.length > 0);
-    
-    console.log(`Found ${stockSymbols.length} stocks in cache table`);
-    
-    if (stockSymbols.length === 0) {
-      toast.error('No stocks found in cache table. Please make sure stocks are added with key = stock_<SYMBOL>');
-      setIsRefreshing(false);
-      return;
-    }
-    
-    // Initialize progress tracking
-    setAnalysisProgress({
-      total: stockSymbols.length,
-      current: 0,
-      inProgress: true,
-      currentSymbol: undefined
-    });
-    
-    // Start with an empty state to ensure we only show freshly analyzed stocks
-    setWaveAnalyses({});
-    
-    // Process stocks one by one
-    let completed = 0;
-    
-    for (const symbol of stockSymbols) {
+    for (const symbol of selectedStockList) {
+      setAnalysisProgress(prev => ({
+        ...prev,
+        currentSymbol: symbol
+      }));
+
       try {
-        // Update the UI to show which stock is currently being processed
-        setAnalysisProgress(prev => ({
-          ...prev,
-          currentSymbol: symbol
-        }));
+        // Get historical data for the symbol
+        const historicalData = await getHistoricalData(symbol, '1d');
         
-        console.log(`Processing ${symbol}...`);
-        
-        // 1. Get historical data directly from API (last 2 years)
-        const historicalData = await fetchHistoricalData(symbol, '1d');
-        
-        // Require at least 50 data points for analysis
+        // Skip if insufficient data
         if (!historicalData || historicalData.length < 50) {
           console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
           continue;
         }
         
-        // 2. Get Elliott Wave analysis from DeepSeek API
-        const analysis = await getAnalysis(symbol, historicalData, true, true);
+        // Get fresh analysis from DeepSeek API
+        const analysisRaw = await getAdminDirectAnalysis(symbol, historicalData);
         
-        // 3. Store the analysis in Supabase if valid
-        if (analysis && analysis.waves) {
-          // Update the UI
-          setWaveAnalyses(prev => ({
-            ...prev,
-            [`${symbol}_1d`]: {
-              analysis: analysis,
-              timestamp: Date.now(),
-              isLoaded: true,
-              currentWave: analysis.currentWave?.number
-            }
-          }));
-
-          // Store in Supabase
-          console.log('[WaveAnalysis] Inserting/updating record:', {
-            key: `wave_analysis_${symbol}_1d`,
-            wavesCount: analysis.waves.length,
-            trend: analysis.trend,
-            currentWave: analysis.currentWave?.number
-          });
-          const upsertResult = await supabase
+        if (analysisRaw) {
+          // Convert raw analysis to wave analysis format and save to cache
+          // Create a DeepSeekWaveAnalysis object with all required properties
+          const deepSeekWaveAnalysis: DeepSeekWaveAnalysis = {
+            symbol: analysisRaw.symbol,
+            analysis: analysisRaw.analysis,
+            timestamp: analysisRaw.timestamp,
+            waves: [], // Required field
+            currentWave: null,
+            fibTargets: [],
+            trend: 'neutral'
+          };
+          const analysisResult = convertDeepSeekToWaveAnalysis(deepSeekWaveAnalysis, historicalData);
+          
+          // Store in Supabase cache
+          const { error: cacheError } = await supabase
             .from('cache')
             .upsert({
-              key: `wave_analysis_${symbol}_1d`,
-              data: analysis,
-              timestamp: Date.now(),
-              duration: 7 * 24 * 60 * 60 * 1000, // 7 days
-              is_string: false
-            }, { onConflict: 'key' });
-          if (upsertResult.error) {
-            console.error('[WaveAnalysis] Supabase upsert error:', upsertResult.error);
-          } else {
-            console.log(`[WaveAnalysis] Successfully stored wave analysis for ${symbol} in Supabase`, upsertResult);
+              key: `ai_elliott_wave_${symbol}`,
+              data: analysisResult,
+              timestamp: Date.now()
+            });
+
+          if (cacheError) {
+            console.error(`Error caching analysis for ${symbol}:`, cacheError);
           }
+
+          waveAnalyzed++;
           
-          completed++;
+          // Update progress
+          setAnalysisProgress(prev => ({
+            ...prev,
+            current: prev.current + 1
+          }));
         }
-      } catch (err) {
-        console.error(`Failed to analyze ${symbol}`, err);
-      } finally {
-        // Update progress
-        setAnalysisProgress(prev => ({
-          ...prev,
-          current: prev.current + 1
-        }));
-        
-        // Add a small delay to avoid rate limits
-        await new Promise(r => setTimeout(r, 300));
+
+        // Small delay between analyses
+        await new Promise(r => setTimeout(r, 100));
+      } catch (error) {
+        console.error(`Error analyzing ${symbol}:`, error);
+        toast.error(`Failed to analyze ${symbol}`);
       }
     }
-    
-    toast.success(`Wave analysis completed for ${completed} stocks`);
+
+    toast.success(`Wave analysis completed for ${waveAnalyzed} stocks`);
   } catch (error) {
-    console.error('Error analyzing waves:', error);
-    toast.error('Failed to analyze waves: ' + error.message);
+    console.error('Error during wave analysis:', error);
+    toast.error('Failed to complete wave analysis');
   } finally {
-    // Reset progress
     setAnalysisProgress({
       total: 0,
       current: 0,
       inProgress: false,
       currentSymbol: undefined
     });
-    setIsRefreshing(false);
   }
-}, [getAnalysis, supabase]);
+}, [selectedAnalysisType, selectedStockList, selectedStockFilter, ignoreCache, getHistoricalData]);
 
-// Function to preload historical data for top stocks
+  // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
     // Make the historical tab active
     setActiveTab("historical");
@@ -934,7 +917,7 @@ const analyzeWaves = useCallback(async () => {
               }
               
               // Start the analysis
-              const analysis = await getAnalysis(symbol, historicalData, true, true);
+              const analysis = await getAnalysis(symbol);
               
               // If we have valid analysis results
               if (analysis && analysis.waves) {
@@ -1311,7 +1294,7 @@ const clearCacheByType = async (type: 'historical' | 'waves' | 'ai', skipConfirm
         };
         
         // Load the completed analysis data
-        getAnalysis(latestEvent.symbol, [])
+        getAnalysis(latestEvent.symbol)
           .then(analysis => {
             if (analysis && analysis.waves) {
               setActiveAnalyses(current => ({
@@ -1713,7 +1696,7 @@ useEffect(() => {
                       
                       // Extract the current wave number if available
                       let currentWave: string | number | undefined = undefined;
-                      if (data.analysis?.waves && data.analysis.waves.length > 0) {
+                      if (data.analysis?.waves && data.analysis?.waves.length > 0) {
                         // Get the last wave in the array as the current one
                         const lastWave = data.analysis.waves[data.analysis.waves.length - 1];
                         currentWave = lastWave.number;

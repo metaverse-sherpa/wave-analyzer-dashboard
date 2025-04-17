@@ -2,8 +2,8 @@ import { useContext } from 'react';
 import { DataRefreshContext } from '@/context/DataRefreshContext';
 import type { DataRefreshContextType } from '@/context/DataRefreshContext';
 
-// Use named export for consistent pattern
-export function useDataRefresh(): DataRefreshContextType {
+// Use named function declaration for consistent Fast Refresh behavior
+function useDataRefresh(): DataRefreshContextType {
   const context = useContext(DataRefreshContext);
   
   if (context === undefined) {
@@ -12,3 +12,5 @@ export function useDataRefresh(): DataRefreshContextType {
   
   return context;
 }
+
+export { useDataRefresh };
