@@ -549,12 +549,11 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
             timestamp: Date.now()
           });
           
-          
-          
-          // Fetch historical data directly from API (last 2 years)
-          const url = `${import.meta.env.VITE_API_BASE_URL || ''}/stocks/${symbol}/history`;
+          // Fetch historical data using a relative URL to avoid CSP issues
+          // Use a relative path instead of an absolute URL to work with existing CSP
+          const url = `/api/stocks/${symbol}/history`;
 
-          console.log(`Fetching historical data for ${symbol} directly from API using ${url}`);
+          console.log(`Fetching historical data for ${symbol} using relative path: ${url}`);
 
           const response = await fetch(url, {
             method: 'GET',
