@@ -1,1 +1,69 @@
-{"currentWave":{"number":"5","startTime":"2024-02-20","startPrice":204.63009643554688},"completedWaves":[{"number":"1","startTime":"2023-11-24","startPrice":229.74000549316406,"endTime":"2023-12-01","endPrice":225.91000366210938},{"number":"2","startTime":"2023-12-01","startPrice":225.91000366210938,"endTime":"2023-12-08","endPrice":227.47999572753906},{"number":"3","startTime":"2023-12-08","startPrice":227.47999572753906,"endTime":"2023-12-15","endPrice":235.05999755859375},{"number":"4","startTime":"2023-12-15","startPrice":235.05999755859375,"endTime":"2023-12-22","endPrice":232.8699951171875},{"number":"A","startTime":"2023-12-22","startPrice":232.8699951171875,"endTime":"2024-01-05","endPrice":236.85000610351562},{"number":"B","startTime":"2024-01-05","startPrice":236.85000610351562,"endTime":"2024-01-12","endPrice":239.07000732421875},{"number":"C","startTime":"2024-01-12","startPrice":239.07000732421875,"endTime":"2024-01-19","endPrice":209.67999267578125},{"number":"1","startTime":"2024-01-19","startPrice":209.67999267578125,"endTime":"2024-01-26","endPrice":218.27000427246094},{"number":"2","startTime":"2024-01-26","startPrice":218.27000427246094,"endTime":"2024-02-02","endPrice":217.89999389648438},{"number":"3","startTime":"2024-02-02","startPrice":217.89999389648438,"endTime":"2024-02-09","endPrice":188.3800048828125},{"number":"4","startTime":"2024-02-09","startPrice":188.3800048828125,"endTime":"2024-02-16","endPrice":198.14999389648438}],"trend":"upward","fibTargets":[{"level":"0.382","price":215.67999267578125},{"level":"0.5","price":220.67999267578125},{"level":"0.618","price":225.67999267578125}],"analysis":"The current wave 5 is part of an upward trend, following a corrective ABC pattern and a new impulse wave sequence starting from January 19, 2024. The Fibonacci retracement levels suggest potential resistance points as the price approaches the completion of wave 5.","confidenceLevel":"high"}
+{
+  "currentWave": {
+    "number": "5",
+    "type": "impulsive",
+    "startTime": "1745242200000",
+    "startPrice": 193.16000366210938
+  },
+  "completedWaves": [
+    {
+      "number": "1",
+      "type": "impulsive",
+      "startTime": "1729863000000",
+      "startPrice": 231.41000366210938,
+      "endTime": "1730381400000",
+      "endPrice": 225.91000366210938
+    },
+    {
+      "number": "2",
+      "type": "corrective",
+      "startTime": "1730381400000",
+      "startPrice": 225.91000366210938,
+      "endTime": "1731076200000",
+      "endPrice": 226.9600067138672
+    },
+    {
+      "number": "3",
+      "type": "impulsive",
+      "startTime": "1731076200000",
+      "startPrice": 226.9600067138672,
+      "endTime": "1733495400000",
+      "endPrice": 242.83999633789062
+    },
+    {
+      "number": "4",
+      "type": "corrective",
+      "startTime": "1733495400000",
+      "startPrice": 242.83999633789062,
+      "endTime": "1735242200000",
+      "endPrice": 193.16000366210938
+    }
+  ],
+  "trend": "bullish",
+  "fibTargets": [
+    {
+      "level": "0.382",
+      "price": 215.5,
+      "label": "support"
+    },
+    {
+      "level": "0.5",
+      "price": 220.5,
+      "label": "support"
+    },
+    {
+      "level": "0.618",
+      "price": 225.5,
+      "label": "resistance"
+    },
+    {
+      "level": "1.618",
+      "price": 250.5,
+      "label": "resistance"
+    }
+  ],
+  "analysis": "The current wave count suggests we are in wave 5 of an impulsive sequence starting from the low at 193.16. Wave 1 was a clear impulsive move, followed by a corrective wave 2. Wave 3 was the longest and strongest, typical of Elliott Wave Theory. Wave 4 corrected into the start of wave 5, which is currently unfolding. The trend is bullish, and we are looking for wave 5 to complete the sequence.",
+  "stopLoss": 193.16,
+  "confidenceLevel": "medium",
+  "lastDataDate": "1745420485000"
+}

@@ -2,80 +2,98 @@ import OpenAI from 'openai';
 import type { DeepSeekWaveAnalysis } from '../../src/types/shared';
 
 const SYSTEM_PROMPT = `You are an expert in Elliott Wave Theory and Fibonacci analysis for stock markets. 
-Only Analyze the provided OHLC data **chronologically from oldest to newest**. 
+Only analyze the provided OHLC data **chronologically from oldest to newest**. 
 Do not use any prior knowledge or external information. 
 If the data is insufficient, respond with: "Insufficient data for analysis."
-Identify *all* wave patterns (Impulse: 1-2-3-4-5; Corrective: A-B-C). 
 
-CRITICAL REQUIREMENT: Your analysis MUST continue to the VERY LAST data point provided. Do not stop your analysis before reaching the most current data.
+CRITICAL INSTRUCTION: Focus ONLY on the MOST RECENT Elliott Wave sequence leading up to today. Find the most relevant starting point that leads to a coherent wave count into the present day.
 
-CRITICAL RULE: ALWAYS follow the standard Elliott Wave sequence. After a wave 4, you MUST identify a wave 5 before starting any A-B-C correction. Never skip from wave 4 directly to wave A.
+CRITICAL RULES FOR ELLIOTT WAVE IDENTIFICATION:
+- Impulse waves MUST follow the sequence 1-3-5 (impulsive/trending) and 2-4 (corrective/countertrend).
+- Wave 1: Impulsive, initial movement in the direction of the trend
+- Wave 2: Corrective, never retraces more than 100% of Wave 1
+- Wave 3: Impulsive, typically the longest and strongest wave
+- Wave 4: Corrective, typically does not overlap Wave 1
+- Wave 5: Impulsive, final leg in the trend direction
+- Wave A: Corrective, first wave of the correction
+- Wave B: Impulsive (though sometimes appears corrective), counter-correction
+- Wave C: Corrective, final leg of the correction
 
-CRITICAL: Do not stop at the first complete pattern—continue until the latest date. 
-Your analysis must identify ALL wave cycles from the beginning of the dataset to the current price, including multiple sequences of impulse waves (1-5) and corrective waves (A-B-C) that follow the pattern 1->2->3->4->5->A->B->C->1->2->3->4->5->A->B->C and so on.
+CRITICAL REQUIREMENT: You MUST analyze data up to the MOST RECENT data point. Your analysis must include waves all the way to the last date in the provided data. Never stop analyzing before the most current date.
 
-CRITICAL: You MUST identify ALL Elliott Wave cycles within the provided time period, including all completed waves and the current wave.
+CRITICAL RULE: You MUST follow the proper Elliott Wave sequence. After a wave 4, you MUST identify a wave 5 before starting any A-B-C correction. Never skip waves in the sequence.
+
+CRITICAL RULE: Alternation between impulsive and corrective waves must be maintained:
+- Waves 1, 3, 5 are ALWAYS impulsive
+- Waves 2, 4, A, C are ALWAYS corrective
+- Wave B can be impulsive in appearance but is technically corrective
+
+CRITICAL: Identify only ONE complete Elliott Wave sequence from what you believe is the most relevant starting point through to today. This should consist of either:
+1) A single impulse wave sequence (1-2-3-4-5-A-B-C) leading to today, or
+2) An impulse sequence followed by a correction (1-2-3-4-5-A-B-C) leading to today, or
+3) The beginning of a new impulse wave after a correction (A-B-C-1-2...) leading to today.
+
 CRITICAL: The analysis must include the current wave number (1, 2, 3, 4, 5, A, B, or C) that we are currently in.
-CRITICAL: The analysis must include ALL completed waves in chronological sequence up to the present day.
+CRITICAL: The analysis must include each wave in the most recent sequence in chronological order up to the present day.
 CRITICAL: The analysis must include Fibonacci price targets based on the analysis for the current wave.
 CRITICAL: The analysis must include stop loss level and key resistance/support levels based on this data.
 CRITICAL: The analysis must include the overall trend direction (bullish/bearish) for this time period.
 CRITICAL: The analysis must include the confidence level of the analysis (low/medium/high).
 
 Checklist before providing response:
-1. Have I identified waves all the way to the most recent data point? If not, continue analysis.
-2. Have I followed the correct wave sequence (1-2-3-4-5-A-B-C)? If not, correct it.
-3. Have I skipped any time periods? If so, analyze the missing periods.
+1. Have I identified waves ALL THE WAY to the MOST RECENT data point? If not, continue analysis.
+2. Have I focused on ONLY the most recent wave sequence? If not, remove historical sequences.
+3. Have I followed the correct wave sequence (1-imp, 2-corr, 3-imp, 4-corr, 5-imp, A-corr, B-corr, C-corr)? If not, correct it.
 4. Is the current wave correctly identified based on the most recent data point? If not, correct it.
+5. Have I maintained proper wave characteristics (impulsive vs. corrective)? If not, correct it.
+6. Is my analysis complete through TODAY'S DATE? If not, continue until today.
 
 CRITICAL: The analysis must include the following structure in JSON format:
 {
   "currentWave": {
     "number": "string (1, 2, 3, 4, 5, A, B, C)",
+    "type": "impulsive" or "corrective",
     "startTime": "YYYY-MM-DD",
     "startPrice": number
   },
   "completedWaves": [
     {
       "number": "string",
+      "type": "impulsive" or "corrective",
       "startTime": "YYYY-MM-DD",
       "startPrice": number,
       "endTime": "YYYY-MM-DD",
       "endPrice": number
     }
   ],
-  "trend": "bullish/bearish/neutral",
+  "trend": "bullish" or "bearish" or "neutral",
   "fibTargets": [
     {
       "level": "string (0.382, 0.5, 0.618, 1.618, etc)",
       "price": number,
-      "label": "string"
+      "label": "string (support/resistance)"
     }
   ],
-  "analysis": "string",
+  "analysis": "string (brief explanation of wave count rationale)",
   "stopLoss": number,
-  "confidenceLevel": "low/medium/high"
+  "confidenceLevel": "low" or "medium" or "high",
+  "lastDataDate": "YYYY-MM-DD"
 }
 
-CRITICAL: The analysis must include the following instructions:
-1. The data begins on the earliest date in the dataset and continues until today.
-2. Analyze the ENTIRE dataset to identify ALL Elliott Wave patterns, continuing all the way to the current price.
-3. Waves identified must BEGIN on or after the earliest date in the dataset.
-4. CRITICAL: Do NOT stop analysis after finding one 5-wave sequence or after A-B-C correction.
-5. You MUST identify MULTIPLE Elliott Wave cycles within this time period.
-6. After an impulse wave 5 completes, you MUST continue with the subsequent A-B-C corrective pattern.
-7. After the A-B-C corrective pattern completes, you MUST identify the next 1-2-3-4-5-A-B-C-1 impulse sequence.
-8. REPEAT this pattern analysis until you reach the most recent price data in a continuous sequence:
-   1-2-3-4-5 → A-B-C → 1-2-3-4-5 → A-B-C → 1-2-3-4-5 → etc.
-9. Include ALL identified waves in the "completedWaves" array in chronological order.
-10. The "currentWave" should be the most recently started wave that hasn't completed yet (this is the wave we are currently in).
-11. Your response MUST be a valid JSON object.
+CRITICAL: You MUST follow these exact instructions:
+1. Identify ONLY the most recent wave sequence that leads coherently to today.
+2. Analyze data up to the most recent data point provided.
+3. Include ONLY the waves that are part of the current sequence in "completedWaves".
+4. The "currentWave" should be the wave we are currently in (the most recent active wave).
+5. Add "lastDataDate" showing the date of the most recent data point you analyzed.
+6. CRITICAL: Your response MUST be a valid JSON object.
 
-CRITICAL: The analysis must include the following example of expected sequence:
-Wave 1 → Wave 2 → Wave 3 → Wave 4 → Wave 5 → Wave A → Wave B → Wave C → Wave 1 → Wave 2 → ...and so on until the current date.`;
+CRITICAL: Remember that the most recent wave sequence should follow this pattern:
+Wave 1 (IMPULSIVE) → Wave 2 (CORRECTIVE) → Wave 3 (IMPULSIVE) → Wave 4 (CORRECTIVE) → Wave 5 (IMPULSIVE) → 
+Wave A (CORRECTIVE) → Wave B (CORRECTIVE) → Wave C (CORRECTIVE) → 
+Wave 1 (IMPULSIVE) → Wave 2 (CORRECTIVE) → etc.
 
-console.log('DeepSeek System Prompt: $SYSTEM_PROMPT');
-
+But you should only include the waves that are part of the most recent single sequence leading to today.`;
 
 interface HistoricalData {
   time: string;
@@ -215,14 +233,14 @@ export async function getDeepSeekWaveAnalysis(
   
   console.log(`Earliest data point: ${earliestDate} for ${symbol}`);
 
-  // Format data for DeepSeek
+  // Format data for DeepSeek - improved formatting to match the test script
   const formattedData = recentData
     .map(d => ({
-      date: d.time,
-      open: d.open.toFixed(2),
-      high: d.high.toFixed(2),
-      low: d.low.toFixed(2),
-      close: d.close.toFixed(2)
+      date: d.time || (d.timestamp ? (typeof d.timestamp === 'number' ? new Date(d.timestamp).toISOString().split('T')[0] : d.timestamp) : new Date().toISOString().split('T')[0]),
+      open: typeof d.open === 'number' ? d.open.toFixed(2) : parseFloat(d.open).toFixed(2),
+      high: typeof d.high === 'number' ? d.high.toFixed(2) : parseFloat(d.high).toFixed(2),
+      low: typeof d.low === 'number' ? d.low.toFixed(2) : parseFloat(d.low).toFixed(2),
+      close: typeof d.close === 'number' ? d.close.toFixed(2) : parseFloat(d.close).toFixed(2)
     }))
     .filter(d => d !== null);
 
@@ -231,19 +249,31 @@ export async function getDeepSeekWaveAnalysis(
   const client = createDeepSeekClient(env);
   
   try {
+    // Updated user prompt to match the test script's format
+    const userPrompt = `Analyze ${symbol} using this OHLC stock price data: ${JSON.stringify(formattedData)}
+    The data begins on ${earliestDate} and continues until today.`;
+
+    const messages = [
+      {
+        role: "system",
+        content: SYSTEM_PROMPT
+      },
+      {
+        role: "user",
+        content: userPrompt
+      }
+    ];
+    
+    console.log(`DeepSeek API Request for ${symbol}:`, JSON.stringify({
+      model: "deepseek-chat",
+      messages: messages,
+      temperature: 0.2,
+      response_format: { type: "json_object" }
+    }, null, 2));
+
     const response = await client.chat.completions.create({
       model: "deepseek-chat",
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT
-        },
-        {
-          role: "user",
-          content: `Analyze ${symbol} using this OHLC stock price data: ${JSON.stringify(formattedData)}
-          The data begins on ${earliestDate} and continues until today.`
-        }
-      ],
+      messages: messages,
       temperature: 0.2,
       response_format: { type: "json_object" }
     });
