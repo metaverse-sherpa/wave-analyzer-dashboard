@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { apiUrl } from '@/utils/apiConfig';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getAIMarketSentiment } from '@/services/aiMarketService';
+import { Button } from '@/components/ui/button';
+import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+import { Wave } from '@/types/shared';
 
 interface MarketSentimentAIProps {
   bullishCount: number;
@@ -21,7 +23,9 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
   overallSentiment
 }) => {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { allAnalyses } = useWaveAnalysis();
   const [sentiment, setSentiment] = useState<{
     analysis: string;
     stats: {
@@ -34,45 +38,125 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
     timestamp: string;
   } | null>(null);
 
-  useEffect(() => {
-    const fetchMarketSentiment = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  // Calculate wave distribution for passing to the AI
+  const calculateWaveDistribution = () => {
+    if (!allAnalyses || Object.keys(allAnalyses).length === 0) {
+      return {};
+    }
 
-        // Use the local service instead of direct API call
-        const result = await getAIMarketSentiment({
+    const waveDistribution: Record<string, number> = {};
+    let totalStocks = 0;
+
+    Object.values(allAnalyses).forEach(entry => {
+      if (entry?.analysis?.currentWave?.number) {
+        const waveNumber = String(entry.analysis.currentWave.number);
+        waveDistribution[waveNumber] = (waveDistribution[waveNumber] || 0) + 1;
+        totalStocks++;
+      }
+    });
+
+    // Convert counts to percentages
+    Object.keys(waveDistribution).forEach(wave => {
+      waveDistribution[wave] = Math.round((waveDistribution[wave] / totalStocks) * 100);
+    });
+
+    return waveDistribution;
+  };
+
+  // Extract symbols with their current wave for more detailed analysis
+  const extractTopStocksData = () => {
+    if (!allAnalyses) return [];
+
+    const stocksData = Object.entries(allAnalyses)
+      .filter(([_, entry]) => entry?.analysis?.currentWave?.number)
+      .map(([key, entry]) => {
+        const [symbol] = key.split(':');
+        const wave = entry.analysis.currentWave?.number;
+        const trend = entry.analysis.trend || 'neutral';
+        return { symbol, wave, trend };
+      })
+      .sort((a, b) => {
+        // Sort by wave number first (numeric waves before letter waves)
+        const aNum = parseInt(String(a.wave));
+        const bNum = parseInt(String(b.wave));
+        
+        if (!isNaN(aNum) && !isNaN(bNum)) return bNum - aNum; // Higher numeric waves first
+        if (!isNaN(aNum)) return -1; // Numbers before letters
+        if (!isNaN(bNum)) return 1; // Numbers before letters
+        
+        // Then alphabetically for letter waves
+        return String(a.wave).localeCompare(String(b.wave));
+      })
+      .slice(0, 15); // Take top 15 stocks for analysis
+
+    return stocksData;
+  };
+
+  const fetchMarketSentiment = async (forceRefresh: boolean = false) => {
+    try {
+      if (forceRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      
+      setError(null);
+
+      // Calculate the wave distribution
+      const waveDistribution = calculateWaveDistribution();
+      
+      // Get top stocks data for more detailed analysis
+      const topStocks = extractTopStocksData();
+
+      // Use the local service with enhanced data
+      const result = await getAIMarketSentiment(
+        {
           bullishCount,
           bearishCount,
           neutralCount,
           overallSentiment
-        });
+        },
+        // Convert to the format expected by the service
+        Object.fromEntries(
+          Object.entries(allAnalyses).map(([key, entry]) => [key, {
+            analysis: entry.analysis,
+            timestamp: entry.timestamp
+          }])
+        ),
+        forceRefresh // Pass the force refresh flag to invalidate cache
+      );
 
-        // Transform the result to match component's expected format
-        setSentiment({
-          analysis: result.analysis,
-          stats: {
-            totalStocks: bullishCount + bearishCount + neutralCount,
-            bullishPercentage: Math.round((bullishCount / (bullishCount + bearishCount + neutralCount)) * 100),
-            bearishPercentage: Math.round((bearishCount / (bullishCount + bearishCount + neutralCount)) * 100),
-            neutralPercentage: Math.round((neutralCount / (bullishCount + bearishCount + neutralCount)) * 100)
-          },
-          waveDistribution: {}, // This will be populated by the API if available
-          timestamp: new Date(result.timestamp).toISOString()
-        });
-      } catch (err) {
-        console.error('Error fetching market sentiment:', err);
-        setError((err as Error).message || 'Failed to fetch market sentiment');
-      } finally {
-        setLoading(false);
-      }
-    };
+      // Transform the result to match component's expected format
+      setSentiment({
+        analysis: result.analysis,
+        stats: {
+          totalStocks: bullishCount + bearishCount + neutralCount,
+          bullishPercentage: Math.round((bullishCount / (bullishCount + bearishCount + neutralCount || 1)) * 100),
+          bearishPercentage: Math.round((bearishCount / (bullishCount + bearishCount + neutralCount || 1)) * 100),
+          neutralPercentage: Math.round((neutralCount / (bullishCount + bearishCount + neutralCount || 1)) * 100)
+        },
+        waveDistribution,
+        timestamp: new Date(result.timestamp).toISOString()
+      });
+    } catch (err) {
+      console.error('Error fetching market sentiment:', err);
+      setError((err as Error).message || 'Failed to fetch market sentiment');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
+  useEffect(() => {
     fetchMarketSentiment();
   }, [bullishCount, bearishCount, neutralCount, overallSentiment]);
 
+  const handleRefresh = () => {
+    fetchMarketSentiment(true);
+  };
+
   // Rest of the component remains the same
-  if (loading) {
+  if (loading && !sentiment) {
     return (
       <Card>
         <CardContent className="pt-6">
@@ -86,7 +170,7 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
     );
   }
 
-  if (error) {
+  if (error && !sentiment) {
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
@@ -132,7 +216,20 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
 
   return (
     <Card>
-      <CardContent className="pt-6">
+      <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4 px-6">
+        <h3 className="text-sm font-medium">AI Market Analysis</h3>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={handleRefresh} 
+          disabled={refreshing || loading}
+          className="h-8 w-8"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          <span className="sr-only">Refresh analysis</span>
+        </Button>
+      </CardHeader>
+      <CardContent className="pt-2">
         <div className="space-y-4">
           {/* Wave Distribution */}
           {Object.keys(sentiment.waveDistribution).length > 0 && (
@@ -161,11 +258,18 @@ const MarketSentimentAI: React.FC<MarketSentimentAIProps> = ({
 
           {/* AI Analysis */}
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            {sentiment.analysis.split('\n\n').map((paragraph, i) => (
-              <p key={i} className="text-sm leading-relaxed">
-                {paragraph}
-              </p>
-            ))}
+            {refreshing ? (
+              <div className="flex flex-col items-center justify-center py-8">
+                <RefreshCw className="h-8 w-8 animate-spin mb-4 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Refreshing market analysis...</p>
+              </div>
+            ) : (
+              sentiment.analysis.split('\n\n').map((paragraph, i) => (
+                <p key={i} className="text-sm leading-relaxed">
+                  {paragraph}
+                </p>
+              ))
+            )}
           </div>
 
           {/* Stats Footer */}

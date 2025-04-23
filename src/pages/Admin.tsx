@@ -38,6 +38,14 @@ import { Label } from "@/components/ui/label";
 import { FavoritesManager } from '@/components/FavoritesManager';
 import UserManagement from '@/components/admin/UserManagement';
 
+// Store the original console methods to restore them later
+const originalConsole = {
+  log: console.log,
+  warn: console.warn,
+  error: console.error,
+  info: console.info
+};
+
 // Add this at the top of Admin.tsx with other interfaces
 declare global {
   interface Window {
@@ -161,7 +169,9 @@ const fetchHistoricalData = async (symbol: string, timeframe: string = '1d') => 
     console.log(`Fetching historical data for ${symbol} with timeframe ${timeframe}`);
     
     // Get historical data directly from API without caching
-    const url = buildApiUrl(`/stocks/${symbol}/history/${timeframe}?lookback=730`);
+    // Changed lookback from 1095 days (3 years) to 365 days (1 year) to match chart display capabilities
+    const url = buildApiUrl(`/stocks/${symbol}/history/${timeframe}?lookback=365`);
+    console.log(`Requesting historical data with URL: ${url}`);
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -180,6 +190,7 @@ const fetchHistoricalData = async (symbol: string, timeframe: string = '1d') => 
       throw new Error(`Invalid data format for ${symbol}`);
     }
     
+    console.log(`Received ${json.data.length} data points for ${symbol}, date range: ${new Date(json.data[0].timestamp).toISOString()} to ${new Date(json.data[json.data.length-1].timestamp).toISOString()}`);
     return json.data;
   } catch (error) {
     console.error(`Failed to fetch historical data for ${symbol}:`, error);
@@ -1532,6 +1543,22 @@ useEffect(() => {
       console.error(`Error storing wave analysis for ${symbol}:`, error);
     }
   }, [supabase]);
+
+  useEffect(() => {
+    // Disable API logging during mount
+    console.log = () => {};
+    console.warn = () => {};
+    console.error = () => {};
+    console.info = () => {};
+
+    return () => {
+      // Restore original console methods during unmount
+      console.log = originalConsole.log;
+      console.warn = originalConsole.warn;
+      console.error = originalConsole.error;
+      console.info = originalConsole.info;
+    };
+  }, []);
 
   return (
     <div className="container mx-auto p-6">

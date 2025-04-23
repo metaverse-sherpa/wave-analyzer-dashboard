@@ -77,7 +77,7 @@ export async function getAIMarketSentiment(
       };
     } else {
       try {
-        marketInsightsResult = await fetchMarketInsights(symbols);
+        marketInsightsResult = await fetchMarketInsights(symbols, forceRefresh);
       } catch (apiError) {
         console.error("Failed to fetch market insights, using mockup data", apiError);
         marketInsightsResult = {
@@ -118,7 +118,7 @@ export async function getAIMarketSentiment(
             messages: [
               {
                 role: "system",
-                content: `You are an expert market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
+                content: `You are an expert stock market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
                 You analyze market patterns, news, and analyst insights to provide concise, actionable market sentiment summaries.`
               },
               {
@@ -138,7 +138,7 @@ ${marketInsightsResult.content}
 
 ${marketInsightsResult.isMock ? "Note: Some market data is simulated due to API limitations." : ""}
 Include specific references to current market events or news mentioned in the insights.
-Keep your response under 120 words and focus on what this means for investors.`
+Focus on what this means for investors. Don't preface with "Market Sentiment Summary". Don't include word counts.`
               }
             ],
             temperature: 0.3,
@@ -216,25 +216,40 @@ function generateLocalSentimentResult(
   // Generate different analysis based on the sentiment
   let analysisText = "";
   
-  // Include some market insights if available
-  const hasMarketInsights = marketInsightsResult.content && 
-    !marketInsightsResult.content.includes("Market data currently unavailable");
+  // Extract news headlines more carefully
+  let newsHeadline = "ongoing market developments";
+  if (marketInsightsResult.content && !marketInsightsResult.content.includes("Market data currently unavailable")) {
+    // Split the content into lines
+    const contentLines = marketInsightsResult.content.split('\n');
+    
+    // Find the first headline after the "Latest Market Headlines:" line
+    for (let i = 0; i < contentLines.length; i++) {
+      if (contentLines[i].includes("Latest Market Headlines") || contentLines[i].includes("📰")) {
+        if (i + 1 < contentLines.length && contentLines[i + 1].startsWith("-")) {
+          // Extract the headline without the "- " prefix
+          newsHeadline = contentLines[i + 1].replace(/^-\s+/, '');
+          break;
+        }
+      }
+    }
+  }
   
+  // Generate different analysis based on sentiment with proper news references
   switch(sentiment) {
     case "strongly bullish":
-      analysisText = `As of ${dateStr}, market sentiment is decidedly bullish with ${bullishCount} stocks showing positive wave patterns. ${hasMarketInsights ? `Recent news indicates ${marketInsightsResult.content.split('\n')[0].toLowerCase().replace('📰 latest market headlines:', '')}.` : ''}  This broad participation suggests momentum may continue. Investors might consider maintaining equity exposure while being mindful of potential overbought conditions.`;
+      analysisText = `As of ${dateStr}, market sentiment is decidedly bullish with ${bullishCount} stocks showing positive wave patterns. Recent news indicates ${newsHeadline}. This broad participation suggests momentum may continue. Investors might consider maintaining equity exposure while being mindful of potential overbought conditions.`;
       break;
     case "moderately bullish":
-      analysisText = `Market indicators as of ${dateStr} show a cautiously optimistic outlook with ${bullishCount} bullish vs ${bearishCount} bearish stocks. ${hasMarketInsights ? `Market activity reflects ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'ongoing developments'}.` : ''} The Elliott Wave patterns suggest we may be in the early-to-middle stages of an upward movement.`;
+      analysisText = `Market indicators as of ${dateStr} show a cautiously optimistic outlook with ${bullishCount} bullish vs ${bearishCount} bearish stocks. Market activity reflects ${newsHeadline}. The Elliott Wave patterns suggest we may be in the early-to-middle stages of an upward movement.`;
       break;
     case "strongly bearish":
-      analysisText = `Market analysis on ${dateStr} reveals significant bearish pressure with ${bearishCount} stocks showing negative wave patterns. ${hasMarketInsights ? `This aligns with recent developments including ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'current market events'}.` : ''} Protective positioning may be warranted as technical indicators suggest further downside potential.`;
+      analysisText = `Market analysis on ${dateStr} reveals significant bearish pressure with ${bearishCount} stocks showing negative wave patterns. This aligns with recent developments including ${newsHeadline}. Protective positioning may be warranted as technical indicators suggest further downside potential.`;
       break;
     case "moderately bearish":
-      analysisText = `Current market conditions (${dateStr}) lean bearish with ${bearishCount} stocks showing negative wave patterns against ${bullishCount} bullish ones. ${hasMarketInsights ? `News about ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'market developments'} may be contributing factors.` : ''} Elliott Wave analysis suggests we may be in a corrective phase.`;
+      analysisText = `Current market conditions (${dateStr}) lean bearish with ${bearishCount} stocks showing negative wave patterns against ${bullishCount} bullish ones. News about ${newsHeadline} may be contributing factors. Elliott Wave analysis suggests we may be in a corrective phase.`;
       break;
     default:
-      analysisText = `Market sentiment appears mixed as of ${dateStr}, with a balanced distribution between bullish (${bullishCount}) and bearish (${bearishCount}) patterns. ${hasMarketInsights ? `Recent news includes ${marketInsightsResult.content.split('\n')[1]?.toLowerCase().replace('- ', '') || 'various market developments'}.` : ''} This equilibrium suggests a period of consolidation may be underway.`;
+      analysisText = `Market sentiment appears mixed as of ${dateStr}, with a balanced distribution between bullish (${bullishCount}) and bearish (${bearishCount}) patterns. Recent news includes ${newsHeadline}. This equilibrium suggests a period of consolidation may be underway.`;
   }
   
   return {
@@ -249,6 +264,11 @@ function generateLocalSentimentResult(
  * Process wave analyses to extract meaningful insights
  */
 function processWaveAnalyses(waveAnalyses: Record<string, { analysis: WaveAnalysisResult, timestamp: number }>): string {
+  // Skip processing if no analyses available
+  if (!waveAnalyses || Object.keys(waveAnalyses).length === 0) {
+    return "No wave analysis data available.";
+  }
+  
   // Count stocks in different wave phases
   const waveCounts = {
     wave1: 0,
@@ -268,7 +288,7 @@ function processWaveAnalyses(waveAnalyses: Record<string, { analysis: WaveAnalys
   };
 
   // Track completed waves (5th or C waves)
-  const completedPatterns = [];
+  const completedPatterns: string[] = [];
   
   // Dominant current wave direction
   const waveDirections = {
@@ -276,11 +296,17 @@ function processWaveAnalyses(waveAnalyses: Record<string, { analysis: WaveAnalys
     bearish: 0
   };
   
+  // Track stocks in each wave for detailed reporting
+  const stocksByWave: Record<string, string[]> = {};
+  
   // Process each stock's wave analysis
   let stocksAnalyzed = 0;
-  Object.entries(waveAnalyses).forEach(([symbol, { analysis }]) => {
+  Object.entries(waveAnalyses).forEach(([key, { analysis }]) => {
     if (!analysis || !analysis.currentWave) return;
     stocksAnalyzed++;
+    
+    // Extract symbol from the key (format: symbol:timeframe)
+    const symbol = key.split(':')[0];
     
     // Count patterns
     if (analysis.impulsePattern) patternCounts.impulse++;
@@ -288,29 +314,29 @@ function processWaveAnalyses(waveAnalyses: Record<string, { analysis: WaveAnalys
     
     // Count current wave numbers
     const currentWave = analysis.currentWave.number;
+    const waveKey = typeof currentWave === 'string' ? 
+      `wave${currentWave}` : 
+      `wave${currentWave}`;
+    
+    // Increment wave counts if valid wave key
+    if (waveKey in waveCounts) {
+      waveCounts[waveKey]++;
+    }
+    
+    // Track stocks by wave
+    if (!stocksByWave[String(currentWave)]) {
+      stocksByWave[String(currentWave)] = [];
+    }
+    stocksByWave[String(currentWave)].push(symbol);
+    
+    // Determine wave direction
     if (typeof currentWave === 'number') {
-      switch(currentWave) {
-        case 1: waveCounts.wave1++; break;
-        case 2: waveCounts.wave2++; break;
-        case 3: waveCounts.wave3++; break;
-        case 4: waveCounts.wave4++; break;
-        case 5: waveCounts.wave5++; break;
-      }
-      
-      // Determine wave direction
       if ([1, 3, 5].includes(currentWave)) {
         waveDirections.bullish++;
       } else {
         waveDirections.bearish++;
       }
     } else if (typeof currentWave === 'string') {
-      switch(currentWave) {
-        case 'A': waveCounts.waveA++; break;
-        case 'B': waveCounts.waveB++; break;
-        case 'C': waveCounts.waveC++; break;
-      }
-      
-      // Determine wave direction for letter waves
       if (currentWave === 'B') {
         waveDirections.bullish++;
       } else {
@@ -324,20 +350,63 @@ function processWaveAnalyses(waveAnalyses: Record<string, { analysis: WaveAnalys
     }
   });
   
+  // Skip further processing if no stocks analyzed
+  if (stocksAnalyzed === 0) {
+    return "No wave patterns detected in the analyzed stocks.";
+  }
+  
   // Build the insights string
   const insights = [
     `Analyzed ${stocksAnalyzed} stocks using Elliott Wave Theory.`,
-    `Wave Distribution: Wave 1 (${waveCounts.wave1}), Wave 2 (${waveCounts.wave2}), Wave 3 (${waveCounts.wave3}), Wave 4 (${waveCounts.wave4}), Wave 5 (${waveCounts.wave5}), Wave A (${waveCounts.waveA}), Wave B (${waveCounts.waveB}), Wave C (${waveCounts.waveC})`,
-    `Pattern Types: Impulse patterns (${patternCounts.impulse}), Corrective patterns (${patternCounts.corrective})`,
-    `Wave Direction: Bullish waves (${waveDirections.bullish}), Bearish waves (${waveDirections.bearish})`,
   ];
+
+  // Add CLEAR wave direction information at the top
+  const bullishPercent = Math.round((waveDirections.bullish / stocksAnalyzed) * 100);
+  const bearishPercent = Math.round((waveDirections.bearish / stocksAnalyzed) * 100);
+  insights.push(`IMPORTANT WAVE DISTRIBUTION: ${waveDirections.bullish} stocks (${bullishPercent}%) in bullish waves (1,3,5,B) vs ${waveDirections.bearish} stocks (${bearishPercent}%) in bearish waves (2,4,A,C).`);
   
-  if (completedPatterns.length > 0) {
-    insights.push(`${completedPatterns.length} stocks have completed their wave patterns, suggesting potential trend reversals.`);
+  // Add wave distribution section
+  const waveEntries = Object.entries(waveCounts)
+    .filter(([_, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]); // Sort by count (descending)
+  
+  if (waveEntries.length > 0) {
+    insights.push("Detailed Wave Distribution:");
+    waveEntries.forEach(([wave, count]) => {
+      const waveLabel = wave.replace('wave', 'Wave ');
+      const percentage = Math.round((count / stocksAnalyzed) * 100);
+      const waveNumber = wave.replace('wave', '');
+      const isBullishWave = ['1', '3', '5', 'B'].includes(waveNumber);
+      const waveType = isBullishWave ? "BULLISH" : "BEARISH";
+      insights.push(`- ${waveLabel}: ${count} stocks (${percentage}%) - ${waveType} wave`);
+      
+      // Add top examples for significant waves (at least 10% of stocks)
+      if (percentage >= 10 && stocksByWave[waveNumber]) {
+        const examples = stocksByWave[waveNumber].slice(0, 5).join(', ');
+        insights.push(`  Examples: ${examples}`);
+      }
+    });
   }
   
+  // Add pattern types
+  insights.push(`Pattern Types: ${patternCounts.impulse} impulse patterns, ${patternCounts.corrective} corrective patterns`);
+  
+  // Add information about completed patterns
+  if (completedPatterns.length > 0) {
+    insights.push(`${completedPatterns.length} stocks have completed their wave patterns and may be near reversal points: ${completedPatterns.slice(0, 5).join(', ')}${completedPatterns.length > 5 ? '...' : ''}`);
+  }
+  
+  // Add wave-specific insights
   if (waveCounts.wave3 > waveCounts.wave1 && waveCounts.wave3 > waveCounts.wave5) {
-    insights.push('Many stocks are in Wave 3, typically the strongest trending phase.');
+    insights.push('Many stocks are in Wave 3, typically the strongest trending phase of the market cycle.');
+  }
+  
+  if (waveCounts.wave5 > (stocksAnalyzed * 0.2)) {
+    insights.push('A significant number of stocks are in Wave 5, suggesting the current trend may be nearing completion.');
+  }
+  
+  if (waveCounts.waveA > (stocksAnalyzed * 0.2)) {
+    insights.push('Many stocks are starting corrective patterns (Wave A), indicating a pullback phase may be underway.');
   }
   
   return insights.join('\n');
@@ -445,24 +514,30 @@ async function retry<T>(
  * Fetches market insights specifically for major market indexes
  * @returns Object with content, isMock flag, and sources used
  */
-async function fetchMarketInsights(additionalSymbols: string[] = []): Promise<MarketInsightsResult> {
+async function fetchMarketInsights(additionalSymbols: string[] = [], forceRefresh: boolean = false): Promise<MarketInsightsResult> {
   try {
     // Get all major index symbols
     const indexSymbols = getIndexSymbols();
     
-    // Combine with any additional symbols (limited to 5 to keep focused)
-    const allSymbols = [...indexSymbols, ...additionalSymbols.slice(0, 5)];
+    // Combine with any additional symbols (limited to 10 to keep focused)
+    // Filter out empty strings and limit to reasonable number
+    const validSymbols = additionalSymbols
+      .filter(s => s && s.trim().length > 0)
+      .slice(0, 10);
+    
+    // Use a set to remove duplicates
+    const uniqueSymbols = Array.from(new Set([...indexSymbols, ...validSymbols]));
     
     const insights: string[] = [];
     const sourcesUsed: string[] = [];
     
     // Log which API URL we're using 
     console.log(`[API] Using API base URL: ${API_BASE_URL}`);
-    console.log(`Fetching insights for ${allSymbols.length} market indexes`);
+    console.log(`Fetching insights for ${uniqueSymbols.length} symbols: ${uniqueSymbols.join(', ')}`);
 
     // Create a fallback content that's robust even when everything fails
     // This ensures we always have something to display
-    let fallbackContent = `Market analysis based on ${allSymbols.length} major indices.`;
+    let fallbackContent = `Market analysis based on ${uniqueSymbols.length} symbols.`;
     
     // Track API success/failure
     let apiSuccessCount = 0;
@@ -471,7 +546,17 @@ async function fetchMarketInsights(additionalSymbols: string[] = []): Promise<Ma
     // First try to get market news - with improved error handling
     let hasMarketNews = false;
     try {
-      const marketNewsUrl = buildSafeApiUrl('/market/news');
+      // Build news URL with symbols and refresh parameters
+      const newsParams = new URLSearchParams();
+      if (uniqueSymbols.length > 0) {
+        newsParams.append('symbols', uniqueSymbols.join(','));
+      }
+      if (forceRefresh) {
+        newsParams.append('refresh', 'true');
+      }
+      
+      const paramsString = newsParams.toString();
+      const marketNewsUrl = buildSafeApiUrl(`/market/news${paramsString ? '?' + paramsString : ''}`);
       
       console.log('Fetching market news from:', marketNewsUrl);
       const newsResponse = await fetch(marketNewsUrl, { 

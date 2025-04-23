@@ -554,7 +554,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           // Fetch historical data directly from API (last 2 years)
           const url = `${import.meta.env.VITE_API_BASE_URL || ''}/stocks/${symbol}/history`;
 
-          console.log(`Fetching new 2-year historical data for ${symbol} directly from API using ${url}`);
+          console.log(`Fetching historical data for ${symbol} directly from API using ${url}`);
 
           const response = await fetch(url, {
             method: 'GET',

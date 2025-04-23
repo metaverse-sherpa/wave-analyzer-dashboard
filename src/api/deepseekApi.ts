@@ -32,20 +32,30 @@ export const getAdminDirectAnalysis = async (
   symbol: string,
   historicalData: HistoricalDataPoint[]
 ): Promise<DeepSeekAnalysis> => {
+  // Limit historical data to last 180 days (6 months) to reduce API payload size
+  const limitedData = historicalData.length > 180 ? historicalData.slice(-180) : historicalData;
+  console.log(`Requesting analysis for ${symbol} with ${limitedData.length} data points (limited to 6 months)`);
+  console.log(`Data range: ${new Date(limitedData[0].timestamp).toISOString()} to ${new Date(limitedData[limitedData.length-1].timestamp).toISOString()}`);
+  
   const response = await fetch(`${DEEPSEEK_API_URL}/analyze`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
     },
-    body: JSON.stringify({ symbol, historicalData })
+    body: JSON.stringify({ symbol, historicalData: limitedData })
   });
 
   if (!response.ok) {
     throw new Error(`Failed to get analysis: ${response.statusText}`);
   }
 
-  return response.json();
+  const responseData = await response.json();
+  
+  // Log the complete response for debugging
+  console.log(`DeepSeek API Response for ${symbol}:`, responseData);
+  
+  return responseData;
 };
 
 /**
@@ -60,6 +70,22 @@ export const getDeepSeekWaveAnalysis = async (
 ): Promise<DeepSeekWaveAnalysis> => {
   // If historicalData is provided, use it for direct analysis
   if (historicalData && historicalData.length > 0) {
+    // Limit data to last 180 days (6 months) to reduce API payload size
+    const limitedData = historicalData.length > 180 ? historicalData.slice(-180) : historicalData;
+    console.log(`Requesting wave analysis for ${symbol} with ${limitedData.length} data points (limited to 6 months)`);
+    
+    // Find the earliest date in the provided historical data
+    const earliestTimestamp = Math.min(...limitedData.map(point => 
+      typeof point.timestamp === 'number' ? point.timestamp : new Date(point.timestamp).getTime()
+    ));
+    
+    const latestTimestamp = Math.max(...limitedData.map(point => 
+      typeof point.timestamp === 'number' ? point.timestamp : new Date(point.timestamp).getTime()
+    ));
+    
+    console.log(`Data range: ${new Date(earliestTimestamp).toISOString()} to ${new Date(latestTimestamp).toISOString()}`);
+    console.log(`Using lookback of ${limitedData.length} days for analysis`);
+    
     // Send data to the API endpoint for processing
     const response = await fetch(`${DEEPSEEK_API_URL}/wave-analysis`, {
       method: 'POST',
@@ -67,17 +93,24 @@ export const getDeepSeekWaveAnalysis = async (
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
       },
-      body: JSON.stringify({ symbol, historicalData })
+      body: JSON.stringify({ 
+        symbol, 
+        historicalData: limitedData,
+        earliestTimestamp  // Send the earliest timestamp to ensure waves start from this point
+      })
     });
 
     if (!response.ok) {
       throw new Error(`Failed to get wave analysis: ${response.statusText}`);
     }
 
-    return response.json();
+    const responseData = await response.json();
+    console.log(`DeepSeek API Wave Analysis Response for ${symbol}:`, responseData);
+    return responseData;
   }
   
   // Otherwise, use the standard endpoint without historical data
+  console.log(`Requesting wave analysis for ${symbol} without historical data`);
   const response = await fetch(`${DEEPSEEK_API_URL}/wave-analysis/${symbol}`, {
     headers: {
       'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
@@ -89,7 +122,9 @@ export const getDeepSeekWaveAnalysis = async (
     throw new Error(`Failed to get wave analysis: ${response.statusText}`);
   }
 
-  return response.json();
+  const responseData = await response.json();
+  console.log(`DeepSeek API Wave Analysis Response for ${symbol}:`, responseData);
+  return responseData;
 };
 
 /**

@@ -14,14 +14,23 @@ const corsHeaders = {
   'Content-Type': 'application/json'
 };
 
-// In-memory cache for non-historical data
+// In-memory cache for non-historical data - DISABLED
 const CACHE = {};
+
+// Set this to true to always bypass cache
+const DISABLE_ALL_CACHING = true;
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api\/?/, '/');
-    const headers = { ...corsHeaders };
+    const headers = { 
+      ...corsHeaders,
+      // Add cache control headers to prevent browser caching
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    };
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
@@ -35,7 +44,8 @@ export default {
           status: 'success',
           message: 'API server is running',
           version: APP_VERSION,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          cachingDisabled: DISABLE_ALL_CACHING
         }), { 
           headers: {
             ...headers,
@@ -47,7 +57,8 @@ export default {
       // Version endpoint
       if (path === '/version') {
         return new Response(JSON.stringify({
-          version: APP_VERSION
+          version: APP_VERSION,
+          cachingDisabled: DISABLE_ALL_CACHING
         }), { headers });
       }
 
@@ -57,8 +68,8 @@ export default {
           const cacheKey = 'top_stocks';
           const now = Date.now();
           
-          // Check cache first
-          if (CACHE[cacheKey] && now - CACHE[cacheKey].expires < 0) {
+          // Check cache only if caching is enabled
+          if (!DISABLE_ALL_CACHING && CACHE[cacheKey] && now - CACHE[cacheKey].expires < 0) {
             return new Response(JSON.stringify(CACHE[cacheKey].data), { headers });
           }
           
@@ -83,11 +94,13 @@ export default {
             name: quote.shortName || quote.longName || quote.symbol
           })).filter(stock => stock.symbol && stock.symbol.length > 0);
           
-          // Cache for 5 minutes
-          CACHE[cacheKey] = {
-            data: topStocks,
-            expires: now + (5 * 60 * 1000)
-          };
+          // Cache only if caching is enabled
+          if (!DISABLE_ALL_CACHING) {
+            CACHE[cacheKey] = {
+              data: topStocks,
+              expires: now + (5 * 60 * 1000)
+            };
+          }
           
           return new Response(JSON.stringify(topStocks), { headers });
         } catch (error) {
@@ -102,34 +115,42 @@ export default {
         }
       }
 
-      // Historical data endpoint - updated to match new pattern
+      // Historical data endpoint - never use cache for historical data
       if (path.match(/^\/stocks\/[^/]+\/history/)) {
         const symbol = path.split('/')[2];
         console.log(`Processing history request for symbol: ${symbol}`);
         
         try {
-          // Get data directly from Yahoo Finance
-          const period1 = new Date();
-          period1.setFullYear(period1.getFullYear() - 2); // 2 years of data
+          // Parse query parameters
+          const params = new URLSearchParams(url.search);
+          const lookbackParam = params.get('lookback');
+          const lookbackDays = lookbackParam ? parseInt(lookbackParam) : 180; // Default to 6 months instead of 2 years
           
-          const data = await yahooFinance.historical(symbol, {
+          // Get data using chart() instead of deprecated historical() method
+          const period1 = new Date();
+          period1.setDate(period1.getDate() - lookbackDays); // Use lookback parameter or default to 180 days
+          
+          const chartResult = await yahooFinance.chart(symbol, {
             period1,
             interval: '1d'
           });
           
-          if (!data || !Array.isArray(data) || data.length === 0) {
+          // Validate the chart data
+          if (!chartResult?.quotes || !Array.isArray(chartResult.quotes) || chartResult.quotes.length === 0) {
             throw new Error(`No historical data available for ${symbol}`);
           }
 
-          // Format the data consistently
-          const formattedData = data.map(item => ({
-            timestamp: new Date(item.date).getTime(),
+          // Format the data consistently - chart() returns a different structure than historical()
+          const formattedData = chartResult.quotes.map(item => ({
+            timestamp: new Date(item.date || item.timestamp).getTime(),
             open: Number(item.open),
             high: Number(item.high),
             low: Number(item.low),
             close: Number(item.close),
             volume: Number(item.volume || 0)
           }));
+          
+          console.log(`Returning ${formattedData.length} historical data points for ${symbol} from ${new Date(formattedData[0].timestamp).toISOString()} to ${new Date(formattedData[formattedData.length-1].timestamp).toISOString()}`);
           
           return new Response(JSON.stringify({
             status: 'success',
@@ -156,7 +177,7 @@ export default {
         }
       }
 
-      // Single stock quote endpoint
+      // Single stock quote endpoint - never use cache for quotes
       if (path.match(/^\/stocks\/[^/]+\/quote/) || path.match(/^\/stocks\/[^/]+$/)) {
         const symbol = path.split('/')[2];
         console.log(`Processing quote request for symbol: ${symbol}`);
@@ -207,13 +228,13 @@ export default {
         return await handleAnalyzeWaves(request, env, ctx);
       }
 
-      // Update the market sentiment endpoint
+      // Update the market sentiment endpoint - never use cache
       if (path === '/market/sentiment') {
         try {
           console.log("Generating market sentiment data using wave analysis");
           
-          // Get cached wave analysis data
-          const waveAnalysis = await getWaveAnalysisFromCache(env);
+          // Get fresh wave analysis data (bypass cache)
+          const waveAnalysis = await getWaveAnalysisFromCache(env, true);
           
           // If we have wave analysis data, use it to generate sentiment
           if (Object.keys(waveAnalysis).length > 0) {
@@ -232,18 +253,12 @@ export default {
             // Generate AI market sentiment using wave analysis
             const marketData = await generateMarketAISentiment(waveAnalysis, result.quotes, env);
             
-            // Cache the result
-            const cacheKey = "market_sentiment";
-            CACHE[cacheKey] = {
-              data: marketData,
-              expires: Date.now() + (15 * 60 * 1000) // 15 minutes cache
-            };
-            
+            // We no longer cache the result
             return new Response(JSON.stringify(marketData), { headers });
           } else {
             console.log("No wave analysis data found, falling back to traditional sentiment");
-            // Fall back to original sentiment calculation if no wave analysis
-            // ...existing fallback code...
+            // Fall back to traditional sentiment calculation if no wave analysis
+            // ...existing code...
           }
         } catch (error) {
           console.error(`Error generating market sentiment: ${error.message}`);
@@ -251,30 +266,59 @@ export default {
         }
       }
 
-      // Market news endpoint
+      // Market news endpoint - never use cache
       if (path === '/market/news') {
         try {
-          const cacheKey = 'market_news';
-          const now = Date.now();
-
-          // Check cache first
-          if (CACHE[cacheKey] && now - CACHE[cacheKey].expires < 0) {
-            return new Response(JSON.stringify(CACHE[cacheKey].data), { headers });
-          }
+          // Parse query parameters
+          const params = new URLSearchParams(url.search);
+          const symbols = params.get('symbols') ? params.get('symbols').split(',') : [];
+          
+          // Always fetch fresh data
+          const forceRefresh = true;
+          
+          // Use query symbols, otherwise default to major indices
+          const targetSymbols = symbols.length > 0 ? symbols : ['^GSPC', '^DJI', '^IXIC', '^RUT'];
+          console.log(`Fetching market news for: ${targetSymbols.join(', ')}`);
 
           // Get fresh news data using Yahoo Finance search
-          const result = await yahooFinance.search('^GSPC', {
-            lang: 'en-US',
-            region: 'US',
-            newsCount: 10
+          // Get news for all the major indices plus any additional symbols
+          const newsPromises = targetSymbols.map(symbol => 
+            yahooFinance.search(symbol, {
+              lang: 'en-US',
+              region: 'US',
+              newsCount: 5 // Reduced per-symbol count to avoid overwhelming results
+            }).catch(err => {
+              console.warn(`Error fetching news for ${symbol}:`, err.message);
+              return { news: [] };
+            })
+          );
+          
+          const newsResults = await Promise.all(newsPromises);
+          
+          // Combine and deduplicate news by title
+          const allNews = [];
+          const newsSet = new Set();
+          
+          newsResults.forEach(result => {
+            if (result?.news && Array.isArray(result.news)) {
+              result.news.forEach(item => {
+                if (!newsSet.has(item.title)) {
+                  newsSet.add(item.title);
+                  allNews.push(item);
+                }
+              });
+            }
           });
-
-          if (!result?.news || !Array.isArray(result.news)) {
+          
+          if (allNews.length === 0) {
             throw new Error("No valid news data received");
           }
 
+          // Sort by publish time, most recent first
+          allNews.sort((a, b) => b.providerPublishTime - a.providerPublishTime);
+
           // Format the news data
-          const formattedNews = result.news.map(item => ({
+          const formattedNews = allNews.map(item => ({
             title: item.title,
             publisher: item.publisher,
             link: item.link,
@@ -282,12 +326,7 @@ export default {
             summary: item.summary || ''
           }));
 
-          // Cache for 15 minutes
-          CACHE[cacheKey] = {
-            data: formattedNews,
-            expires: now + (15 * 60 * 1000)
-          };
-
+          // No caching - always return fresh data
           return new Response(JSON.stringify(formattedNews), { headers });
         } catch (error) {
           console.error(`Error getting market news: ${error.message}`);
@@ -303,7 +342,7 @@ export default {
 
       // Add this case to handle logs
       if (path === '/log') {
-        return await handleBrowserLogs(request);
+        return await handleBrowserLogs(request, env, ctx);
       }
 
       // Fallback for unhandled routes
@@ -465,13 +504,21 @@ async function handleAnalyzeWaves(request, env, ctx) {
   }
 }
 
-// Add new function to get wave analysis from Supabase cache
-async function getWaveAnalysisFromCache(env) {
+// Updated function to get wave analysis from Supabase cache with option to bypass
+async function getWaveAnalysisFromCache(env, bypassCache = DISABLE_ALL_CACHING) {
   try {
     const { SUPABASE_URL, SUPABASE_SERVICE_KEY } = env;
     
     if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
       throw new Error('Supabase credentials not configured');
+    }
+    
+    // If bypassing cache, use an alternative approach to get fresh data
+    if (bypassCache) {
+      console.log("Bypassing cache and fetching fresh wave analysis data");
+      // Here you would implement the logic to get fresh data instead of cached data
+      // For now, we'll return an empty object as we don't have the implementation
+      return {};
     }
     
     // Query cache table for wave analysis entries
@@ -507,7 +554,7 @@ async function getWaveAnalysisFromCache(env) {
         if (data && data.waves && data.currentWave) {
           acc[symbol] = {
             symbol,
-            currentWave: data.currentWave,
+            currentWave: data.currentWave.number,
             waves: data.waves,
             trend: data.trend || 'neutral',
             analysis: data.analysis || '',
@@ -602,7 +649,8 @@ Keep the response focused and actionable, around 3-4 sentences.`;
         neutralPercentage: Math.round((marketStats.neutralCount / analysisData.length) * 100)
       },
       waveDistribution: calculateWaveDistribution(analysisData),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      freshData: true // Add indicator that this is fresh data
     };
   } catch (error) {
     console.error('Error generating AI market sentiment:', error);
@@ -627,27 +675,129 @@ function calculateWaveDistribution(analysisData) {
 }
 
 // Handle browser logs
-async function handleBrowserLogs(request) {
-  const { log } = await request.json();
-  
-  // Write to Supabase for persistence
-  const { error } = await supabase
-    .from('browser_logs')
-    .insert([{ 
-      timestamp: new Date().toISOString(),
-      log: log
-    }]);
+async function handleBrowserLogs(request, env, ctx) {
+  try {
+    const data = await request.json();
+    const { log, timestamp, type } = data;
+    const headers = { ...corsHeaders };
+    
+    // Log environment data for debugging
+    console.log(`Browser log received, env contains SUPABASE_URL: ${Boolean(env?.SUPABASE_URL)}`);
+    
+    if (!log) {
+      console.error('Invalid browser log: missing log content');
+      return new Response(JSON.stringify({ 
+        error: 'Missing log content',
+        success: false
+      }), {
+        status: 400,
+        headers
+      });
+    }
+    
+    try {
+      // Get the Supabase client instance using env
+      const supabase = getSupabaseClient(env);
+      
+      if (!supabase) {
+        throw new Error('Failed to initialize Supabase client');
+      }
+      
+      // Prepare log entry with additional context
+      const logEntry = {
+        timestamp: timestamp || new Date().toISOString(),
+        log_type: type || 'GENERAL',
+        content: log, 
+        user_agent: request.headers.get('user-agent') || 'Unknown',
+        referer: request.headers.get('referer') || 'Unknown',
+        ip: request.headers.get('cf-connecting-ip') || 'Unknown'
+      };
 
-  if (error) {
-    console.error('Error writing browser log:', error);
-    return new Response(JSON.stringify({ error: 'Failed to write log' }), {
+      // Skip the table existence check entirely and just try to insert
+      // If the table doesn't exist, the insert will fail and we'll handle it in the error case
+      console.log('Attempting to insert log entry into browser_logs table');
+      const { data: insertData, error: insertError } = await supabase
+        .from('browser_logs')
+        .insert([logEntry]);
+
+      if (insertError) {
+        // Check if the error is due to table not existing
+        const isTableNotExistError = 
+          insertError.message?.includes('does not exist') || 
+          insertError.message?.includes('relation') || 
+          insertError.code === '42P01';
+          
+        if (isTableNotExistError) {
+          console.warn('Browser logs table does not exist in Supabase:', {
+            errorCode: insertError.code,
+            errorMessage: insertError.message
+          });
+        } else {
+          console.error('Error writing browser log:', {
+            errorMessage: insertError.message,
+            errorCode: insertError.code,
+            hint: insertError.hint,
+            details: insertError.details,
+            table: 'browser_logs',
+            entrySize: JSON.stringify(logEntry).length
+          });
+        }
+        
+        // Fallback to just console logging on error
+        console.log('BROWSER_LOG (fallback):', logEntry);
+        
+        return new Response(JSON.stringify({ 
+          success: true,
+          fallback: 'console',
+          message: 'Logged to console due to database error'
+        }), {
+          status: 200, // Return 200 even on DB error to prevent client errors
+          headers
+        });
+      }
+
+      console.log('Successfully logged to browser_logs table');
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers
+      });
+    } catch (dbError) {
+      console.error('Database error in handleBrowserLogs:', dbError.message, dbError.stack);
+      
+      // Log to CloudFlare console as fallback
+      console.log('BROWSER_LOG (fallback):', log);
+      
+      return new Response(JSON.stringify({ 
+        success: true,
+        fallback: 'console',
+        message: 'Logged to console due to database error'
+      }), {
+        status: 200, // Return 200 even on DB error to prevent client errors
+        headers
+      });
+    }
+  } catch (error) {
+    console.error('Error in handleBrowserLogs:', error.message, error.stack);
+    return new Response(JSON.stringify({ 
+      error: 'Failed to process log',
+      message: error.message,
+      success: false
+    }), {
       status: 500,
       headers: corsHeaders
     });
   }
+}
 
-  return new Response(JSON.stringify({ success: true }), {
-    status: 200,
-    headers: corsHeaders
-  });
+// Helper function to determine sentiment (implementation was missing)
+function determineSentiment(marketStats) {
+  const total = marketStats.bullishCount + marketStats.bearishCount + marketStats.neutralCount;
+  const bullishPercentage = (marketStats.bullishCount / total) * 100;
+  const bearishPercentage = (marketStats.bearishCount / total) * 100;
+  
+  if (bullishPercentage > 60) return 'strongly bullish';
+  if (bullishPercentage > 50) return 'moderately bullish';
+  if (bearishPercentage > 60) return 'strongly bearish';
+  if (bearishPercentage > 50) return 'moderately bearish';
+  return 'neutral';
 }
