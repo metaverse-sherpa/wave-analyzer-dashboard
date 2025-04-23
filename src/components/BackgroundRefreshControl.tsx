@@ -346,34 +346,55 @@ function BackgroundRefreshControl() {
     setProgress(0);
     setIsRunning(true);
     
+    // Enhanced console logging for debugging
+    console.log('============ SCHEDULED REFRESH TRIGGERED ============');
+    console.log(`Timestamp: ${new Date().toISOString()}`);
+    console.log(`Ignore cache setting: ${ignoreCache ? 'Yes' : 'No'}`);
+    
     try {
       // Call directly the function in DataRefreshManager with ignoreCache option
+      console.log('Calling refreshElliottWaveAnalysis with options:', { 
+        isScheduled: true,
+        ignoreCache
+      });
+      
       const success = await refreshElliottWaveAnalysis({ 
         isScheduled: true,
         ignoreCache
       });
       
+      console.log(`refreshElliottWaveAnalysis returned: ${success}`);
+      
       if (!success) {
+        console.error('Elliott Wave analysis returned false, indicating failure');
         throw new Error("Elliott Wave analysis failed");
       }
       
       // Update last and next run times
       const now = new Date();
       setLastScheduledRun(now);
+      console.log(`Last run time updated to: ${now.toISOString()}`);
       
       // Calculate and set next run time
       const nextRun = calculateNextRunTime(now, parseInt(refreshInterval, 10));
       setNextScheduledRun(nextRun);
+      console.log(`Next run time set to: ${nextRun.toISOString()}`);
       
       // Update DB with new times
-      updateScheduleSettingsInSupabase({
+      console.log('Updating schedule settings in Supabase...');
+      await updateScheduleSettingsInSupabase({
         enabled: scheduledRefreshEnabled,
         interval: refreshInterval,
         lastRun: now.toISOString(),
         nextRun: nextRun.toISOString()
       });
+      console.log('Supabase schedule settings updated successfully');
+      
+      // Show success toast for confirmation
+      toast.success('Elliott Wave analysis completed successfully!');
     } catch (error) {
       console.error("Error during scheduled Elliott Wave analysis:", error);
+      console.error("Full error details:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
       setStatusMessage('Failed to complete Elliott Wave analysis');
       toast.error('Scheduled Elliott Wave analysis failed');
       
@@ -382,6 +403,8 @@ function BackgroundRefreshControl() {
         setStatusMessage('');
         setIsRunning(false);
       }, 3000);
+    } finally {
+      console.log('============ SCHEDULED REFRESH COMPLETE ============');
     }
   };
 

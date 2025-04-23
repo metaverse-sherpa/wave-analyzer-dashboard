@@ -1,0 +1,72 @@
+Note: Unnecessary use of -X or --request, POST is already inferred.
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Host api.deepseek.com:443 was resolved.
+* IPv6: (none)
+* IPv4: 104.18.26.90, 104.18.27.90
+*   Trying 104.18.26.90:443...
+* Connected to api.deepseek.com (104.18.26.90) port 443
+* ALPN: curl offers h2,http/1.1
+* (304) (OUT), TLS handshake, Client hello (1):
+} [321 bytes data]
+*  CAfile: /etc/ssl/cert.pem
+*  CApath: none
+* (304) (IN), TLS handshake, Server hello (2):
+{ [122 bytes data]
+* (304) (IN), TLS handshake, Unknown (8):
+{ [19 bytes data]
+* (304) (IN), TLS handshake, Certificate (11):
+{ [2524 bytes data]
+* (304) (IN), TLS handshake, CERT verify (15):
+{ [79 bytes data]
+* (304) (IN), TLS handshake, Finished (20):
+{ [52 bytes data]
+* (304) (OUT), TLS handshake, Finished (20):
+} [52 bytes data]
+* SSL connection using TLSv1.3 / AEAD-AES256-GCM-SHA384 / [blank] / UNDEF
+* ALPN: server accepted h2
+* Server certificate:
+*  subject: CN=api.deepseek.com
+*  start date: Mar 25 09:20:52 2025 GMT
+*  expire date: Jun 23 10:20:50 2025 GMT
+*  subjectAltName: host "api.deepseek.com" matched cert's "api.deepseek.com"
+*  issuer: C=US; O=Google Trust Services; CN=WE1
+*  SSL certificate verify ok.
+* using HTTP/2
+* [HTTP/2] [1] OPENED stream for https://api.deepseek.com/v1/chat/completions
+* [HTTP/2] [1] [:method: POST]
+* [HTTP/2] [1] [:scheme: https]
+* [HTTP/2] [1] [:authority: api.deepseek.com]
+* [HTTP/2] [1] [:path: /v1/chat/completions]
+* [HTTP/2] [1] [user-agent: curl/8.7.1]
+* [HTTP/2] [1] [accept: */*]
+* [HTTP/2] [1] [content-type: application/json]
+* [HTTP/2] [1] [authorization: Bearer sk-f261ad35233149fdbee6eb7ab97853d1]
+* [HTTP/2] [1] [content-length: 1470]
+> POST /v1/chat/completions HTTP/2
+> Host: api.deepseek.com
+> User-Agent: curl/8.7.1
+> Accept: */*
+> Content-Type: application/json
+> Authorization: Bearer sk-f261ad35233149fdbee6eb7ab97853d1
+> Content-Length: 1470
+> 
+} [1470 bytes data]
+* upload completely sent off: 1470 bytes
+< HTTP/2 200 
+< date: Wed, 23 Apr 2025 14:09:11 GMT
+< content-type: application/json
+< vary: origin, access-control-request-method, access-control-request-headers
+< access-control-allow-credentials: true
+< x-ds-trace-id: 9bc48da9b5a3ee0148f2001e7f1842a3
+< strict-transport-security: max-age=31536000; includeSubDomains; preload
+< x-content-type-options: nosniff
+< cf-cache-status: DYNAMIC
+< set-cookie: __cf_bm=hVpovbdPEOHF6MxFsyEwk3glGXFQrjosrNulMLGPKPo-1745417351-1.0.1.1-13Pvv_0Qsn8QmDS2.Xc0sIB2hiYEmiRHy8UcEiURExNZmE282agT0cD6X5yJif8iooe0i5BsFOhh1CZCePUsPni0vIF9PJO2sJKMxRiMriA; path=/; expires=Wed, 23-Apr-25 14:39:11 GMT; domain=.deepseek.com; HttpOnly; Secure; SameSite=None
+< server: cloudflare
+< cf-ray: 934defeaa910be9b-LHR
+< 
+100  1470    0     0  100  1470      0   1566 --:--:-- --:--:-- --:--:--  1565100  1470    0     0  100  1470      0    756  0:00:01  0:00:01 --:--:--   756100  1470    0     0  100  1470      0    498  0:00:02  0:00:02 --:--:--   498100  1470    0     0  100  1470      0    371  0:00:03  0:00:03 --:--:--   371100  1470    0     0  100  1470      0    296  0:00:04  0:00:04 --:--:--   296100  1470    0     0  100  1470      0    246  0:00:05  0:00:05 --:--:--     0100  1470    0     0  100  1470      0    211  0:00:06  0:00:06 --:--:--     0100  1470    0     0  100  1470      0    184  0:00:07  0:00:07 --:--:--     0100  1470    0     0  100  1470      0    163  0:00:09  0:00:08  0:00:01     0100  1470    0     0  100  1470      0    147  0:00:10  0:00:09  0:00:01     0100  1470    0     0  100  1470      0    133  0:00:11  0:00:10  0:00:01     0100  1470    0     0  100  1470      0    122  0:00:12  0:00:11  0:00:01     0100  1470    0     0  100  1470      0    113  0:00:13  0:00:12  0:00:01     0100  1470    0     0  100  1470      0    105  0:00:14  0:00:13  0:00:01     0100  1470    0     0  100  1470      0     98  0:00:15  0:00:14  0:00:01     0100  1470    0     0  100  1470      0     91  0:00:16  0:00:15  0:00:01     0100  1470    0     0  100  1470      0     86  0:00:17  0:00:17 --:--:--     0100  1470    0     0  100  1470      0     81  0:00:18  0:00:18 --:--:--     0100  1470    0     0  100  1470      0     77  0:00:19  0:00:19 --:--:--     0100  1470    0     0  100  1470      0     73  0:00:20  0:00:20 --:--:--     0100  1470    0     0  100  1470      0     69  0:00:21  0:00:21 --:--:--     0100  1470    0     0  100  1470      0     66  0:00:22  0:00:22 --:--:--     0100  1470    0     0  100  1470      0     63  0:00:23  0:00:23 --:--:--     0100  1470    0     0  100  1470      0     61  0:00:24  0:00:24 --:--:--     0100  1470    0     0  100  1470      0     58  0:00:25  0:00:25 --:--:--     0100  1470    0     0  100  1470      0     56  0:00:26  0:00:26 --:--:--     0100  1470    0     0  100  1470      0     54  0:00:27  0:00:27 --:--:--     0100  1470    0     0  100  1470      0     52  0:00:28  0:00:28 --:--:--     0100  1470    0     0  100  1470      0     50  0:00:29  0:00:29 --:--:--     0100  1470    0     0  100  1470      0     48  0:00:30  0:00:30 --:--:--     0100  1470    0     0  100  1470      0     47  0:00:31  0:00:31 --:--:--     0100  1470    0     0  100  1470      0     45  0:00:32  0:00:32 --:--:--     0{ [1360 bytes data]
+100  3474    0  2004  100  1470     61     44  0:00:33  0:00:32  0:00:01   422100  3474    0  2004  100  1470     61     44  0:00:33  0:00:32  0:00:01   535
+* Connection #0 to host api.deepseek.com left intact
+{"id":"e291b0f8-dadc-45ab-901e-9d2d0ce30f65","object":"chat.completion","created":1745417351,"model":"deepseek-chat","choices":[{"index":0,"message":{"role":"assistant","content":"{\"currentWave\": {\"number\": \"5\", \"startTime\": \"2025-03-20\", \"startPrice\": 170.5}, \"completedWaves\": [{\"number\": \"1\", \"startTime\": \"2024-10-25\", \"startPrice\": 150.0, \"endTime\": \"2024-11-15\", \"endPrice\": 160.0}, {\"number\": \"2\", \"startTime\": \"2024-11-15\", \"startPrice\": 160.0, \"endTime\": \"2024-12-05\", \"endPrice\": 155.0}, {\"number\": \"3\", \"startTime\": \"2024-12-05\", \"startPrice\": 155.0, \"endTime\": \"2025-01-25\", \"endPrice\": 175.0}, {\"number\": \"4\", \"startTime\": \"2025-01-25\", \"startPrice\": 175.0, \"endTime\": \"2025-03-20\", \"endPrice\": 170.5}, {\"number\": \"A\", \"startTime\": \"2025-03-20\", \"startPrice\": 170.5, \"endTime\": \"2025-04-01\", \"endPrice\": 165.0}, {\"number\": \"B\", \"startTime\": \"2025-04-01\", \"startPrice\": 165.0, \"endTime\": \"2025-04-10\", \"endPrice\": 168.0}, {\"number\": \"C\", \"startTime\": \"2025-04-10\", \"startPrice\": 168.0, \"endTime\": \"2025-04-23\", \"endPrice\": 163.0}], \"trend\": \"upward\", \"fibTargets\": [{\"level\": \"0.236\", \"price\": 167.5}, {\"level\": \"0.382\", \"price\": 165.0}, {\"level\": \"0.5\", \"price\": 163.0}, {\"level\": \"0.618\", \"price\": 161.0}, {\"level\": \"0.786\", \"price\": 158.5}], \"analysis\": \"The current wave 5 is part of an upward impulse wave sequence. The completed waves 1-4 and corrective waves A-C suggest a continuation of the upward trend. Fibonacci retracement levels from the recent corrective phase provide potential support and resistance levels.\", \"confidenceLevel\": \"high\"}"},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":316,"completion_tokens":535,"total_tokens":851,"prompt_tokens_details":{"cached_tokens":256},"prompt_cache_hit_tokens":256,"prompt_cache_miss_tokens":60},"system_fingerprint":"fp_3d5141a69a_prod0225"}

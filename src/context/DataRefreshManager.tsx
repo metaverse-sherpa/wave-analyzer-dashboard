@@ -494,19 +494,27 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
   };
   
   // NEW: Function to perform Elliott Wave analysis refresh for all stocks
-  const refreshElliottWaveAnalysis = async (options: { isScheduled?: boolean } = {}) => {
+  const refreshElliottWaveAnalysis = async (options: { isScheduled?: boolean; ignoreCache?: boolean } = {}) => {
     try {
       refreshInProgressRef.current = true;
       updateRefreshStatus(true);
-      console.log('Starting Elliott Wave analysis refresh', new Date().toISOString());
+      
+      // Enhanced logging for debugging
+      console.log('==========================================');
+      console.log('ELLIOTT WAVE ANALYSIS REFRESH STARTING');
+      console.log('==========================================');
+      console.log('Options:', JSON.stringify(options));
+      console.log('Timestamp:', new Date().toISOString());
       
       // Dispatch event that analysis has started
       dispatchWorkerEvent('ELLIOTT_WAVE_ANALYSIS_STARTED', {
         timestamp: Date.now(),
-        isScheduled: options.isScheduled || false
+        isScheduled: options.isScheduled || false,
+        ignoreCache: options.ignoreCache || false
       });
       
       // Get all stocks from Supabase cache table
+      console.log('Fetching stock list from cache...');
       const { data: stockCache, error: stocksError } = await supabase
         .from('cache')
         .select('key')
@@ -613,17 +621,23 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           while (attempt < MAX_RETRIES) {
             try {
               const deepseekUrl = `${import.meta.env.VITE_API_BASE_URL}/analyze-waves`;
+              console.log(`Making API request to: ${deepseekUrl}`, {
+                symbol,
+                timeframe: '1d',
+                forceRefresh: options.ignoreCache || false
+              });
+              
               const analysisResponse = await fetch(deepseekUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${import.meta.env.VITE_PUBLIC_DEEPSEEK_API_KEY}`
+                  'Authorization': `Bearer ${import.meta.env.VITE_PUBLIC_DEEPSEEK_API_KEY || ''}`
                 },
                 body: JSON.stringify({
                   symbol,
                   timeframe: '1d',
                   historicalData,
-                  force: true,
+                  force: options.ignoreCache || false, // Pass ignoreCache option to API
                   storeInCache: true
                 })
               });
@@ -645,6 +659,11 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
               }
               
               analysisResult = await analysisResponse.json();
+              console.log(`Received response from DeepSeek API for ${symbol}:`, {
+                status: analysisResponse.status,
+                responseSize: JSON.stringify(analysisResult).length,
+                hasData: !!analysisResult?.data
+              });
               
               // Validate the analysis result
               if (!analysisResult || typeof analysisResult !== 'object') {
@@ -671,22 +690,26 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
             throw new Error(`Failed to get valid analysis result after ${MAX_RETRIES} attempts`);
           }
           
+          // Extract the actual analysis data from the response
+          const analysisData = analysisResult.data || analysisResult;
+          
           // Store the analysis result in Supabase cache
+          console.log(`Storing analysis result for ${symbol} in Supabase cache`);
           const { error: cacheError } = await supabase
             .from('cache')
             .upsert({
               key: `wave_analysis_${symbol}`,
-              data: analysisResult,
+              data: analysisData,
               timestamp: Date.now(),
               duration: 24 * 60 * 60 * 1000, // 24 hour cache duration
-              is_string: true
+              is_string: typeof analysisData === 'string'
             }, { onConflict: 'key' });
             
           if (cacheError) {
             console.error(`Error storing analysis in cache for ${symbol}:`, cacheError);
+          } else {
+            console.log(`Successfully cached Elliott Wave analysis for ${symbol}`);
           }
-          
-          console.log(`Wave analysis completed for ${symbol}`);
           
           // Stagger requests to avoid rate limiting
           await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY));
@@ -696,14 +719,19 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
         }
       }
       
+      // Log completion
+      console.log('==========================================');
+      console.log('ELLIOTT WAVE ANALYSIS REFRESH COMPLETED');
+      console.log(`Processed ${stockSymbols.length} stocks`);
+      console.log('Timestamp:', new Date().toISOString());
+      console.log('==========================================');
+      
       // Dispatch completed event
       dispatchWorkerEvent('ELLIOTT_WAVE_ANALYSIS_COMPLETED', {
         timestamp: Date.now(),
         stockCount: stockSymbols.length,
         isScheduled: options.isScheduled || false
       });
-      
-      console.log('Elliott Wave analysis refresh completed', new Date().toISOString());
       
       // Only show toast if the app is in the foreground and not triggered by schedule
       if (document.visibilityState === 'visible' && !options.isScheduled) {
