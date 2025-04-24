@@ -1,39 +1,15 @@
-import React, { useContext, useState } from 'react';
+import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useGlobalRefresh } from '@/hooks/useGlobalRefresh';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/lib/toast';
 import { useWaveAnalysis } from '@/context/WaveAnalysisContext';
+// Import the context and hook from the dedicated context file
+import { useReversals } from '@/context/ReversalsContext';
 
-// Define the context interface
-interface ReversalsContextType {
-  lastCacheUpdate: number;
-  refreshReversals: () => void;
-  loading: boolean;
-}
-
-// Create and export context with a default value
-// Export directly for Fast Refresh compatibility
-export const ReversalsContext = React.createContext<ReversalsContextType>({
-  lastCacheUpdate: 0,
-  refreshReversals: () => {},
-  loading: false
-});
-
-// Named export for the hook using function declaration
-// This allows React Fast Refresh to correctly track function identity
-export function useReversals() {
-  const context = useContext(ReversalsContext);
-  if (!context) {
-    throw new Error('useReversals must be used within a ReversalsProvider');
-  }
-  return context;
-}
-
-// Named function component with function declaration syntax
-// This allows React Fast Refresh to correctly track component identity
-export function ReversalsLastUpdated() {
+// The component definition
+function ReversalsLastUpdated() {
   const { lastCacheUpdate, refreshReversals, loading: contextLoading } = useReversals();
   const { triggerGlobalRefresh } = useGlobalRefresh();
   const { loadCacheTableData } = useWaveAnalysis();
@@ -131,5 +107,5 @@ export function ReversalsLastUpdated() {
   );
 }
 
-// Default export for the component
+// Just default export the component
 export default ReversalsLastUpdated;
