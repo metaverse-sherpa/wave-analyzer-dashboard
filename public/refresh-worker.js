@@ -20,6 +20,9 @@ let refreshToken = '';
 self.addEventListener('message', (event) => {
   const { action, payload } = event.data;
   
+  // Log all incoming messages to help with debugging
+  console.log('[Refresh Worker] Received message:', action, payload);
+  
   switch (action) {
     case 'INIT':
       // Initialize the worker with API configuration
@@ -60,6 +63,26 @@ self.addEventListener('message', (event) => {
       // Special action: Load historical data and analyze waves
       handleFullDataRefresh(payload);
       break;
+      
+    case 'ELLIOTT_WAVE_ANALYSIS':
+      // Handle Elliott Wave analysis
+      handleElliottWaveAnalysis(payload);
+      break;
+
+    // Add this new case to handle the action sent by the DataRefreshManager
+    case 'START_ANALYSIS':
+      // New handler for the action actually being sent from DataRefreshManager
+      console.log('[Refresh Worker] Starting Elliott Wave analysis from DataRefreshManager');
+      handleBulkElliottWaveAnalysis(payload);
+      break;
+      
+    default:
+      console.warn('[Refresh Worker] Unhandled action:', action);
+      self.postMessage({ 
+        action: 'UNHANDLED_ACTION', 
+        originalAction: action,
+        timestamp: Date.now() 
+      });
   }
 });
 
@@ -220,6 +243,144 @@ async function analyzeWavesForSymbol(symbol) {
 }
 
 /**
+ * Handle Elliott Wave analysis
+ */
+async function handleElliottWaveAnalysis(payload) {
+  const { symbol } = payload;
+  const operationId = `elliott_wave_${symbol}`;
+  
+  try {
+    if (activeOperations.has(operationId)) {
+      console.log(`[Refresh Worker] Elliott Wave analysis already in progress for ${symbol}`);
+      return;
+    }
+    
+    activeOperations.set(operationId, true);
+    
+    self.postMessage({ 
+      action: 'ELLIOTT_WAVE_STARTED',
+      symbol,
+      timestamp: Date.now()
+    });
+    
+    const historicalData = await loadHistoricalDataForSymbol(symbol);
+    
+    const apiUrl = `${apiEndpoint}/elliott-wave-analysis`.replace(/\/+/g, '/').replace('http:/', 'http://').replace('https:/', 'https://');
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${refreshToken}`
+      },
+      body: JSON.stringify({
+        symbol,
+        historicalData
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    const analysisResult = await response.json();
+    
+    self.postMessage({ 
+      action: 'ELLIOTT_WAVE_COMPLETED',
+      symbol,
+      timestamp: Date.now(),
+      result: analysisResult
+    });
+    
+  } catch (error) {
+    console.error(`[Refresh Worker] Elliott Wave analysis error for ${symbol}:`, error);
+    self.postMessage({ 
+      action: 'ELLIOTT_WAVE_ERROR',
+      symbol,
+      error: error.message || 'Unknown error'
+    });
+  } finally {
+    activeOperations.delete(operationId);
+  }
+}
+
+/**
+ * Handle bulk Elliott Wave analysis for multiple symbols
+ * This is the handler for the START_ANALYSIS action sent from DataRefreshManager
+ */
+async function handleBulkElliottWaveAnalysis(payload) {
+  console.log('[Refresh Worker] Starting bulk Elliott Wave analysis', payload);
+  const { symbols, staggerDelay = 1000 } = payload?.payload || {};
+  const operationId = 'bulk_elliott_wave_analysis';
+  
+  try {
+    if (activeOperations.has(operationId)) {
+      console.log('[Refresh Worker] Bulk Elliott Wave analysis already in progress');
+      self.postMessage({ 
+        action: 'OPERATION_STATUS',
+        message: 'Bulk Elliott Wave analysis already running',
+        timestamp: Date.now()
+      });
+      return;
+    }
+    
+    activeOperations.set(operationId, true);
+    
+    // Notify that analysis has started
+    self.postMessage({ 
+      action: 'ELLIOTT_WAVE_ANALYSIS_STARTED',
+      timestamp: Date.now(),
+      totalSymbols: symbols.length
+    });
+    
+    console.log(`[Refresh Worker] Processing ${symbols.length} symbols for Elliott Wave analysis`);
+    
+    // Process each symbol
+    for (let i = 0; i < symbols.length; i++) {
+      const symbol = symbols[i];
+      
+      // Update progress
+      self.postMessage({ 
+        action: 'OPERATION_STATUS',
+        step: 'analyzing_waves',
+        message: `Processing Elliott Wave analysis for ${symbol} (${i+1}/${symbols.length})`,
+        progress: Math.floor((i / symbols.length) * 100),
+        timestamp: Date.now()
+      });
+      
+      // Process the symbol
+      try {
+        await analyzeWavesForSymbol(symbol);
+        console.log(`[Refresh Worker] Completed analysis for ${symbol} (${i+1}/${symbols.length})`);
+      } catch (error) {
+        console.error(`[Refresh Worker] Error analyzing ${symbol}:`, error);
+      }
+      
+      // Add delay between requests
+      await new Promise(resolve => setTimeout(resolve, staggerDelay));
+    }
+    
+    // Notify completion
+    self.postMessage({ 
+      action: 'ELLIOTT_WAVE_ANALYSIS_COMPLETED',
+      timestamp: Date.now(),
+      totalProcessed: symbols.length
+    });
+    
+    console.log(`[Refresh Worker] Bulk Elliott Wave analysis completed for ${symbols.length} symbols`);
+    
+  } catch (error) {
+    console.error('[Refresh Worker] Bulk Elliott Wave analysis error:', error);
+    self.postMessage({ 
+      action: 'ELLIOTT_WAVE_ANALYSIS_ERROR',
+      error: error.message || 'Unknown error during bulk analysis',
+      timestamp: Date.now()
+    });
+  } finally {
+    activeOperations.delete(operationId);
+  }
+}
+
+/**
  * Start a new refresh cycle for a specific task
  */
 function handleStartRefresh(payload) {
@@ -267,6 +428,10 @@ async function executeTask(id, task, params) {
     switch (task) {
       case 'FULL_DATA_REFRESH':
         result = await handleFullDataRefresh(params);
+        break;
+        
+      case 'ELLIOTT_WAVE_ANALYSIS':
+        result = await handleElliottWaveAnalysis(params);
         break;
         
       default:

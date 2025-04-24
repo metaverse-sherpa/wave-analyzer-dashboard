@@ -496,6 +496,23 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
   // NEW: Function to perform Elliott Wave analysis refresh for all stocks
   const refreshElliottWaveAnalysis = async (options: { isScheduled?: boolean; ignoreCache?: boolean } = {}) => {
     try {
+      console.log('📊 ELLIOTT WAVE ANALYSIS - ENTRY POINT REACHED', new Date().toISOString());
+      console.log('📊 Function called with options:', JSON.stringify(options));
+      console.log('📊 Function type:', typeof refreshElliottWaveAnalysis);
+      console.log('📊 Context state:', {
+        refreshStatus,
+        isRefreshing,
+        lastRefreshTime: lastRefreshTime ? new Date(lastRefreshTime).toISOString() : null,
+        workerReady,
+        hasWorkerRef: !!refreshWorkerRef.current
+      });
+      
+      // Check if already running - this might be causing issues
+      if (refreshInProgressRef.current) {
+        console.warn('📊 ELLIOTT WAVE ANALYSIS - Already running, returning early');
+        return false;
+      }
+      
       refreshInProgressRef.current = true;
       updateRefreshStatus(true);
       
@@ -505,6 +522,10 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
       console.log('==========================================');
       console.log('Options:', JSON.stringify(options));
       console.log('Timestamp:', new Date().toISOString());
+      console.log('DEBUGGING INFO:');
+      console.log('- refreshInProgressRef:', refreshInProgressRef.current);
+      console.log('- Worker exists:', !!refreshWorkerRef.current);
+      console.log('- Worker ready:', workerReady);
       
       // Dispatch event that analysis has started
       dispatchWorkerEvent('ELLIOTT_WAVE_ANALYSIS_STARTED', {
@@ -531,6 +552,16 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
         .filter(Boolean);  // Remove any empty values
       
       console.log(`Found ${stockSymbols.length} stocks to analyze`);
+      console.log('First 5 symbols:', stockSymbols.slice(0, 5).join(', '));
+      
+      // Add rate limiting for debugging - process fewer stocks
+      // DEBUGGING: Limit to 5 stocks for testing
+      // REMOVE THIS LIMITATION IN PRODUCTION
+      const DEBUG_LIMIT = 0; // Set to 0 to disable limit
+      if (DEBUG_LIMIT > 0 && stockSymbols.length > DEBUG_LIMIT) {
+        console.log(`DEBUGGING: Limiting analysis to ${DEBUG_LIMIT} stocks`);
+        stockSymbols.length = DEBUG_LIMIT;
+      }
       
       // Update progress tracking
       setProgress({
@@ -543,6 +574,9 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
       for (let i = 0; i < stockSymbols.length; i++) {
         const symbol = stockSymbols[i];
         try {
+          console.log(`[${i+1}/${stockSymbols.length}] Starting Elliott Wave analysis for ${symbol}`);
+          console.log(`Timestamp: ${new Date().toISOString()}`);
+          
           setProgress(prev => ({
             ...prev,
             current: i + 1,
@@ -563,6 +597,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
 
           console.log(`Fetching historical data for ${symbol} using relative path: ${url}`);
 
+          const startFetchTime = Date.now();
           const response = await fetch(url, {
             method: 'GET',
             headers: {
@@ -570,6 +605,8 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
             },
             cache: 'no-cache'
           });
+          
+          console.log(`Fetch completed in ${Date.now() - startFetchTime}ms with status ${response.status}`);
           
           if (!response.ok) {
             console.error(`API returned status ${response.status} for ${symbol}`);
@@ -583,6 +620,8 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
             console.error(`Invalid or insufficient data for ${symbol}: ${json?.data?.length || 0} points`);
             continue;
           }
+          
+          console.log(`Retrieved ${json.data.length} data points for ${symbol}`);
           
           // Format data consistently
           const historicalData = json.data.map(item => {
@@ -610,6 +649,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           });
           
           console.log(`Historical data retrieved for ${symbol}, performing Elliott Wave analysis`);
+          console.log(`Sample data point: ${JSON.stringify(historicalData[0])}`);
           
           // Perform Elliott Wave analysis with DeepSeek API with retry logic
           const MAX_RETRIES = 3;
@@ -624,9 +664,11 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
               console.log(`Making API request to: ${deepseekUrl}`, {
                 symbol,
                 timeframe: '1d',
-                forceRefresh: options.ignoreCache || false
+                forceRefresh: options.ignoreCache || false,
+                dataPoints: historicalData.length
               });
               
+              const requestStartTime = Date.now();
               const analysisResponse = await fetch(deepseekUrl, {
                 method: 'POST',
                 headers: {
@@ -642,6 +684,9 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
                 })
               });
               
+              const requestDuration = Date.now() - requestStartTime;
+              console.log(`API request completed in ${requestDuration}ms with status ${analysisResponse.status}`);
+              
               if (!analysisResponse.ok) {
                 const errorText = await analysisResponse.text();
                 console.error(`DeepSeek API error (attempt ${attempt + 1}/${MAX_RETRIES}):`, {
@@ -650,6 +695,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
                 });
                 
                 if (analysisResponse.status === 429) { // Rate limit
+                  console.log(`Rate limited, waiting ${RETRY_DELAY * (attempt + 1)}ms before retry`);
                   await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (attempt + 1)));
                   attempt++;
                   continue;
@@ -662,7 +708,8 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
               console.log(`Received response from DeepSeek API for ${symbol}:`, {
                 status: analysisResponse.status,
                 responseSize: JSON.stringify(analysisResult).length,
-                hasData: !!analysisResult?.data
+                hasData: !!analysisResult?.data,
+                requestDuration
               });
               
               // Validate the analysis result
@@ -681,6 +728,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
               }
               
               // Wait before retrying
+              console.log(`Waiting ${RETRY_DELAY * (attempt + 1)}ms before retry ${attempt + 2}`);
               await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (attempt + 1)));
               attempt++;
             }
@@ -695,6 +743,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           
           // Store the analysis result in Supabase cache
           console.log(`Storing analysis result for ${symbol} in Supabase cache`);
+          const cacheStartTime = Date.now();
           const { error: cacheError } = await supabase
             .from('cache')
             .upsert({
@@ -708,11 +757,14 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           if (cacheError) {
             console.error(`Error storing analysis in cache for ${symbol}:`, cacheError);
           } else {
-            console.log(`Successfully cached Elliott Wave analysis for ${symbol}`);
+            console.log(`Successfully cached Elliott Wave analysis for ${symbol} in ${Date.now() - cacheStartTime}ms`);
           }
           
           // Stagger requests to avoid rate limiting
+          console.log(`Adding stagger delay of ${STAGGER_DELAY}ms before next request`);
           await new Promise(resolve => setTimeout(resolve, STAGGER_DELAY));
+          
+          console.log(`[${i+1}/${stockSymbols.length}] Completed Elliott Wave analysis for ${symbol}\n`);
         } catch (error) {
           console.error(`Error analyzing waves for ${symbol}:`, error);
           // Continue with next symbol even if one fails
@@ -744,6 +796,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
       return true;
     } catch (err) {
       console.error('Error in Elliott Wave analysis refresh process:', err);
+      console.error('Full error details:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
       
       // Dispatch error event
       dispatchWorkerEvent('ELLIOTT_WAVE_ANALYSIS_ERROR', {

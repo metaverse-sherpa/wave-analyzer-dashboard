@@ -347,23 +347,48 @@ function BackgroundRefreshControl() {
     setIsRunning(true);
     
     // Enhanced console logging for debugging
-    console.log('============ SCHEDULED REFRESH TRIGGERED ============');
+    console.log('===================================================================');
+    console.log('DEBUG: "RUN NOW" BUTTON CLICKED - ELLIOTT WAVE ANALYSIS TRIGGERED');
+    console.log('===================================================================');
     console.log(`Timestamp: ${new Date().toISOString()}`);
     console.log(`Ignore cache setting: ${ignoreCache ? 'Yes' : 'No'}`);
+    console.log('DEBUGGING: Current component state:', {
+      scheduledRefreshEnabled,
+      refreshInterval,
+      isRunning,
+      operationActive,
+      currentSymbol,
+      statusMessage
+    });
+
+    // Detailed function reference check
+    if (typeof refreshElliottWaveAnalysis !== 'function') {
+      console.error('CRITICAL ERROR: refreshElliottWaveAnalysis is not a function!');
+      console.error('Type:', typeof refreshElliottWaveAnalysis);
+      console.error('Value:', refreshElliottWaveAnalysis);
+      toast.error('Cannot start analysis: refreshElliottWaveAnalysis function not available');
+      setStatusMessage('Error: Analysis function not available');
+      setOperationActive(false);
+      setIsRunning(false);
+      return;
+    }
     
     try {
       // Call directly the function in DataRefreshManager with ignoreCache option
-      console.log('Calling refreshElliottWaveAnalysis with options:', { 
+      console.log('DEBUG: Calling refreshElliottWaveAnalysis with options:', { 
         isScheduled: true,
         ignoreCache
       });
+      
+      // Add a diagnostic log right before the actual function call
+      console.log('DEBUG: About to call refreshElliottWaveAnalysis...');
       
       const success = await refreshElliottWaveAnalysis({ 
         isScheduled: true,
         ignoreCache
       });
       
-      console.log(`refreshElliottWaveAnalysis returned: ${success}`);
+      console.log(`DEBUG: refreshElliottWaveAnalysis returned: ${success}`);
       
       if (!success) {
         console.error('Elliott Wave analysis returned false, indicating failure');
@@ -393,8 +418,9 @@ function BackgroundRefreshControl() {
       // Show success toast for confirmation
       toast.success('Elliott Wave analysis completed successfully!');
     } catch (error) {
-      console.error("Error during scheduled Elliott Wave analysis:", error);
+      console.error("ERROR: Failed during scheduled Elliott Wave analysis:", error);
       console.error("Full error details:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      console.error("Stack trace:", error instanceof Error ? error.stack : 'No stack trace available');
       setStatusMessage('Failed to complete Elliott Wave analysis');
       toast.error('Scheduled Elliott Wave analysis failed');
       
@@ -404,12 +430,22 @@ function BackgroundRefreshControl() {
         setIsRunning(false);
       }, 3000);
     } finally {
-      console.log('============ SCHEDULED REFRESH COMPLETE ============');
+      console.log('===================================================================');
+      console.log('DEBUG: SCHEDULED REFRESH FUNCTION EXECUTION COMPLETE');
+      console.log('===================================================================');
     }
   };
 
   // Manual Elliott Wave Analysis Refresh
   const runElliottWaveAnalysis = async () => {
+    console.log('🔄 RUN ELLIOTT WAVE ANALYSIS - Button handler triggered');
+    console.log('🔄 Current component state:', {
+      isRunning,
+      operationActive,
+      ignoreCache,
+      currentSymbol
+    });
+
     setStatusMessage('Starting Elliott Wave analysis...');
     setOperationActive(true);
     setProgress(0);
@@ -419,17 +455,37 @@ function BackgroundRefreshControl() {
     setIsRunning(true);
     
     try {
+      console.log('🔄 About to call refreshElliottWaveAnalysis with ignoreCache:', ignoreCache);
+      console.log('🔄 Type of refreshElliottWaveAnalysis:', typeof refreshElliottWaveAnalysis);
+      
+      if (typeof refreshElliottWaveAnalysis !== 'function') {
+        throw new Error('refreshElliottWaveAnalysis is not a function');
+      }
+      
       // Call our refreshElliottWaveAnalysis function directly
-      await refreshElliottWaveAnalysis({
+      const result = await refreshElliottWaveAnalysis({
         ignoreCache
       });
+      
+      console.log('🔄 refreshElliottWaveAnalysis completed with result:', result);
+      
+      if (result === false) {
+        throw new Error('Elliott Wave analysis operation returned false');
+      }
+      
+      setStatusMessage('Elliott Wave analysis completed successfully');
+      
     } catch (error) {
-      console.error("Error during Elliott Wave analysis:", error);
+      console.error("🔴 Error during Elliott Wave analysis:", error);
       setStatusMessage('Failed to complete Elliott Wave analysis');
       setTimeout(() => {
         setOperationActive(false);
         setStatusMessage('');
       }, 3000);
+    } finally {
+      console.log('🔄 RUN ELLIOTT WAVE ANALYSIS - Operation completed');
+      setOperationActive(false);
+      setIsRunning(false);
     }
   };
 

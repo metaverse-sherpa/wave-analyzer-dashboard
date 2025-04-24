@@ -5,6 +5,7 @@ name = "api-backend"
 main = "worker.js"
 compatibility_date = "2024-09-23"  # Updated to resolve URL module issue
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
 
 # Domain configuration using Routes
 routes = [
