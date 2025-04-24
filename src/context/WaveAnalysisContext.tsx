@@ -1,13 +1,13 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { WaveAnalysis, WaveAnalysisResult, Wave, DeepSeekWaveAnalysis } from '@/types/shared';
 import { getDeepSeekWaveAnalysis } from '@/api/deepseekApi';
 import { getCachedWaveAnalysis, convertDeepSeekToWaveAnalysis } from '@/utils/wave-analysis';
 import { supabase } from '@/lib/supabase';
 import { getAllWaveAnalyses } from '@/services/cacheService';
 
-// Global flag to track if data is currently being loaded
-// This prevents multiple components from triggering loads simultaneously
+// Global flags to track the loading state across component mounts/unmounts
 let isLoadingCacheData = false;
+let hasLoadedCacheData = false; // New flag to remember if data was ever successfully loaded
 
 // Define proper type for analysis events
 interface AnalysisEvent {
@@ -34,7 +34,8 @@ interface WaveAnalysisContextType {
   loadAllAnalysesFromSupabase: () => Promise<void>;
   cancelAllAnalyses: () => void;
   clearCache: () => void;
-  loadCacheTableData: () => Promise<void>;
+  loadCacheTableData: (forceRefresh?: boolean) => Promise<void>;
+  waveAnalysesCache: Record<string, WaveAnalysisResult>; // Add missing property
 }
 
 const WaveAnalysisContext = createContext<WaveAnalysisContextType | undefined>(undefined);
@@ -116,11 +117,19 @@ function WaveAnalysisProvider({ children }: { children: React.ReactNode }) {
     // Clear local state
     setAllAnalyses({});
     setAnalyses({});
+    hasLoadedCacheData = false; // Reset the loaded flag when clearing cache
+    
+    // Clear session storage flag
+    try {
+      sessionStorage.removeItem('wave_analyses_loaded');
+    } catch (e) {
+      // Ignore storage errors
+    }
   };
 
-  const loadCacheTableData = useCallback(async () => {
+  const loadCacheTableData = useCallback(async (forceRefresh = false) => {
     // Check if data is already loaded or being loaded
-    if (Object.keys(allAnalyses).length > 0) {
+    if (!forceRefresh && hasLoadedCacheData && Object.keys(allAnalyses).length > 0) {
       console.log('Data already loaded - skipping loadCacheTableData');
       setIsDataLoaded(true);
       return;
@@ -295,11 +304,38 @@ function WaveAnalysisProvider({ children }: { children: React.ReactNode }) {
       // Update state with the formatted analyses
       setAllAnalyses(formattedAnalyses);
       setIsDataLoaded(true);
+      hasLoadedCacheData = true; // Mark that data has been successfully loaded
+      
+      // Store an easy-to-use cache of just the analysis results
+      const simpleCache: Record<string, WaveAnalysisResult> = {};
+      Object.entries(formattedAnalyses).forEach(([key, data]) => {
+        simpleCache[key] = data.analysis;
+      });
+      setAnalyses(simpleCache);
+      
+      // Store session storage flag to track loaded state across page refreshes
+      try {
+        sessionStorage.setItem('wave_analyses_loaded', 'true');
+      } catch (e) {
+        // Ignore storage errors
+      }
     } catch (err) {
       console.error('Error loading cache table data:', err);
       setIsDataLoaded(true); // Still mark as loaded so UI doesn't hang
     } finally {
       isLoadingCacheData = false; // Reset the global flag
+    }
+  }, [allAnalyses]);
+
+  // Check session storage on mount to detect if data was loaded in this session
+  useEffect(() => {
+    try {
+      const wasLoaded = sessionStorage.getItem('wave_analyses_loaded') === 'true';
+      if (wasLoaded) {
+        hasLoadedCacheData = true;
+      }
+    } catch (e) {
+      // Ignore storage errors
     }
   }, []);
 

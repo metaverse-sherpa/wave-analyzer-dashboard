@@ -13,15 +13,17 @@ interface ReversalsContextType {
   loading: boolean;
 }
 
-// Create context with a default value
-const ReversalsContext = React.createContext<ReversalsContextType>({
+// Create and export context with a default value
+// Export directly for Fast Refresh compatibility
+export const ReversalsContext = React.createContext<ReversalsContextType>({
   lastCacheUpdate: 0,
   refreshReversals: () => {},
   loading: false
 });
 
-// Use named function declaration for the hook (React Fast Refresh compatible)
-function useReversals() {
+// Named export for the hook using function declaration
+// This allows React Fast Refresh to correctly track function identity
+export function useReversals() {
   const context = useContext(ReversalsContext);
   if (!context) {
     throw new Error('useReversals must be used within a ReversalsProvider');
@@ -29,8 +31,9 @@ function useReversals() {
   return context;
 }
 
-// Use named function declaration for the component (React Fast Refresh compatible)
-function ReversalsLastUpdated() {
+// Named function component with function declaration syntax
+// This allows React Fast Refresh to correctly track component identity
+export function ReversalsLastUpdated() {
   const { lastCacheUpdate, refreshReversals, loading: contextLoading } = useReversals();
   const { triggerGlobalRefresh } = useGlobalRefresh();
   const { loadCacheTableData } = useWaveAnalysis();
@@ -128,6 +131,5 @@ function ReversalsLastUpdated() {
   );
 }
 
-// Export the component and hooks explicitly
-export { ReversalsContext, useReversals, ReversalsLastUpdated };
+// Default export for the component
 export default ReversalsLastUpdated;
