@@ -39,7 +39,8 @@ interface WaveAnalysisContextType {
 
 const WaveAnalysisContext = createContext<WaveAnalysisContextType | undefined>(undefined);
 
-export const WaveAnalysisProvider = ({ children }: { children: React.ReactNode }) => {
+// Use named function for Fast Refresh compatibility
+function WaveAnalysisProvider({ children }: { children: React.ReactNode }) {
   const [analysis, setAnalysis] = useState<WaveAnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -321,12 +322,15 @@ export const WaveAnalysisProvider = ({ children }: { children: React.ReactNode }
       {children}
     </WaveAnalysisContext.Provider>
   );
-};
+}
 
-export const useWaveAnalysis = () => {
+// Named function for React Fast Refresh compatibility
+function useWaveAnalysis() {
   const context = useContext(WaveAnalysisContext);
   if (context === undefined) {
     throw new Error('useWaveAnalysis must be used within a WaveAnalysisProvider');
   }
   return context;
-};
+}
+
+export { WaveAnalysisProvider, useWaveAnalysis };

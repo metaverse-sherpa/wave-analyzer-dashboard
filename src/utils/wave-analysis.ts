@@ -6,72 +6,92 @@ export const convertDeepSeekToWaveAnalysis = (
   historicalData?: HistoricalDataPoint[]
 ): WaveAnalysis => {
   // Log the raw DeepSeek response for debugging
-  console.log(`Raw DeepSeek response for ${deepseekAnalysis.symbol || 'unknown'}:`, deepseekAnalysis.analysis || deepseekAnalysis);
+  console.log(`Processing wave analysis for ${deepseekAnalysis.symbol || 'unknown'}`);
   
-  // Handle both original format and new format with completedWaves
-  let waves = deepseekAnalysis.waves || [];
+  // Initialize waves array, preferring existing waves or creating a new array
+  let waves: Wave[] = deepseekAnalysis.waves || [];
   
-  // If we have completedWaves in the response (new API format), convert them to our Wave format
+  // Clear existing waves if using the new completedWaves format
   if (deepseekAnalysis.completedWaves && Array.isArray(deepseekAnalysis.completedWaves)) {
-    waves = deepseekAnalysis.completedWaves.map(wave => {
-      // Determine wave type based on the number if available
+    // Reset waves array when using completedWaves to avoid duplication
+    waves = [];
+    
+    console.log(`Found ${deepseekAnalysis.completedWaves.length} completed waves in the new format`);
+    
+    // Convert each completedWave to the format expected by the chart
+    deepseekAnalysis.completedWaves.forEach(wave => {
+      if (!wave.number || !wave.startTime || !wave.startPrice || !wave.endTime || !wave.endPrice) {
+        console.warn('Skipping wave with missing required properties:', wave);
+        return;
+      }
+      
+      // Determine wave type based on the number (1,3,5 are impulse, others are corrective)
       const waveType = determineWaveType(wave.number);
       
-      // Use type assertion to handle DeepSeek API format which might have different property names
-      const deepSeekWave = wave as any;
+      // Convert date strings to timestamps
+      const startTimestamp = new Date(wave.startTime).getTime();
+      const endTimestamp = new Date(wave.endTime).getTime();
       
-      return {
+      // Create wave object with all required properties for the chart
+      const formattedWave: Wave = {
         number: wave.number,
-        startTimestamp: deepSeekWave.startTimestamp || (deepSeekWave.startTime ? new Date(deepSeekWave.startTime).getTime() : undefined),
+        startTimestamp: startTimestamp,
         startPrice: wave.startPrice,
-        endTimestamp: deepSeekWave.endTimestamp || (deepSeekWave.endTime ? new Date(deepSeekWave.endTime).getTime() : undefined),
+        endTimestamp: endTimestamp,
         endPrice: wave.endPrice,
-        subwaves: wave.subwaves || [],
-        // Use invalidationPrice as per the interface and fall back to invalidationLevel if provided
-        invalidationPrice: wave.invalidationPrice || (deepSeekWave.invalidationLevel !== undefined ? deepSeekWave.invalidationLevel : undefined),
-        invalidationTimestamp: wave.invalidationTimestamp,
-        type: waveType, // Add required 'type' property
-        isComplete: true, // Use isComplete as per interface
-        isInvalid: Boolean(wave.isInvalid || wave.isInvalidated),
+        subwaves: [],
+        type: waveType,
+        isComplete: true,
+        isInvalid: false,
         isImpulse: waveType === 'impulse'
       };
+      
+      // Add to waves array
+      waves.push(formattedWave);
     });
+    
+    // Set back to the deepseekAnalysis object to ensure it's available to the chart
+    deepseekAnalysis.waves = waves;
   }
   
-  // Get the current wave from the response
+  // Handle current wave if present (which should be in progress)
   let currentWave = deepseekAnalysis.currentWave;
-  
-  // If we have a currentWave in the new API format, convert it to our Wave format
   if (currentWave && typeof currentWave === 'object') {
-    // Use type assertion to handle the API format
-    const deepSeekCurrentWave = currentWave as any;
-    
-    // Check if it has startTime property (indicating it's from the DeepSeek API format)
-    if (deepSeekCurrentWave.startTime !== undefined) {
-      // Determine wave type based on the number if available
+    // Check if it has all required properties
+    if (currentWave.number && currentWave.startTime && currentWave.startPrice) {
       const waveType = determineWaveType(currentWave.number);
       
-      const formattedCurrentWave = {
+      // Convert date string to timestamp
+      const startTimestamp = new Date(currentWave.startTime).getTime();
+      
+      // Format current wave according to the expected structure
+      const formattedCurrentWave: Wave = {
         number: currentWave.number,
-        startTimestamp: new Date(deepSeekCurrentWave.startTime).getTime(),
+        startTimestamp: startTimestamp,
         startPrice: currentWave.startPrice,
-        // Current wave won't have end properties as it's ongoing
-        type: waveType, // Add required 'type' property
-        isComplete: false, // Use isComplete as per interface
-        isInvalid: Boolean(currentWave.isInvalid || currentWave.isInvalidated),
-        isImpulse: waveType === 'impulse'
+        // Current wave doesn't have an end since it's in progress
+        type: waveType,
+        isComplete: false,
+        isInvalid: false,
+        isImpulse: waveType === 'impulse',
+        subwaves: []
       };
       
-      currentWave = formattedCurrentWave;
+      // Update the currentWave property with the formatted wave
+      deepseekAnalysis.currentWave = formattedCurrentWave;
       
-      // Add the current wave to the waves array as well
+      console.log(`Current wave: ${currentWave.number}, starting at ${new Date(startTimestamp).toISOString()}`);
+      
+      // Also add the current wave to the waves array
       waves.push(formattedCurrentWave);
+    } else {
+      console.warn('Current wave missing required properties', currentWave);
+      deepseekAnalysis.currentWave = null;
     }
   }
 
   // If we have historical data, validate the wave dates against the data range
   if (historicalData && historicalData.length > 0) {
-    // Find the earliest and latest dates in our historical data
     const earliestDataTimestamp = Math.min(...historicalData.map(d => 
       typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp).getTime()
     ));
@@ -83,119 +103,74 @@ export const convertDeepSeekToWaveAnalysis = (
     console.log(`Historical data range: ${new Date(earliestDataTimestamp).toISOString()} to ${new Date(latestDataTimestamp).toISOString()}, 
       data points: ${historicalData.length}`);
     
-    // Filter out waves that claim to start before our earliest data point
+    // Filter out waves that claim to start before our earliest data point or after our latest
     const validWaves = waves.filter(wave => {
       const waveStartTimestamp = typeof wave.startTimestamp === 'number' 
         ? wave.startTimestamp 
         : new Date(wave.startTimestamp).getTime();
       
-      const isValid = waveStartTimestamp >= earliestDataTimestamp;
+      const isValid = waveStartTimestamp >= earliestDataTimestamp && waveStartTimestamp <= latestDataTimestamp;
       if (!isValid) {
         console.warn(`Filtering out wave ${wave.number} with start date ${new Date(waveStartTimestamp).toISOString()} 
-          which is before our earliest data point ${new Date(earliestDataTimestamp).toISOString()}`);
+          which is outside our data range (${new Date(earliestDataTimestamp).toISOString()} to ${new Date(latestDataTimestamp).toISOString()})`);
       }
       
       return isValid;
     });
     
-    // If we've filtered out all waves, try adjusting them to start at our earliest data point instead
     if (validWaves.length === 0 && waves.length > 0) {
-      console.warn(`No valid waves within data range. Attempting to adjust waves to start from our earliest data.`);
+      console.warn(`No valid waves within data range. Will adjust the timestamps to match the data range.`);
       
-      // Find the first data point
-      const earliestDataPoint = historicalData.find(d => {
-        const timestamp = typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp).getTime();
-        return timestamp === earliestDataTimestamp;
-      });
-      
-      if (earliestDataPoint) {
-        // Get all the waves and adjust their timestamps
-        waves = waves.map((wave, index) => {
-          if (index === 0) {
-            // First wave starts at our earliest data point
-            return {
-              ...wave,
-              startTimestamp: earliestDataTimestamp,
-              startPrice: earliestDataPoint.close
-            };
-          } else {
-            // Keep the relative timing of other waves intact
-            return wave;
-          }
-        });
-        
-        console.log(`Adjusted ${waves.length} waves to start from earliest data point.`);
-      }
-    } else {
-      // Use the valid waves
-      waves = validWaves;
-    }
-
-    // Also validate the current wave
-    if (currentWave) {
-      const currentWaveStartTimestamp = typeof currentWave.startTimestamp === 'number'
-        ? currentWave.startTimestamp
-        : new Date(currentWave.startTimestamp).getTime();
-      
-      if (currentWaveStartTimestamp < earliestDataTimestamp) {
-        console.warn(`Current wave ${currentWave.number} has invalid start date 
-          ${new Date(currentWaveStartTimestamp).toISOString()} (before earliest data point).
-          Adjusting to earliest data point.`);
-        
-        // Adjust the current wave to start at the beginning of our data
-        const earliestDataPoint = historicalData.find(d => {
-          const timestamp = typeof d.timestamp === 'number' ? d.timestamp : new Date(d.timestamp).getTime();
-          return timestamp === earliestDataTimestamp;
-        });
-        
-        if (earliestDataPoint) {
-          currentWave = {
-            ...currentWave,
-            startTimestamp: earliestDataTimestamp,
-            startPrice: earliestDataPoint.close
+      // Instead of filtering, let's adjust the timestamps to be within our data range
+      waves = waves.map(wave => {
+        const waveStartTimestamp = typeof wave.startTimestamp === 'number' 
+          ? wave.startTimestamp 
+          : new Date(wave.startTimestamp).getTime();
+          
+        if (waveStartTimestamp < earliestDataTimestamp) {
+          return {
+            ...wave,
+            startTimestamp: earliestDataTimestamp
+          };
+        } else if (waveStartTimestamp > latestDataTimestamp) {
+          return {
+            ...wave,
+            startTimestamp: latestDataTimestamp
           };
         }
-      }
+        
+        return wave;
+      });
+      
+      console.log(`Adjusted timestamps for ${waves.length} waves to match data range`);
+    } else {
+      // Use the valid waves if there are any
+      waves = validWaves;
     }
     
-    console.log(`Validated waves: Original count: ${deepseekAnalysis.waves?.length || 0}, Valid count: ${waves.length}`);
+    console.log(`Final wave count after validation: ${waves.length}`);
   }
 
-  // Ensure every wave has all required properties from the Wave interface
+  // Ensure every wave has all required properties
   waves = waves.map(wave => {
-    const waveType = wave.type || determineWaveType(wave.number);
-    // Handle both direct properties and any properties from the DeepSeek API format
-    const deepSeekWave = wave as any;
-    
     return {
       ...wave,
-      type: waveType,
-      isComplete: wave.isComplete !== undefined ? wave.isComplete : true,
-      isInvalid: wave.isInvalid ?? wave.isInvalidated ?? false,
-      isImpulse: wave.isImpulse !== undefined ? wave.isImpulse : (waveType === 'impulse')
+      type: wave.type || determineWaveType(wave.number),
+      isComplete: typeof wave.isComplete === 'boolean' ? wave.isComplete : Boolean(wave.endTimestamp),
+      isInvalid: Boolean(wave.isInvalid),
+      isImpulse: typeof wave.isImpulse === 'boolean' ? wave.isImpulse : (wave.type === 'impulse')
     };
   });
 
-  // If we have invalidWaves in the response, ensure they also have the required properties
-  const invalidWaves = (deepseekAnalysis.invalidWaves || []).map(wave => {
-    const waveType = determineWaveType(wave.number);
-    return {
-      ...wave,
-      type: wave.type || waveType,
-      isComplete: 'isComplete' in wave ? wave.isComplete : true,
-      isInvalid: true,
-      isImpulse: wave.isImpulse !== undefined ? wave.isImpulse : (waveType === 'impulse')
-    };
-  });
-
+  // Create and return the final WaveAnalysis object that the chart component expects
   return {
     waves: waves,
-    currentWave: currentWave || null,
+    currentWave: deepseekAnalysis.currentWave || null,
     fibTargets: deepseekAnalysis.fibTargets || [],
     trend: deepseekAnalysis.trend || 'neutral',
     impulsePattern: deepseekAnalysis.impulsePattern || false,
     correctivePattern: deepseekAnalysis.correctivePattern || false,
-    invalidWaves: invalidWaves,
+    invalidWaves: [],
     symbol: deepseekAnalysis.symbol,
     analysis: deepseekAnalysis.analysis,
     stopLoss: deepseekAnalysis.stopLoss,

@@ -56,7 +56,8 @@ const safePostMessage = (channel: BroadcastChannel | null, message: any) => {
   }
 };
 
-// Named export for the provider component
+// Named export for the provider component using function declaration instead of arrow function
+// This allows React Fast Refresh to correctly update the component
 export function DataRefreshProvider({ children }: { children: React.ReactNode }) {
   // State variables
   const [lastRefreshTime, setLastRefreshTime] = useState<number | null>(null);
@@ -950,6 +951,7 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
 }
 
 // Named export for the hook using function declaration instead of const assignment
+// This allows React Fast Refresh to track function identity across hot updates
 export function useDataRefresh(): DataRefreshContextType {
   const context = useContext(DataRefreshContext);
   if (!context) {
