@@ -159,7 +159,19 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             setAnalysis(analysisFromContext);
           } else {
             // Otherwise convert it using the utility function
-            const waveAnalysis = convertDeepSeekToWaveAnalysis(analysisFromContext, historicalData);
+            // Add the required symbol property to ensure type compatibility with DeepSeekWaveAnalysis
+            const analysisWithSymbol = {
+              ...analysisFromContext,
+              symbol: symbol,
+              // Ensure confidenceLevel is one of the allowed literal values
+              confidenceLevel: analysisFromContext.confidenceLevel as "high" | "medium" | "low" 
+                || (typeof analysisFromContext.confidenceLevel === 'string' 
+                  ? analysisFromContext.confidenceLevel === 'high' || analysisFromContext.confidenceLevel === 'medium' 
+                    ? analysisFromContext.confidenceLevel 
+                    : "low"
+                  : "medium")
+            };
+            const waveAnalysis = convertDeepSeekToWaveAnalysis(analysisWithSymbol, historicalData);
             setAnalysis(waveAnalysis);
           }
         } else {
@@ -170,7 +182,19 @@ const StockDetails: React.FC<StockDetailsProps> = ({ stock = defaultStock }) => 
             const analysisData = await getCachedWaveAnalysis(symbol);
             
             if (analysisData) {
-              const waveAnalysis = convertDeepSeekToWaveAnalysis(analysisData, historicalData);
+              // Ensure the analysis has a required symbol property for DeepSeekWaveAnalysis compatibility
+              const analysisWithSymbol = {
+                ...analysisData,
+                symbol: symbol,
+                // Ensure confidenceLevel is one of the allowed literal values
+                confidenceLevel: analysisData.confidenceLevel as "high" | "medium" | "low"
+                  || (typeof analysisData.confidenceLevel === 'string' 
+                    ? analysisData.confidenceLevel === 'high' || analysisData.confidenceLevel === 'medium' 
+                      ? analysisData.confidenceLevel 
+                      : "low"
+                    : "medium")
+              };
+              const waveAnalysis = convertDeepSeekToWaveAnalysis(analysisWithSymbol, historicalData);
               setAnalysis(waveAnalysis);
             } else {
               console.log(`No cached analysis available for ${symbol}`);

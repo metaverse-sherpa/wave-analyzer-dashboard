@@ -20,7 +20,7 @@ export const convertDeepSeekToWaveAnalysis = (
     
     // Convert each completedWave to the format expected by the chart
     deepseekAnalysis.completedWaves.forEach(wave => {
-      if (!wave.number || !wave.startTime || !wave.startPrice || !wave.endTime || !wave.endPrice) {
+      if (!wave.number || !wave.startTimestamp || !wave.startPrice || !wave.endTimestamp || !wave.endPrice) {
         console.warn('Skipping wave with missing required properties:', wave);
         return;
       }
@@ -28,9 +28,13 @@ export const convertDeepSeekToWaveAnalysis = (
       // Determine wave type based on the number (1,3,5 are impulse, others are corrective)
       const waveType = determineWaveType(wave.number);
       
-      // Convert date strings to timestamps
-      const startTimestamp = new Date(wave.startTime).getTime();
-      const endTimestamp = new Date(wave.endTime).getTime();
+      // Convert date strings to timestamps if they're not already timestamps
+      const startTimestamp = typeof wave.startTimestamp === 'number' 
+        ? wave.startTimestamp 
+        : new Date(wave.startTimestamp).getTime();
+      const endTimestamp = typeof wave.endTimestamp === 'number'
+        ? wave.endTimestamp
+        : new Date(wave.endTimestamp).getTime();
       
       // Create wave object with all required properties for the chart
       const formattedWave: Wave = {
@@ -58,11 +62,13 @@ export const convertDeepSeekToWaveAnalysis = (
   let currentWave = deepseekAnalysis.currentWave;
   if (currentWave && typeof currentWave === 'object') {
     // Check if it has all required properties
-    if (currentWave.number && currentWave.startTime && currentWave.startPrice) {
+    if (currentWave.number && currentWave.startTimestamp && currentWave.startPrice) {
       const waveType = determineWaveType(currentWave.number);
       
-      // Convert date string to timestamp
-      const startTimestamp = new Date(currentWave.startTime).getTime();
+      // Convert date string to timestamp if it's not already a timestamp
+      const startTimestamp = typeof currentWave.startTimestamp === 'number'
+        ? currentWave.startTimestamp
+        : new Date(currentWave.startTimestamp).getTime();
       
       // Format current wave according to the expected structure
       const formattedCurrentWave: Wave = {

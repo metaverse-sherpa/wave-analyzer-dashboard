@@ -8,15 +8,20 @@ If the data is insufficient, respond with: "Insufficient data for analysis."
 
 CRITICAL INSTRUCTION: Focus ONLY on the MOST RECENT Elliott Wave sequence leading up to today. Find the most relevant starting point that leads to a coherent wave count into the present day.
 
+DEFINITIONS:
+- Impulsive Wave: A wave that increases in price
+- Corrective Wave: A wave that decreases in price
+- Wave Sequence: A series of waves that follow the Elliott Wave Theory pattern
+
 CRITICAL RULES FOR ELLIOTT WAVE IDENTIFICATION:
-- Impulse waves MUST follow the sequence 1-3-5-B (impulsive/trending) and 2-4-A-C (corrective/countertrend).
+- Waves MUST follow the sequence 1-2-3-4-5-A-B-C-1-2-3 
 - Wave 1: Impulsive, initial movement in the direction of the trend
-- Wave 2: Corrective, never retraces more than 100% of Wave 1
+- Wave 2: Corrective, never retraces more than the start of Wave 1
 - Wave 3: Impulsive, typically the longest and strongest wave
-- Wave 4: Corrective, typically does not overlap Wave 1
-- Wave 5: Impulsive, final leg in the trend direction
+- Wave 4: Corrective, typically does not overlap the end of Wave 1
+- Wave 5: Impulsive 
 - Wave A: Corrective, first wave of the correction
-- Wave B: Impulsive (though sometimes appears corrective), counter-correction
+- Wave B: Impulsive
 - Wave C: Corrective, final leg of the correction
 
 CRITICAL REQUIREMENT: You MUST analyze data up to the MOST RECENT data point. Your analysis must include waves all the way to the last date in the provided data. Never stop analyzing before the most current date.
@@ -24,26 +29,23 @@ CRITICAL REQUIREMENT: You MUST analyze data up to the MOST RECENT data point. Yo
 CRITICAL RULE: You MUST follow the proper Elliott Wave sequence. After a wave 4, you MUST identify a wave 5 before starting any A-B-C correction. Never skip waves in the sequence. If any waves are invalid, restart at Wave 1.
 
 CRITICAL RULE: Alternation between impulsive and corrective waves must be maintained:
-- Waves 1, 3, 5 are ALWAYS impulsive
+- Waves 1, 3, 5, B are ALWAYS impulsive
 - Waves 2, 4, A, C are ALWAYS corrective
-- Wave B can be impulsive in appearance but is technically corrective
+- Waves must be at least 3 candles long to be considered valid. The start date/time cannot be the same as the end date/time.
 
 CRITICAL: Identify only ONE complete Elliott Wave sequence from what you believe is the most relevant starting point through to today. This should consist of either:
-1) A single impulse wave sequence (1-2-3-4-5-A-B-C) leading to today, or
-2) An impulse sequence followed by a correction (1-2-3-4-5-A-B-C) leading to today, or
-3) The beginning of a new impulse wave after a correction (A-B-C-1-2...) leading to today.
+1) A single impulse wave sequence (1-2-3-4-5-A-B-C) leading to today
 
 CRITICAL: The analysis must include the current wave number (1, 2, 3, 4, 5, A, B, or C) that we are currently in.
 CRITICAL: The analysis must include each wave in the most recent sequence in chronological order up to the present day starting at Wave 1.
-CRITICAL: The analysis must include Fibonacci price targets based on the analysis for the current wave.
+CRITICAL: The analysis must include Fibonacci price targets based on the analysis for the current wave. Only include the most relevant Fibonacci levels (0.382, 0.5, 0.618, 1.618, etc.) and their corresponding price levels 
 CRITICAL: The analysis must include stop loss level and key resistance/support levels based on this data.
-CRITICAL: The analysis must include the overall trend direction (bullish/bearish) for this time period.
 CRITICAL: The analysis must include the confidence level of the analysis (low/medium/high).
 
 Checklist before providing response:
 1. Have I identified waves ALL THE WAY to the MOST RECENT data point? If not, continue analysis.
 2. Have I focused on ONLY the most recent wave sequence? If not, remove historical sequences.
-3. Have I followed the correct wave sequence (1-imp, 2-corr, 3-imp, 4-corr, 5-imp, A-corr, B-corr, C-corr)? If not, correct it.
+3. Have I followed the correct wave sequence (1-imp, 2-corr, 3-imp, 4-corr, 5-imp, A-corr, B-imp, C-corr)? If not, correct it.
 4. Is the current wave correctly identified based on the most recent data point? If not, correct it.
 5. Have I maintained proper wave characteristics (impulsive vs. corrective)? If not, correct it.
 6. Is my analysis complete through TODAY'S DATE? If not, continue until today.
@@ -90,7 +92,7 @@ CRITICAL: You MUST follow these exact instructions:
 
 CRITICAL: Remember that the most recent wave sequence should follow this pattern:
 Wave 1 (IMPULSIVE) → Wave 2 (CORRECTIVE) → Wave 3 (IMPULSIVE) → Wave 4 (CORRECTIVE) → Wave 5 (IMPULSIVE) → 
-Wave A (CORRECTIVE) → Wave B (CORRECTIVE) → Wave C (CORRECTIVE) → 
+Wave A (CORRECTIVE) → Wave B (IMPULSIVE) → Wave C (CORRECTIVE) → 
 Wave 1 (IMPULSIVE) → Wave 2 (CORRECTIVE) → etc.
 
 But you should only include the waves that are part of the most recent single sequence leading to today.`;
@@ -267,7 +269,7 @@ export async function getDeepSeekWaveAnalysis(
     console.log(`DeepSeek API Request for ${symbol}:`, JSON.stringify({
       model: "deepseek-chat",
       messages: messages,
-      temperature: 0.2,
+      temperature: 0.1,
       response_format: { type: "json_object" }
     }, null, 2));
 

@@ -353,7 +353,8 @@ function WaveAnalysisProvider({ children }: { children: React.ReactNode }) {
       loadAllAnalysesFromSupabase,
       cancelAllAnalyses,
       clearCache,
-      loadCacheTableData
+      loadCacheTableData,
+      waveAnalysesCache: analyses // Using the analyses record as the waveAnalysesCache
     }}>
       {children}
     </WaveAnalysisContext.Provider>
