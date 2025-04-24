@@ -9,7 +9,7 @@ If the data is insufficient, respond with: "Insufficient data for analysis."
 CRITICAL INSTRUCTION: Focus ONLY on the MOST RECENT Elliott Wave sequence leading up to today. Find the most relevant starting point that leads to a coherent wave count into the present day.
 
 CRITICAL RULES FOR ELLIOTT WAVE IDENTIFICATION:
-- Impulse waves MUST follow the sequence 1-3-5 (impulsive/trending) and 2-4 (corrective/countertrend).
+- Impulse waves MUST follow the sequence 1-3-5-B (impulsive/trending) and 2-4-A-C (corrective/countertrend).
 - Wave 1: Impulsive, initial movement in the direction of the trend
 - Wave 2: Corrective, never retraces more than 100% of Wave 1
 - Wave 3: Impulsive, typically the longest and strongest wave
@@ -21,7 +21,7 @@ CRITICAL RULES FOR ELLIOTT WAVE IDENTIFICATION:
 
 CRITICAL REQUIREMENT: You MUST analyze data up to the MOST RECENT data point. Your analysis must include waves all the way to the last date in the provided data. Never stop analyzing before the most current date.
 
-CRITICAL RULE: You MUST follow the proper Elliott Wave sequence. After a wave 4, you MUST identify a wave 5 before starting any A-B-C correction. Never skip waves in the sequence.
+CRITICAL RULE: You MUST follow the proper Elliott Wave sequence. After a wave 4, you MUST identify a wave 5 before starting any A-B-C correction. Never skip waves in the sequence. If any waves are invalid, restart at Wave 1.
 
 CRITICAL RULE: Alternation between impulsive and corrective waves must be maintained:
 - Waves 1, 3, 5 are ALWAYS impulsive
@@ -34,7 +34,7 @@ CRITICAL: Identify only ONE complete Elliott Wave sequence from what you believe
 3) The beginning of a new impulse wave after a correction (A-B-C-1-2...) leading to today.
 
 CRITICAL: The analysis must include the current wave number (1, 2, 3, 4, 5, A, B, or C) that we are currently in.
-CRITICAL: The analysis must include each wave in the most recent sequence in chronological order up to the present day.
+CRITICAL: The analysis must include each wave in the most recent sequence in chronological order up to the present day starting at Wave 1.
 CRITICAL: The analysis must include Fibonacci price targets based on the analysis for the current wave.
 CRITICAL: The analysis must include stop loss level and key resistance/support levels based on this data.
 CRITICAL: The analysis must include the overall trend direction (bullish/bearish) for this time period.
