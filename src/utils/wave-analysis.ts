@@ -1,11 +1,12 @@
 import { DeepSeekAnalysis, DeepSeekWaveAnalysis, WaveAnalysis, HistoricalDataPoint, Wave } from '@/types/shared';
+import { supabase } from '@/lib/supabase';
 
 export const convertDeepSeekToWaveAnalysis = (
   deepseekAnalysis: DeepSeekWaveAnalysis,
   historicalData?: HistoricalDataPoint[]
 ): WaveAnalysis => {
   // Log the raw DeepSeek response for debugging
-  console.log(`Raw DeepSeek response for ${deepseekAnalysis.symbol || 'unknown'}:`, deepseekAnalysis);
+  console.log(`Raw DeepSeek response for ${deepseekAnalysis.symbol || 'unknown'}:`, deepseekAnalysis.analysis || deepseekAnalysis);
   
   // Handle both original format and new format with completedWaves
   let waves = deepseekAnalysis.waves || [];
@@ -50,7 +51,7 @@ export const convertDeepSeekToWaveAnalysis = (
       // Determine wave type based on the number if available
       const waveType = determineWaveType(currentWave.number);
       
-      currentWave = {
+      const formattedCurrentWave = {
         number: currentWave.number,
         startTimestamp: new Date(deepSeekCurrentWave.startTime).getTime(),
         startPrice: currentWave.startPrice,
@@ -61,8 +62,10 @@ export const convertDeepSeekToWaveAnalysis = (
         isImpulse: waveType === 'impulse'
       };
       
+      currentWave = formattedCurrentWave;
+      
       // Add the current wave to the waves array as well
-      waves.push(currentWave);
+      waves.push(formattedCurrentWave);
     }
   }
 
@@ -219,15 +222,118 @@ function determineWaveType(waveNumber: number | string): 'impulse' | 'corrective
 
 export const getCachedWaveAnalysis = async (symbol: string): Promise<WaveAnalysis | null> => {
   try {
-    const response = await fetch(`/api/wave-analysis/${symbol}`);
-    if (!response.ok) {
-      return null;
+    // First, try to find the analysis from Supabase cache where the AI Elliott Wave analysis is stored
+    const { data: waveAnalysisData, error: waveError } = await supabase
+      .from('cache')
+      .select('data, timestamp')
+      .eq('key', `wave_analysis_${symbol}`)
+      .single();
+    
+    // If we found wave analysis data, use that
+    if (!waveError && waveAnalysisData?.data) {
+      console.log(`Found standard wave analysis for ${symbol}`);
+      
+      // If the data is a string and looks like JSON, try to parse it
+      let analysisData = null;
+      
+      if (typeof waveAnalysisData.data === 'string') {
+        // Check if the string starts with a curly brace (JSON object)
+        if (waveAnalysisData.data.trim().startsWith('{')) {
+          try {
+            analysisData = JSON.parse(waveAnalysisData.data);
+          } catch (parseError) {
+            console.warn(`Failed to parse wave analysis JSON for ${symbol}:`, parseError);
+            // If parsing fails, create a basic structure with the raw text as analysis
+            analysisData = {
+              analysis: waveAnalysisData.data,
+              waves: [],
+              currentWave: null,
+              trend: 'neutral'
+            };
+          }
+        } else {
+          // Handle raw text format (non-JSON)
+          console.log(`Wave analysis for ${symbol} is in raw text format, not JSON`);
+          analysisData = {
+            analysis: waveAnalysisData.data,
+            waves: [],
+            currentWave: null,
+            trend: extractTrendFromText(waveAnalysisData.data)
+          };
+        }
+      } else if (waveAnalysisData.data !== null && typeof waveAnalysisData.data === 'object') {
+        // If it's already an object, use it directly
+        analysisData = waveAnalysisData.data;
+      }
+      
+      return analysisData;
     }
-    const data = await response.json();
-    console.log(`Cached wave analysis for ${symbol}:`, data);
-    return data;
+    
+    // If AI analysis is not found, fall back to full AI Elliott Wave analysis from Supabase
+    const { data: aiAnalysisData, error: aiError } = await supabase
+      .from('cache')
+      .select('data, timestamp')
+      .eq('key', `ai_elliott_wave_${symbol}`)
+      .single();
+
+    // If we found AI analysis data, use that
+    if (!aiError && aiAnalysisData?.data) {
+      console.log(`Found AI Elliott Wave analysis for ${symbol}`);
+      
+      // If the data is a string that looks like JSON, try to parse it
+      let analysisData = null;
+      
+      if (typeof aiAnalysisData.data === 'string') {
+        // Check if the string starts with a curly brace (JSON object)
+        if (aiAnalysisData.data.trim().startsWith('{')) {
+          try {
+            analysisData = JSON.parse(aiAnalysisData.data);
+          } catch (parseError) {
+            console.warn(`Failed to parse AI Elliott Wave JSON for ${symbol}:`, parseError);
+            // If parsing fails, create a basic structure with the raw text as analysis
+            analysisData = {
+              analysis: aiAnalysisData.data,
+              waves: [],
+              currentWave: null,
+              trend: extractTrendFromText(aiAnalysisData.data)
+            };
+          }
+        } else {
+          // Handle raw text format (non-JSON)
+          console.log(`AI Elliott Wave analysis for ${symbol} is in raw text format, not JSON`);
+          analysisData = {
+            analysis: aiAnalysisData.data,
+            waves: [],
+            currentWave: null,
+            trend: extractTrendFromText(aiAnalysisData.data)
+          };
+        }
+      } else if (aiAnalysisData.data !== null && typeof aiAnalysisData.data === 'object') {
+        // If it's already an object, use it directly
+        analysisData = aiAnalysisData.data;
+      }
+      
+      return analysisData;
+    }
+
+    // If no data found in Supabase at all, log and return null
+    console.warn(`No wave analysis found for ${symbol} in Supabase cache`);
+    return null;
   } catch (error) {
     console.error('Error fetching cached wave analysis:', error);
     return null;
   }
 };
+
+// Helper function to extract trend from text
+function extractTrendFromText(text: string): 'bullish' | 'bearish' | 'neutral' {
+  const lowerText = text.toLowerCase();
+  
+  if (lowerText.includes('bullish')) {
+    return 'bullish';
+  } else if (lowerText.includes('bearish')) {
+    return 'bearish';
+  } else {
+    return 'neutral';
+  }
+}

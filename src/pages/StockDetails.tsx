@@ -451,13 +451,25 @@ const AIAnalysis: React.FC<AIAnalysisProps> = ({ symbol, analysis, historicalDat
         // Use the dedicated function for cached analysis
         const analysisData = await getCachedWaveAnalysis(symbol);
         
-        setAiInsight(JSON.stringify(analysisData)); // Convert to string since setAiInsight expects a string
-        
-        if (typeof analysisData === 'object') {
-          const waveNumber = analysisData.currentWave?.number;
-          const trend = analysisData.trend;
-          if (waveNumber) setWaveNumber(String(waveNumber));
-          if (trend) setTrend(trend);
+        if (analysisData) {
+          // Set the analysis text directly from the response
+          if (analysisData.analysis) {
+            setAiInsight(analysisData.analysis);
+          }
+          
+          // Extract wave number and trend
+          let currentWaveNumber = null;
+          if (analysisData.currentWave && analysisData.currentWave.number) {
+            currentWaveNumber = analysisData.currentWave.number;
+          }
+          setWaveNumber(currentWaveNumber);
+          
+          // Set trend if available
+          if (analysisData.trend) {
+            setTrend(analysisData.trend);
+          }
+        } else {
+          setError("No analysis data available");
         }
       } catch (err) {
         console.error('Error fetching AI analysis:', err);

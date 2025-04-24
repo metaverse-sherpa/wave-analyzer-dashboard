@@ -1,4 +1,5 @@
 import { apiUrl } from '@/utils/apiConfig';
+import { toast } from '@/lib/toast';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
@@ -56,13 +57,30 @@ export const useGlobalRefresh = () => {
       const priceMap: Record<string, number> = {};
       const errors: string[] = [];
       
-      // Process a reasonable number of symbols (first 10) for a quick refresh
-      const symbolsToProcess = symbols.slice(0, 10);
+      // Process all symbols
+      const symbolsToProcess = symbols;
       
-      // Process symbols in parallel with a concurrency limit
-      const concurrencyLimit = 3;
-      for (let i = 0; i < symbolsToProcess.length; i += concurrencyLimit) {
-        const batch = symbolsToProcess.slice(i, i + concurrencyLimit);
+      // Better throttling configuration:
+      // 1. Smaller batch size (2 instead of 5)
+      // 2. More delay between batches (1500ms)
+      // 3. Sequential processing of batches to prevent overwhelming the API
+      const batchSize = 2;
+      const totalBatches = Math.ceil(symbolsToProcess.length / batchSize);
+      
+      if (symbolsToProcess.length > 10) {
+        toast.info(`Processing ${symbolsToProcess.length} symbols in smaller batches to avoid API rate limits. This may take a few minutes.`);
+      }
+      
+      console.log(`Processing ${symbolsToProcess.length} symbols in ${totalBatches} batches (${batchSize} per batch)`);
+      
+      // Process batches sequentially with delay between batches
+      for (let i = 0; i < symbolsToProcess.length; i += batchSize) {
+        const batchNumber = Math.floor(i / batchSize) + 1;
+        const batch = symbolsToProcess.slice(i, i + batchSize);
+        
+        console.log(`Processing batch ${batchNumber}/${totalBatches} with symbols: ${batch.join(', ')}`);
+        
+        // Process symbols in the current batch concurrently
         const promises = batch.map(async symbol => {
           try {
             // Update to use the correct endpoint that returns stock data
@@ -89,7 +107,15 @@ export const useGlobalRefresh = () => {
           }
         });
 
+        // Wait for all promises in the batch to resolve
         await Promise.all(promises);
+        console.log(`Completed batch ${batchNumber}/${totalBatches} (${Math.round((batchNumber/totalBatches) * 100)}%)`);
+        
+        // Add a delay before processing the next batch to reduce API load
+        if (i + batchSize < symbolsToProcess.length) {
+          console.log(`Waiting 1.5s before next batch...`);
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
       }
       
       const successCount = Object.keys(priceMap).length;
@@ -98,12 +124,16 @@ export const useGlobalRefresh = () => {
       console.log(`Fetched ${successCount} price quotes, ${errorCount} errors`);
       if (errorCount > 0) {
         console.warn('Fetch errors:', errors);
+        if (errorCount > successCount) {
+          toast.warning(`Encountered ${errorCount} errors while refreshing data. Some stocks may not have updated information.`);
+        }
       }
       
       // Return success if we got at least some prices
       return successCount > 0;
     } catch (error) {
       console.error("Error in global refresh:", error);
+      toast.error("Error refreshing stock data. Please try again later.");
       return false;
     }
   };
