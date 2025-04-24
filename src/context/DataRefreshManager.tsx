@@ -56,6 +56,16 @@ const safePostMessage = (channel: BroadcastChannel | null, message: any) => {
   }
 };
 
+// Define the hook before the provider
+// This helps React Fast Refresh track the component/hook identity between HMR updates
+export function useDataRefresh(): DataRefreshContextType {
+  const context = useContext(DataRefreshContext);
+  if (!context) {
+    throw new Error('useDataRefresh must be used within a DataRefreshProvider');
+  }
+  return context;
+}
+
 // Named export for the provider component using function declaration instead of arrow function
 // This allows React Fast Refresh to correctly update the component
 export function DataRefreshProvider({ children }: { children: React.ReactNode }) {
@@ -948,14 +958,4 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
       {children}
     </DataRefreshContext.Provider>
   );
-}
-
-// Named export for the hook using function declaration instead of const assignment
-// This allows React Fast Refresh to track function identity across hot updates
-export function useDataRefresh(): DataRefreshContextType {
-  const context = useContext(DataRefreshContext);
-  if (!context) {
-    throw new Error('useDataRefresh must be used within a DataRefreshProvider');
-  }
-  return context;
 }
