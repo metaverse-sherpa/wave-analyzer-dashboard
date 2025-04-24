@@ -342,7 +342,7 @@ export default {
 
       // Add this case to handle logs
       if (path === '/log') {
-        return await handleBrowserLogs(request, env, ctx);
+        //return await handleBrowserLogs(request, env, ctx);
       }
 
       // Fallback for unhandled routes

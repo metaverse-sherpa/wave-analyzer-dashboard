@@ -96,35 +96,62 @@ export async function getAIMarketSentiment(
         return generateLocalSentimentResult(marketData, analysisInsights, marketInsightsResult);
       }
       
-      // Create a combined abort controller with a timeout
-      const timeoutController = new AbortController();
-      const timeout = setTimeout(() => timeoutController.abort(), 15000); // 15 second timeout
+      // Check if we already have a cached result to provide immediate feedback
+      const cachedResult = await getFromCache();
+      if (cachedResult && !forceRefresh) {
+        console.log("Using cached market sentiment result");
+        return cachedResult;
+      }
       
-      // Combine user-provided abort signal with timeout signal
-      const combinedSignal = abortSignal 
-        ? AbortSignal.any([abortSignal, timeoutController.signal])
-        : timeoutController.signal;
-
-      // Retry the API call up to 3 times with exponential backoff
-      const apiCall = async () => {
-        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: "deepseek-chat",
-            messages: [
-              {
-                role: "system",
-                content: `You are an expert stock market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
-                You analyze market patterns, news, and analyst insights to provide concise, actionable market sentiment summaries.`
-              },
-              {
-                role: "user",
-                content: `Generate a brief market sentiment analysis based on this market data:
-                
+      // Increase timeout to 45 seconds to give the API more time to respond
+      // The DeepSeek API can take longer especially during peak usage
+      const timeoutController = new AbortController();
+      const timeoutDuration = 45000; // 45 seconds
+      
+      console.log(`Setting DeepSeek API timeout to ${timeoutDuration/1000} seconds`);
+      const timeout = setTimeout(() => {
+        console.log(`DeepSeek API request timed out after ${timeoutDuration/1000} seconds, aborting`);
+        timeoutController.abort('Request timed out');
+      }, timeoutDuration);
+      
+      // Use a more robust approach to handle signals
+      const signalToUse = abortSignal || timeoutController.signal;
+      
+      // Enhanced API call function with improved diagnostics
+      const apiCall = async (attemptNumber = 1) => {
+        const startTime = Date.now();
+        console.log(`DeepSeek API attempt #${attemptNumber} - Started at ${new Date(startTime).toISOString()}`);
+        
+        try {
+          // Use a more robust approach with fetch
+          const controller = new AbortController();
+          const signal = signalToUse ? signalToUse : controller.signal;
+          
+          // Set up a separate timeout just for this attempt (shorter than the overall timeout)
+          const attemptTimeoutMs = Math.min(15000 * attemptNumber, 30000); // Increase timeout with each retry
+          const attemptTimeout = setTimeout(() => controller.abort('Attempt timeout'), attemptTimeoutMs);
+          
+          console.log(`Making DeepSeek API request (attempt #${attemptNumber}, timeout: ${attemptTimeoutMs/1000}s)...`);
+          
+          const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`,
+              'Connection': 'keep-alive' // Try to maintain the connection
+            },
+            body: JSON.stringify({
+              model: "deepseek-chat",
+              messages: [
+                {
+                  role: "system",
+                  content: `You are an expert stock market analyst with deep knowledge of Elliott Wave Theory and equity markets. 
+                  You analyze market patterns, news, and analyst insights to provide concise, actionable market sentiment summaries.`
+                },
+                {
+                  role: "user",
+                  content: `Generate a brief market sentiment analysis based on this market data:
+                  
 Bullish stocks: ${marketData.bullishCount}
 Bearish stocks: ${marketData.bearishCount}
 Neutral stocks: ${marketData.neutralCount}
@@ -139,23 +166,95 @@ ${marketInsightsResult.content}
 ${marketInsightsResult.isMock ? "Note: Some market data is simulated due to API limitations." : ""}
 Include specific references to current market events or news mentioned in the insights.
 Focus on what this means for investors. Don't preface with "Market Sentiment Summary". Don't include word counts.`
-              }
-            ],
-            temperature: 0.3,
-            max_tokens: 250
-          }),
-          signal: combinedSignal
-        });
+                }
+              ],
+              temperature: 0.3,
+              max_tokens: 250,
+              // Add a client reference ID to help track requests
+              client_reference_id: `market-sentiment-${Date.now()}`
+            }),
+            signal
+          });
+          
+          clearTimeout(attemptTimeout);
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
+          }
+          
+          const result = await response.json();
+          const endTime = Date.now();
+          console.log(`DeepSeek API succeeded after ${(endTime - startTime)/1000} seconds (attempt #${attemptNumber})`);
+          return result;
+        } catch (error) {
+          const endTime = Date.now();
+          const durationSec = (endTime - startTime)/1000;
+          
+          if (error.name === 'AbortError') {
+            console.warn(`DeepSeek API request aborted after ${durationSec} seconds (attempt #${attemptNumber})`, error);
+            throw new Error(`DeepSeek API request timed out after ${durationSec} seconds`);
+          }
+          
+          console.warn(`DeepSeek API error after ${durationSec} seconds (attempt #${attemptNumber}):`, error.message);
+          throw error;
+        }
+      };
+
+      // More intelligent retry mechanism with increased backoff
+      const enhancedRetry = async () => {
+        let lastError = null;
+        const maxRetries = 3;
         
-        if (!response.ok) {
-          throw new Error(`DeepSeek API error: ${response.status}`);
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            return await apiCall(attempt);
+          } catch (error) {
+            lastError = error;
+            
+            // Only retry if we have more attempts left
+            if (attempt < maxRetries) {
+              // Exponential backoff - wait longer with each retry
+              const backoffDelay = Math.min(2000 * Math.pow(2, attempt - 1), 8000);
+              
+              console.log(`Retrying DeepSeek API in ${backoffDelay/1000} seconds (attempt ${attempt}/${maxRetries} failed)`);
+              await new Promise(resolve => setTimeout(resolve, backoffDelay));
+            }
+          }
         }
         
-        return response.json();
+        // If we reach here, all retries failed
+        throw lastError || new Error('All DeepSeek API attempts failed');
       };
 
       try {
-        const result = await retry(apiCall, 3, 1000);
+        console.log("Starting DeepSeek API request with enhanced retry logic");
+        
+        // Generate fallback content immediately as a backup
+        const fallbackSentiment = generateLocalSentimentResult(marketData, analysisInsights, marketInsightsResult);
+        
+        // Try the DeepSeek API with our enhanced retry logic
+        const result = await Promise.race([
+          enhancedRetry(),
+          // After 40 seconds, return fallback but don't abort the API call
+          new Promise(resolve => setTimeout(() => {
+            console.log("Using fallback while API call continues in background");
+            resolve({
+              _usedFallback: true,
+              choices: [{ message: { content: fallbackSentiment.analysis } }]
+            });
+          }, 40000))
+        ]);
+        
+        // Check if we're using the fallback
+        if (result._usedFallback) {
+          console.log("Returned fallback sentiment while API call continues in background");
+          return fallbackSentiment;
+        }
+        
+        console.log("DeepSeek API request successful");
+        
+        // Extract the actual sentiment analysis
         const sentimentAnalysis = result.choices[0].message.content;
         
         const sentimentResult: MarketSentimentResult = {
