@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { getHistoricalPrices } from '@/services/yahooFinanceService';
-import { getDeepSeekWaveAnalysis } from '@/api/deepseekApi';
+import { analyzeElliottWaves } from './elliottWaveAnalysis';
 import { StockHistoricalData, DeepSeekWaveAnalysis, WaveAnalysis } from '@/types/shared';
 
 interface AnalysisScheduleItem {
@@ -34,19 +34,15 @@ export async function getAllStockSymbols(): Promise<string[]> {
 // Function to update Elliott Wave analysis for a single stock
 export async function updateStockWaveAnalysis(symbol: string): Promise<boolean> {
   console.log(`Updating Elliott Wave analysis for ${symbol}`);
-  
   try {
     // 1. Get historical data for the past 2 years with the '1d' timeframe
     const historicalData = await getHistoricalPrices(symbol, '1d', true);
-    
     if (!historicalData || historicalData.length < 50) {
       console.error(`Insufficient historical data for ${symbol}`);
       return false;
     }
-    
-    // 2. Send data to DeepSeek API for analysis
-    const waveAnalysis = await getDeepSeekWaveAnalysis(symbol, historicalData);
-    
+    // 2. Run local Elliott Wave analysis
+    const waveAnalysis = await analyzeElliottWaves(symbol, historicalData);
     // 3. Store only the analysis results in Supabase
     const { error } = await supabase
       .from('wave_analysis')
@@ -55,12 +51,10 @@ export async function updateStockWaveAnalysis(symbol: string): Promise<boolean> 
         analysis: waveAnalysis,
         updated_at: new Date().toISOString()
       }, { onConflict: 'symbol' });
-      
     if (error) {
       console.error(`Error storing wave analysis for ${symbol}:`, error);
       return false;
     }
-    
     console.log(`Successfully updated wave analysis for ${symbol}`);
     return true;
   } catch (err) {
@@ -158,7 +152,7 @@ export async function scheduleWaveAnalysis() {
         }
         
         // Run wave analysis
-        const analysis = await getDeepSeekWaveAnalysis(schedule.symbol, historicalData);
+        const analysis = await analyzeElliottWaves(schedule.symbol, historicalData);
         
         // Update analysis in database
         const { error: updateError } = await supabase

@@ -198,32 +198,6 @@ const fetchHistoricalData = async (symbol: string, timeframe: string = '1d') => 
   }
 };
 
-const getAnalysis = async (symbol: string): Promise<WaveAnalysis | null> => {
-  try {
-    const historicalData = await fetchHistoricalData(symbol);
-    const analysisRaw = await getAdminDirectAnalysis(symbol, historicalData);
-    
-    // Convert DeepSeekAnalysis to DeepSeekWaveAnalysis before passing to convertDeepSeekToWaveAnalysis
-    const deepSeekWaveAnalysis: DeepSeekWaveAnalysis = {
-      symbol: analysisRaw.symbol,
-      analysis: analysisRaw.analysis,
-      timestamp: analysisRaw.timestamp,
-      waves: [], // Add missing required property
-      currentWave: null,
-      fibTargets: [],
-      trend: 'neutral',
-      invalidWaves: [],
-      impulsePattern: false,
-      correctivePattern: false
-    };
-    
-    return convertDeepSeekToWaveAnalysis(deepSeekWaveAnalysis, historicalData);
-  } catch (error) {
-    console.error('Error getting analysis:', error);
-    return null;
-  }
-};
-
 const AdminDashboard: React.FC = () => {
   const { getAnalysis: getWaveAnalysis, analysisEvents, cancelAllAnalyses, clearCache } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
@@ -482,85 +456,124 @@ const loadCacheData = useCallback(async (forceRefresh = false) => {
 }, [supabase]);
 
 // Add this function to load the full data when a user clicks on an item
-const loadItemDetails = useCallback(async (key: string, type: 'waves' | 'historical') => {
-  try {
-    // Show loading toast
-    toast.info(`Loading full ${type === 'waves' ? 'wave analysis' : 'historical'} data for ${key}...`);
-    
-    const cacheKey = type === 'waves' ? `wave_analysis_${key}` : `historical_data_${key}`;
-    
-    // Fetch the full data for just this item, ensure we get the entire data object
-    const { data, error } = await supabase
-      .from('cache')
-      .select('*') // Get all fields including data
-      .eq('key', cacheKey)
-      .single();
-    
-    if (error) {
-      console.error(`Error loading ${type} data for ${key}:`, error);
-      toast.error(`Failed to load ${type} data: ${error.message}`);
-      throw error;
+const loadItemDetails = useCallback((key: string, type: 'waves' | 'historical') => {
+  return new Promise(async (resolve) => {
+    try {
+      // Show loading toast
+      toast.info(`Loading full ${type === 'waves' ? 'wave analysis' : 'historical'} data for ${key}...`);
+      
+      const cacheKey = type === 'waves' ? `wave_analysis_${key}` : `historical_data_${key}`;
+      
+      // Fetch the full data for just this item, ensure we get the entire data object
+      const { data, error } = await supabase
+        .from('cache')
+        .select('*') // Get all fields including data
+        .eq('key', cacheKey)
+        .single();
+      
+      if (error) {
+        console.error(`Error loading ${type} data for ${key}:`, error);
+        toast.error(`Failed to load ${type} data: ${error.message}`);
+        resolve(null);
+      }
+      
+      if (!data || !data.data) {
+        console.error(`No data found for ${key}`);
+        toast.error(`No data found for ${key}`);
+        resolve(null);
+      }
+      
+      console.log(`Successfully loaded ${type} data for ${key}:`, {
+        dataSize: JSON.stringify(data.data).length,
+        recordCount: Array.isArray(data.data) ? data.data.length : 'Not an array'
+      });
+      
+      // Update the state with the full data
+      if (type === 'waves') {
+        setWaveAnalyses(prev => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            analysis: data.data, // Store the entire analysis object
+            isLoaded: true
+          }
+        }));
+      } else {
+        setHistoricalData(prev => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            data: data.data, // Store all historical data points
+            isLoaded: true
+          }
+        }));
+      }
+      
+      // Return the complete data
+      resolve(data.data);
+    } catch (error) {
+      console.error(`Error loading details for ${key}:`, error);
+      toast.error(`Failed to load ${type} data for ${key}`);
+      resolve(null);
     }
-    
-    if (!data || !data.data) {
-      console.error(`No data found for ${key}`);
-      toast.error(`No data found for ${key}`);
-      return null;
-    }
-    
-    console.log(`Successfully loaded ${type} data for ${key}:`, {
-      dataSize: JSON.stringify(data.data).length,
-      recordCount: Array.isArray(data.data) ? data.data.length : 'Not an array'
-    });
-    
-    // Update the state with the full data
-    if (type === 'waves') {
-      setWaveAnalyses(prev => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          analysis: data.data, // Store the entire analysis object
-          isLoaded: true
-        }
-      }));
-    } else {
-      setHistoricalData(prev => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          data: data.data, // Store all historical data points
-          isLoaded: true
-        }
-      }));
-    }
-    
-    // Return the complete data
-    return data.data;
-  } catch (error) {
-    console.error(`Error loading details for ${key}:`, error);
-    toast.error(`Failed to load ${type} data for ${key}`);
-    return null;
-  }
+  });
 }, [supabase, toast]);
 
-// Add this function to analyze waves using the dedicated admin analysis function
+// Replace getAnalysis function with direct Elliott Wave analysis
+const getAnalysis = async (symbol: string): Promise<WaveAnalysis | null> => {
+  try {
+    // Get historical data for the symbol
+    const historicalData = await fetchHistoricalData(symbol);
+    
+    if (!historicalData || historicalData.length < 50) {
+      console.error(`Insufficient data points for ${symbol}: ${historicalData?.length || 0}`);
+      return null;
+    }
+
+    console.log(`Analyzing Elliott Waves for ${symbol} using built-in analysis module...`);
+    
+    // Import the Elliott Wave analysis function dynamically
+    const { analyzeElliottWaves } = await import('@/utils/elliottWaveAnalysis');
+    
+    // Call the Elliott Wave analysis function directly
+    const analysis = await analyzeElliottWaves(
+      symbol,
+      historicalData,
+      () => false, // isCancelled function that always returns false
+      undefined,   // onProgress handler (not needed here)
+      false        // verbose mode off
+    );
+    
+    // Return the analysis result with added symbol field and required properties
+    return {
+      ...analysis,
+      symbol: symbol,
+      impulsePattern: analysis.impulsePattern || false,
+      correctivePattern: analysis.correctivePattern || false
+    };
+  } catch (error) {
+    console.error('Error performing Elliott Wave analysis:', error);
+    return null;
+  }
+};
+
 const analyzeWaves = useCallback(async () => {
   if (!selectedAnalysisType || !selectedStockList || !selectedStockFilter) {
     toast.error('Please select all required options');
     return;
   }
 
-  // If ignoreCache is selected, clear the DeepSeek AI analysis cache first
+  // If ignoreCache is selected, clear existing wave analysis cache first
   if (ignoreCache) {
     try {
       const { error } = await supabase
         .from('cache')
         .delete()
-        .like('key', 'ai_elliott_wave_%');
+        .like('key', 'wave_analysis_%');
       
       if (error) {
-        console.error('Error clearing AI analysis cache:', error);
-        toast.error('Failed to clear analysis cache');
+        console.error('Error clearing wave analysis cache:', error);
+        toast.error('Failed to clear wave analysis cache');
       }
     } catch (error) {
       console.error('Error clearing cache:', error);
@@ -578,6 +591,9 @@ const analyzeWaves = useCallback(async () => {
   try {
     let waveAnalyzed = 0;
     
+    // Import the Elliott Wave analysis function dynamically
+    const { analyzeElliottWaves } = await import('@/utils/elliottWaveAnalysis');
+    
     for (const symbol of selectedStockList) {
       setAnalysisProgress(prev => ({
         ...prev,
@@ -594,30 +610,24 @@ const analyzeWaves = useCallback(async () => {
           continue;
         }
         
-        // Get fresh analysis from DeepSeek API
-        const analysisRaw = await getAdminDirectAnalysis(symbol, historicalData);
+        // Analyze waves using the built-in Elliott Wave module
+        const analysisResult = await analyzeElliottWaves(
+          symbol,
+          historicalData,
+          () => false, // isCancelled function
+          undefined, // No progress callback needed
+          false // verbose mode off
+        );
         
-        if (analysisRaw) {
-          // Convert raw analysis to wave analysis format and save to cache
-          // Create a DeepSeekWaveAnalysis object with all required properties
-          const deepSeekWaveAnalysis: DeepSeekWaveAnalysis = {
-            symbol: analysisRaw.symbol,
-            analysis: analysisRaw.analysis,
-            timestamp: analysisRaw.timestamp,
-            waves: [], // Required field
-            currentWave: null,
-            fibTargets: [],
-            trend: 'neutral'
-          };
-          const analysisResult = convertDeepSeekToWaveAnalysis(deepSeekWaveAnalysis, historicalData);
-          
+        if (analysisResult) {
           // Store in Supabase cache
           const { error: cacheError } = await supabase
             .from('cache')
             .upsert({
-              key: `ai_elliott_wave_${symbol}`,
-              data: analysisResult,
-              timestamp: Date.now()
+              key: `wave_analysis_${symbol}_1d`,
+              data: { ...analysisResult, symbol },
+              timestamp: Date.now(),
+              duration: cacheExpiryDays * 24 * 60 * 60 * 1000 // Convert days to milliseconds
             });
 
           if (cacheError) {
@@ -641,6 +651,8 @@ const analyzeWaves = useCallback(async () => {
       }
     }
 
+    // Update the local state with the new analyses
+    await loadCacheData(true);
     toast.success(`Wave analysis completed for ${waveAnalyzed} stocks`);
   } catch (error) {
     console.error('Error during wave analysis:', error);
@@ -653,7 +665,7 @@ const analyzeWaves = useCallback(async () => {
       currentSymbol: undefined
     });
   }
-}, [selectedAnalysisType, selectedStockList, selectedStockFilter, ignoreCache, getHistoricalData]);
+}, [selectedAnalysisType, selectedStockList, selectedStockFilter, ignoreCache, getHistoricalData, supabase, cacheExpiryDays, loadCacheData]);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
@@ -816,7 +828,7 @@ const analyzeWaves = useCallback(async () => {
             console.error(`Failed to load data for ${symbol}:`, error);
             errors.push(`${symbol}: ${error.message}`);
             failed++;
-            
+
             // Check if this is a favorite stock
             const isFavorite = favoriteSymbols.includes(symbol);
             
@@ -1355,167 +1367,6 @@ const clearCacheByType = async (type: 'historical' | 'waves' | 'ai', skipConfirm
     }
   }, [analysisEvents, getAnalysis, loadCacheData]);
 
-  // Add this function to save settings to Supabase
-const saveSettings = useCallback(async (settings: { 
-  stockCount: number,
-  cacheExpiryDays: number,
-  chartPaddingDays: number  // Add this line
-}) => {
-  try {
-    setIsRefreshing(true);
-    
-    // Store previous settings to determine what changed
-    const previousStockCount = stockCount;
-    
-    await supabase
-      .from('cache')
-      .upsert({
-        key: 'admin_settings',
-        data: settings,
-        timestamp: Date.now(),
-        duration: 365 * 24 * 60 * 60 * 1000, // 1 year
-      }, { onConflict: 'key' });
-      
-    toast.success('Settings saved successfully');
-    
-    // Only trigger refresh if stock count changed
-    if (settings.stockCount !== previousStockCount) {
-      setSettingsChanged(true);
-    }
-  } finally {
-    setIsRefreshing(false);
-  }
-}, [supabase, stockCount]);
-
-// Add this function to load settings from Supabase
-const loadSettings = useCallback(async () => {
-  try {
-    const { data, error } = await supabase
-      .from('cache')
-      .select('data')
-      .eq('key', 'admin_settings')
-      .single();
-      
-    if (error) {
-      // If settings don't exist yet, use defaults
-      console.log('No saved settings found, using defaults');
-      return;
-    }
-    
-    if (data?.data?.stockCount) {
-      setStockCount(data.data.stockCount);
-    }
-    
-    if (data?.data?.cacheExpiryDays !== undefined) {
-      setCacheExpiryDays(data.data.cacheExpiryDays);
-    }
-    
-    if (data?.data?.chartPaddingDays !== undefined) {
-      setChartPaddingDays(data.data.chartPaddingDays);
-    }
-  } catch (error) {
-    console.error('Error loading settings:', error);
-  }
-}, [supabase]);
-
-// Add effect to load settings when component mounts
-useEffect(() => {
-  loadSettings();
-}, [loadSettings]);
-
-// Add this effect to prompt for data reload when settings change
-useEffect(() => {
-  if (settingsChanged) {
-    const handleSettingsChange = async () => {
-      // Reset the flag first
-      setSettingsChanged(false);
-      
-      // Ask once for confirmation of the complete process, mentioning stock count specifically
-      if (window.confirm('The number of stocks to analyze has changed. This will clear existing data and perform a full analysis with the new stock count. This process may take several minutes. Continue?')) {
-        try {
-          // First clear the historical cache, then load new data
-          await clearHistoricalCacheWithoutConfirm();
-          await preloadHistoricalData();
-          
-          // Then clear the wave analysis cache and analyze waves
-          await clearWaveCacheWithoutConfirm();
-          await analyzeWaves();
-          
-          toast.success('Settings applied and data fully refreshed');
-        } catch (error) {
-          console.error('Error during settings update process:', error);
-          toast.error('An error occurred during the refresh process');
-        }
-      }
-    };
-    
-    handleSettingsChange();
-  }
-}, [settingsChanged, preloadHistoricalData, analyzeWaves]);
-
-  // Update the useEffect at the bottom of the component
-  useEffect(() => {
-    // When the component mounts, load data from Supabase, not cache
-    const initialLoad = async () => {
-      try {
-        await loadSettings();
-        await loadCacheData(true); // Force a fresh load on initial page load
-      } catch (err) {
-        console.error('Error during initial data load:', err);
-      }
-    };
-    
-    initialLoad();
-  }, [loadSettings, loadCacheData]);
-
-  // In the AdminDashboard component, modify the existing useEffect for background refresh events
-  useEffect(() => {
-    // Function to handle when background refresh is completed
-    const handleRefreshCompleted = async () => {
-      console.log('Background refresh completed event received, refreshing cache data');
-      toast.info('Background refresh completed, updating cache display...');
-      
-      try {
-        // Clear any cached data in memory to ensure we get fresh data
-        setWaveAnalyses({});
-        setHistoricalData({});
-        
-        // Clear localStorage cache to ensure subsequent page loads get fresh data
-        localStorage.removeItem('admin_dashboard_cache');
-        localStorage.removeItem('admin_dashboard_cache_timestamp');
-        localStorage.removeItem('admin_dashboard_cache_chunk_timestamp');
-        setLocalCacheTimestamp(0);
-        
-        // Add a slight delay before loading fresh data to allow Supabase to fully sync
-        toast.info('Waiting for database sync before loading fresh data...');
-        await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second delay
-        
-        // Now force reload cache data to show the latest wave analysis
-        // Using true to bypass local cache and get fresh data from Supabase
-        await loadCacheData(true);
-        
-        // Switch to waves tab to show the results
-        setActiveTab("waves");
-        
-        toast.success('Cache data refreshed successfully after background process completion');
-      } catch (error) {
-        console.error('Error refreshing cache after background process:', error);
-        toast.error('Failed to refresh cache data after background process');
-      }
-    };
-
-    // Listen for the custom event from BackgroundRefreshControl
-    window.addEventListener(REFRESH_COMPLETED_EVENT, handleRefreshCompleted);
-    
-    // Log that we've set up the event listener
-    console.log('Set up event listener for background refresh completion:', REFRESH_COMPLETED_EVENT);
-    
-    return () => {
-      // Clean up the event listener
-      window.removeEventListener(REFRESH_COMPLETED_EVENT, handleRefreshCompleted);
-    };
-  }, [loadCacheData, setActiveTab, toast]); // Make sure loadCacheData is included in the dependency array
-
   // Move setWaveAnalyses hook inside the component
   const setWaveAnalysisData = useCallback(async (symbol: string, analysis: WaveAnalysisResult) => {
     try {
@@ -1543,6 +1394,81 @@ useEffect(() => {
       console.error(`Error storing wave analysis for ${symbol}:`, error);
     }
   }, [supabase]);
+
+  // Add this function to save settings to Supabase
+const saveSettings = useCallback(async (settings: { 
+  stockCount: number,
+  cacheExpiryDays: number,
+  chartPaddingDays: number  
+}) => {
+  try {
+    setIsRefreshing(true);
+    
+    // Store previous settings to determine what changed
+    const previousStockCount = stockCount;
+    
+    await supabase
+      .from('cache')
+      .upsert({
+        key: 'admin_settings',
+        data: settings,
+        timestamp: Date.now(),
+        duration: 365 * 24 * 60 * 60 * 1000, // 1 year
+      }, { onConflict: 'key' });
+      
+    toast.success('Settings saved successfully');
+    
+    // Only trigger refresh if stock count changed
+    if (settings.stockCount !== previousStockCount) {
+      setSettingsChanged(true);
+    }
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    toast.error('Failed to save settings');
+  } finally {
+    setIsRefreshing(false);
+  }
+}, [supabase, stockCount]);
+
+  // Add this function to load settings from Supabase
+  const loadSettings = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      
+      // Get settings from Supabase
+      const { data, error } = await supabase
+        .from('cache')
+        .select('data')
+        .eq('key', 'admin_settings')
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Not found, use defaults
+          console.log('No saved settings found, using defaults');
+        } else {
+          console.error('Error loading settings:', error);
+          toast.error('Failed to load settings');
+        }
+      } else if (data?.data) {
+        // Apply loaded settings
+        const settings = data.data;
+        setStockCount(settings.stockCount || 100);
+        setCacheExpiryDays(settings.cacheExpiryDays || 7);
+        setChartPaddingDays(settings.chartPaddingDays || 20);
+        
+        console.log('Settings loaded successfully:', settings);
+      }
+      
+      return Promise.resolve();
+    } catch (error) {
+      console.error('Error in loadSettings:', error);
+      toast.error('Failed to load settings');
+      return Promise.resolve();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [supabase, setStockCount, setCacheExpiryDays, setChartPaddingDays]);
 
   useEffect(() => {
     // Disable API logging during mount

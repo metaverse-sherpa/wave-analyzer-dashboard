@@ -662,95 +662,44 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           console.log(`Historical data retrieved for ${symbol}, performing Elliott Wave analysis`);
           console.log(`Sample data point: ${JSON.stringify(historicalData[0])}`);
           
-          // Perform Elliott Wave analysis with DeepSeek API with retry logic
-          const MAX_RETRIES = 3;
-          const RETRY_DELAY = 2000; // 2 seconds
+          // CHANGED: Use our built-in Elliott Wave algorithm instead of DeepSeek API
+          console.log(`Using built-in Elliott Wave algorithm for ${symbol}`);
           
-          let attempt = 0;
-          let analysisResult;
+          // Import the Elliott Wave analysis function dynamically
+          const { analyzeElliottWaves } = await import('@/utils/elliottWaveAnalysis');
           
-          while (attempt < MAX_RETRIES) {
-            try {
-              const deepseekUrl = `${import.meta.env.VITE_API_BASE_URL}/analyze-waves`;
-              console.log(`Making API request to: ${deepseekUrl}`, {
-                symbol,
-                timeframe: '1d',
-                forceRefresh: options.ignoreCache || false,
-                dataPoints: historicalData.length
+          // Create a check function for cancellation - always returns false here since we don't support cancellation in this context
+          const isCancelled = () => false;
+          
+          // Call the Elliott Wave analysis function directly
+          console.log(`Starting Elliott Wave analysis for ${symbol} with ${historicalData.length} data points`);
+          const analysisStartTime = Date.now();
+          
+          const analysisResult = await analyzeElliottWaves(
+            symbol,
+            historicalData,
+            isCancelled, // isCancelled function that always returns false
+            (waves) => {
+              // The progress callback takes a Wave[] array, not a number
+              // Calculate progress from the waves array length if needed
+              // For simplicity, just report analysis is ongoing
+              dispatchWorkerEvent('OPERATION_STATUS', {
+                step: 'elliott-wave-analysis',
+                message: `Analyzing waves for ${symbol} (${i+1}/${stockSymbols.length})`,
+                progress: Math.floor((i / stockSymbols.length) * 100),
+                timestamp: Date.now()
               });
-              
-              const requestStartTime = Date.now();
-              const analysisResponse = await fetch(deepseekUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${import.meta.env.VITE_PUBLIC_DEEPSEEK_API_KEY || ''}`
-                },
-                body: JSON.stringify({
-                  symbol,
-                  timeframe: '1d',
-                  historicalData,
-                  force: options.ignoreCache || false, // Pass ignoreCache option to API
-                  storeInCache: true
-                })
-              });
-              
-              const requestDuration = Date.now() - requestStartTime;
-              console.log(`API request completed in ${requestDuration}ms with status ${analysisResponse.status}`);
-              
-              if (!analysisResponse.ok) {
-                const errorText = await analysisResponse.text();
-                console.error(`DeepSeek API error (attempt ${attempt + 1}/${MAX_RETRIES}):`, {
-                  status: analysisResponse.status,
-                  error: errorText
-                });
-                
-                if (analysisResponse.status === 429) { // Rate limit
-                  console.log(`Rate limited, waiting ${RETRY_DELAY * (attempt + 1)}ms before retry`);
-                  await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (attempt + 1)));
-                  attempt++;
-                  continue;
-                }
-                
-                throw new Error(`DeepSeek API error: ${analysisResponse.status} - ${errorText}`);
-              }
-              
-              analysisResult = await analysisResponse.json();
-              console.log(`Received response from DeepSeek API for ${symbol}:`, {
-                status: analysisResponse.status,
-                responseSize: JSON.stringify(analysisResult).length,
-                hasData: !!analysisResult?.data,
-                requestDuration
-              });
-              
-              // Validate the analysis result
-              if (!analysisResult || typeof analysisResult !== 'object') {
-                throw new Error('Invalid analysis result format');
-              }
-              
-              // Success - break the retry loop
-              break;
-              
-            } catch (error) {
-              console.error(`Error in wave analysis attempt ${attempt + 1}/${MAX_RETRIES} for ${symbol}:`, error);
-              
-              if (attempt === MAX_RETRIES - 1) {
-                throw error; // Rethrow on final attempt
-              }
-              
-              // Wait before retrying
-              console.log(`Waiting ${RETRY_DELAY * (attempt + 1)}ms before retry ${attempt + 2}`);
-              await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (attempt + 1)));
-              attempt++;
-            }
-          }
+            },
+            false // verbose mode off
+          );
+          
+          const analysisDuration = Date.now() - analysisStartTime;
+          console.log(`Elliott Wave analysis for ${symbol} completed in ${analysisDuration}ms`);
           
           if (!analysisResult) {
-            throw new Error(`Failed to get valid analysis result after ${MAX_RETRIES} attempts`);
+            console.error(`No analysis result returned for ${symbol}`);
+            continue;
           }
-          
-          // Extract the actual analysis data from the response
-          const analysisData = analysisResult.data || analysisResult;
           
           // Store the analysis result in Supabase cache
           console.log(`Storing analysis result for ${symbol} in Supabase cache`);
@@ -758,11 +707,11 @@ export function DataRefreshProvider({ children }: { children: React.ReactNode })
           const { error: cacheError } = await supabase
             .from('cache')
             .upsert({
-              key: `wave_analysis_${symbol}`,
-              data: analysisData,
+              key: `wave_analysis_${symbol}_1d`, // Add timeframe to key
+              data: { ...analysisResult, symbol }, // Make sure to include the symbol
               timestamp: Date.now(),
-              duration: 24 * 60 * 60 * 1000, // 24 hour cache duration
-              is_string: typeof analysisData === 'string'
+              duration: 7 * 24 * 60 * 60 * 1000, // 7 days cache duration (more consistent with our settings)
+              is_string: false // This is an object, not a string
             }, { onConflict: 'key' });
             
           if (cacheError) {
