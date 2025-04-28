@@ -27,6 +27,7 @@ import { Line } from 'react-chartjs-2';
 import { AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getCachedWaveAnalysis } from '@/utils/wave-analysis';
+import { Badge } from '@/components/ui/badge';
 
 // Import datalabels
 import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -196,6 +197,23 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   viewMode = 'current',
   errorMessage
 }) => {
+  // --- Add detailed logging at the start ---
+  console.log('[WaveChart:Props] Received props:', {
+    symbol,
+    dataLength: data?.length,
+    wavesLength: waves?.length,
+    currentWave: currentWave ? { number: currentWave.number, start: currentWave.startTimestamp, end: currentWave.endTimestamp } : null,
+    fibTargetsLength: fibTargets?.length,
+    selectedWave: selectedWave ? { number: selectedWave.number, start: selectedWave.startTimestamp } : null,
+    livePrice,
+    viewMode,
+    errorMessage
+  });
+  if (waves && waves.length > 0) {
+    console.log('[WaveChart:Props] Sample wave data:', waves.slice(0, 3));
+  }
+  // --- End detailed logging ---
+
   const { settings } = useAdminSettings();
   const chartPaddingDays = settings.chartPaddingDays;
   
@@ -539,6 +557,24 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
     } as CustomChartDataset;
   };
 
+  // --- Trend badge logic ---
+  const trend = useMemo(() => {
+    if (currentWave && currentWave.type) {
+      if (typeof currentWave.number === 'number') {
+        if ([1, 3, 5].includes(currentWave.number)) return 'bullish';
+        if ([2, 4].includes(currentWave.number)) return 'bearish';
+      }
+      if (typeof currentWave.number === 'string') {
+        if (currentWave.number === 'B') return 'bullish';
+        if (['A', 'C'].includes(currentWave.number)) return 'bearish';
+      }
+    }
+    return 'neutral';
+  }, [currentWave]);
+
+  // --- Invalid waves logic ---
+  const invalidWaves = useMemo(() => waves.filter(w => w.isValid === false || w.isInvalidated || w.isTerminated), [waves]);
+
   const chartData: ChartData<keyof ChartTypeRegistry> = {
     labels: ohlcData.map(d => new Date(d.timestamp).toLocaleDateString()),
     datasets: [
@@ -559,64 +595,102 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           display: false
         }
       } as unknown as ChartDataset<keyof ChartTypeRegistry>,
+      // --- Log before wave connection generation ---
       ...((() => {
         const filteredWaves = waves.filter(wave => {
           if (!wave || wave.number === 0) return false;
-          
           if (viewMode === 'current' && mostRecentWave1) {
             const wave1StartTime = getTimestampValue(mostRecentWave1.startTimestamp);
             const waveStartTime = getTimestampValue(wave.startTimestamp);
             return waveStartTime >= wave1StartTime;
           }
-          
           return true;
         });
-        
+        console.log('[WaveChart:Datasets] Filtered waves for connection line:', filteredWaves.map(w => w.number));
         const connection = generateWaveConnectionData(filteredWaves);
+        console.log('[WaveChart:Datasets] Generated connection dataset:', connection ? 'Yes' : 'No');
         return connection ? [connection as unknown as ChartDataset<keyof ChartTypeRegistry>] : [];
       })()),
+      // --- Log before invalid wave markers ---
+      ...invalidWaves.map(wave => {
+        console.log(`[WaveChart:Datasets] Processing invalid wave marker for wave ${wave.number}`);
+        const idx = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.invalidationTimestamp || wave.endTimestamp));
+        if (idx === -1) {
+          console.warn(`[WaveChart:Datasets] Could not find index for invalid wave ${wave.number}`);
+          return null;
+        }
+        return {
+          type: 'scatter' as const,
+          label: `Invalid Wave ${wave.number}`,
+          data: ohlcData.map((_, i) => i === idx ? wave.invalidationPrice || wave.endPrice : null),
+          backgroundColor: 'rgba(255, 0, 0, 0.8)',
+          borderColor: 'rgba(255, 0, 0, 1)',
+          borderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointStyle: 'cross',
+          z: 30,
+          datalabels: {
+            display: (ctx: any) => ctx.dataIndex === idx,
+            formatter: () => `✖`,
+            color: 'white',
+            backgroundColor: 'rgba(255,0,0,0.8)',
+            borderRadius: 4,
+            font: { weight: 'bold', size: 12 },
+            anchor: 'end',
+            align: 'top',
+            offset: 8
+          }
+        } as ChartDataset<keyof ChartTypeRegistry>;
+      }).filter(Boolean),
+      // --- Log before individual wave scatter points ---
       ...waves
         .filter(wave => {
           if (!wave || wave.number === 0) return false;
-          
           if (viewMode === 'current' && mostRecentWave1) {
             const wave1StartTime = getTimestampValue(mostRecentWave1.startTimestamp);
             const waveStartTime = getTimestampValue(wave.startTimestamp);
             return waveStartTime >= wave1StartTime;
           }
-          
           return true;
         })
         .map(wave => {
+          console.log(`[WaveChart:Datasets] Processing scatter point for wave ${wave.number}`);
           const isCurrentWave = currentWave && 
                                wave.number === currentWave.number && 
                                getTimestampValue(wave.startTimestamp) === getTimestampValue(currentWave.startTimestamp);
-          
           if (isCurrentWave && !currentWave.isComplete) {
+            console.log(`[WaveChart:Datasets] Skipping current incomplete wave ${wave.number}`);
             return null;
           }
-          
-          const startTimestamp = wave.startTimestamp;
-          const endTimestamp = wave.endTimestamp || data[data.length - 1].timestamp;
-          
-          const startIndex = ohlcData.findIndex(d => d.timestamp >= startTimestamp);
-          const endIndex = ohlcData.findIndex(d => d.timestamp >= endTimestamp);
-          
-          const effectiveStartIndex = startIndex === -1 ? 0 : startIndex;
-          const effectiveEndIndex = endIndex === -1 ? ohlcData.length - 1 : endIndex;
-          
+          // --- Robust index finding ---
+          const startTimestamp = getTimestampValue(wave.startTimestamp);
+          const endTimestamp = getTimestampValue(wave.endTimestamp || data[data.length - 1].timestamp);
+          // Find closest index for start
+          let startIndex = ohlcData.findIndex(d => d.timestamp >= startTimestamp);
+          if (startIndex === -1) {
+            startIndex = ohlcData.reduce((bestIdx, d, idx) => Math.abs(d.timestamp - startTimestamp) < Math.abs(ohlcData[bestIdx].timestamp - startTimestamp) ? idx : bestIdx, 0);
+            console.warn(`[WaveChart] No exact start index for wave ${wave.number}, snapping to closest:`, startIndex, ohlcData[startIndex]?.timestamp, 'target', startTimestamp);
+          }
+          // Find closest index for end
+          let endIndex = ohlcData.findIndex(d => d.timestamp >= endTimestamp);
+          if (endIndex === -1) {
+            endIndex = ohlcData.reduce((bestIdx, d, idx) => Math.abs(d.timestamp - endTimestamp) < Math.abs(ohlcData[bestIdx].timestamp - endTimestamp) ? idx : bestIdx, 0);
+            console.warn(`[WaveChart] No exact end index for wave ${wave.number}, snapping to closest:`, endIndex, ohlcData[endIndex]?.timestamp, 'target', endTimestamp);
+          }
+          // Debug log
+          console.log(`[WaveChart] Plotting wave ${wave.number}: startIdx=${startIndex}, endIdx=${endIndex}, startPrice=${wave.startPrice}, endPrice=${wave.endPrice}`);
           const dataArray = Array(ohlcData.length).fill(null);
-          
-          if (effectiveStartIndex < ohlcData.length) {
-            dataArray[effectiveStartIndex] = createSafeDataPoint(effectiveStartIndex, 
-              wave.startPrice).y;
-            
-            if (effectiveEndIndex < ohlcData.length && wave.endPrice) {
-              dataArray[effectiveEndIndex] = createSafeDataPoint(effectiveEndIndex, 
-                wave.endPrice).y;
+          if (startIndex < ohlcData.length) {
+            dataArray[startIndex] = createSafeDataPoint(startIndex, wave.startPrice).y;
+            if (endIndex < ohlcData.length && wave.endPrice) {
+              dataArray[endIndex] = createSafeDataPoint(endIndex, wave.endPrice).y;
             }
           }
-          
+          if (dataArray.every(d => d === null)) {
+             console.warn(`[WaveChart:Datasets] Wave ${wave.number} resulted in empty data array, skipping dataset.`);
+             return null;
+          }
           return {
             type: 'scatter' as const,
             label: `Wave ${wave.number}`,
@@ -625,7 +699,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             borderColor: 'rgba(0, 0, 0, 0.5)',
             borderWidth: 1,
             pointRadius: (ctx: any) => {
-              if (ctx.dataIndex === effectiveStartIndex) {
+              if (ctx.dataIndex === startIndex) {
                 return wave.number === 5 && wave.isComplete ? 0 : 4;
               }
               return 0;
@@ -636,10 +710,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             datalabels: {
               display: (ctx: any) => {
                 if (wave.isComplete && wave.endPrice) {
-                  return ctx.dataIndex === effectiveEndIndex;
+                  return ctx.dataIndex === endIndex;
                 }
-                
-                return ctx.dataIndex === effectiveStartIndex;
+                return ctx.dataIndex === startIndex;
               },
               formatter: (value: any, ctx: any) => {
                 return `${wave.number}`;
@@ -679,32 +752,53 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         fibTargets
           .filter(target => !target.label.includes("Wave 3 High"))
           .map(target => {
-            const startIndex = ohlcData.findIndex(d => 
-              d.timestamp >= getTimestampValue(currentWave.startTimestamp)
-            );
-            
-            if (startIndex === -1) return null;
-            
-            const dataArray = Array(ohlcData.length).fill(null);
-            
-            dataArray[startIndex] = createSafeDataPoint(startIndex, currentWave.startPrice).y;
-            
+            // Find the index in the chart data corresponding to the current wave's start time
+            const waveStartTimestamp = getTimestampValue(currentWave.startTimestamp);
+            const startIndex = ohlcData.findIndex(d => d.timestamp >= waveStartTimestamp);
+
+            // --- Add Debug Logging ---
+            console.log(`[FibTarget] Wave ${currentWave.number} Start: ${new Date(waveStartTimestamp).toISOString()}`);
+            console.log(`[FibTarget] ohlcData Start: ${ohlcData.length > 0 ? new Date(ohlcData[0].timestamp).toISOString() : 'N/A'}`);
+            console.log(`[FibTarget] Calculated startIndex: ${startIndex}`);
+            if (startIndex !== -1 && ohlcData[startIndex]) {
+                console.log(`[FibTarget] Timestamp at startIndex (${startIndex}): ${new Date(ohlcData[startIndex].timestamp).toISOString()}`);
+            } else if (startIndex === -1) {
+                 console.warn(`[FibTarget] Could not find index for timestamp ${new Date(waveStartTimestamp).toISOString()} in ohlcData`);
+            }
+            // --- End Debug Logging ---
+
+            // Ensure we have a valid start index AND a valid start price for the current wave
+            if (startIndex === -1 || currentWave.startPrice == null) {
+                console.warn(`[FibTarget] Skipping target ${target.label} due to missing startIndex (${startIndex}) or startPrice (${currentWave.startPrice}) for wave ${currentWave.number}`);
+                return null;
+            }
+
+            const waveStartPrice = currentWave.startPrice; // Use a validated variable
+
+            // Define where the target line should visually end
             const endIndex = Math.min(startIndex + 15, ohlcData.length - 1);
-            dataArray[endIndex] = createSafeDataPoint(endIndex, target.price).y;
-            
+
+            // Ensure endIndex is valid and after startIndex
+            if (endIndex <= startIndex) {
+                console.warn(`[FibTarget] Skipping target ${target.label} due to invalid endIndex (${endIndex}) relative to startIndex (${startIndex})`);
+                return null;
+            }
+
+            // Generate the data points for the line
             return {
               type: 'line' as const,
               label: `${target.label}: $${target.price.toFixed(2)}`,
               data: ohlcData.map((_, i) => {
                 if (i === startIndex) {
-                  return currentWave.startPrice;
-                } 
+                  return waveStartPrice; // Use validated price
+                }
                 else if (i === endIndex) {
                   return target.price;
-                } 
+                }
                 else if (i > startIndex && i < endIndex) {
                   const progress = (i - startIndex) / (endIndex - startIndex);
-                  return currentWave.startPrice + (target.price - currentWave.startPrice) * progress;
+                  // Interpolate using validated price
+                  return waveStartPrice + (target.price - waveStartPrice) * progress;
                 }
                 return null;
               }),
@@ -817,6 +911,13 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       }] : [])
     ]
   } as ChartData<keyof ChartTypeRegistry>;
+
+  // --- Log final dataset count ---
+  useEffect(() => {
+    console.log("[WaveChart:Final] Final number of datasets prepared:", chartData.datasets.length);
+    console.log("[WaveChart:Final] Dataset labels:", chartData.datasets.map(d => d.label));
+  }, [chartData]);
+  // --- End final dataset count log ---
 
   const wave4 = waves.find(w => w.number === 4 && w.isComplete);
   const wave5 = waves.find(w => w.number === 5 && w.isComplete);
@@ -1094,6 +1195,27 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 
   return (
     <div className="w-full h-[500px] relative">
+      {/* Trend badge at the top left */}
+      <div className="absolute left-4 top-4 z-20">
+        <Badge
+          className={
+            trend === 'bullish' ? 'bg-green-600 text-white' :
+            trend === 'bearish' ? 'bg-red-600 text-white' :
+            'bg-gray-400 text-white'
+          }
+        >
+          {trend.charAt(0).toUpperCase() + trend.slice(1)} Trend
+        </Badge>
+      </div>
+      {/* Invalid waves legend */}
+      {invalidWaves.length > 0 && (
+        <div className="absolute right-4 top-4 z-20 flex items-center space-x-2 bg-background/80 px-3 py-1 rounded shadow">
+          <span className="text-xs text-red-600 font-semibold">✖ Invalidated Wave(s):</span>
+          {invalidWaves.map((w, i) => (
+            <span key={i} className="text-xs text-red-600">{w.number}</span>
+          ))}
+        </div>
+      )}
       <div className="relative h-[500px] bg-[#1a1a1a] rounded-md p-4">
         <Line 
           data={safeChartData as any}

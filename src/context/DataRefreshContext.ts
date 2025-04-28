@@ -1,4 +1,4 @@
-import { createContext } from 'react';
+  import { createContext, useContext } from 'react';
 
 // Type for refresh status
 type RefreshStatus = 'idle' | 'in-progress' | 'error';
@@ -23,3 +23,12 @@ export interface DataRefreshContextType {
 
 // Create and export the context
 export const DataRefreshContext = createContext<DataRefreshContextType | undefined>(undefined);
+
+// Define the hook in the context file for better Fast Refresh compatibility
+export function useDataRefresh() {
+  const context = useContext(DataRefreshContext);
+  if (!context) {
+    throw new Error('useDataRefresh must be used within a DataRefreshProvider');
+  }
+  return context;
+}

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useRef, useState } from 'react';
 import { useHistoricalData } from './HistoricalDataContext';
 import { useWaveAnalysis } from './WaveAnalysisContext';
 import { marketIndexes } from '@/config/marketIndexes';
@@ -55,16 +55,6 @@ const safePostMessage = (channel: BroadcastChannel | null, message: any) => {
     // Don't rethrow - we want to handle this gracefully
   }
 };
-
-// Define the hook before the provider
-// This helps React Fast Refresh track the component/hook identity between HMR updates
-export function useDataRefresh(): DataRefreshContextType {
-  const context = useContext(DataRefreshContext);
-  if (!context) {
-    throw new Error('useDataRefresh must be used within a DataRefreshProvider');
-  }
-  return context;
-}
 
 // Named export for the provider component using function declaration instead of arrow function
 // This allows React Fast Refresh to correctly update the component

@@ -271,23 +271,14 @@ export const getCachedWaveAnalysis = async (symbol: string): Promise<WaveAnalysi
             analysisData = JSON.parse(aiAnalysisData.data);
           } catch (parseError) {
             console.warn(`Failed to parse AI Elliott Wave JSON for ${symbol}:`, parseError);
-            // If parsing fails, create a basic structure with the raw text as analysis
-            analysisData = {
-              analysis: aiAnalysisData.data,
-              waves: [],
-              currentWave: null,
-              trend: extractTrendFromText(aiAnalysisData.data)
-            };
+            // If parsing fails, return null as we don't have structured wave data
+            analysisData = null; // Return null instead of empty waves
           }
         } else {
           // Handle raw text format (non-JSON)
           console.log(`AI Elliott Wave analysis for ${symbol} is in raw text format, not JSON`);
-          analysisData = {
-            analysis: aiAnalysisData.data,
-            waves: [],
-            currentWave: null,
-            trend: extractTrendFromText(aiAnalysisData.data)
-          };
+          // Return null as we don't have structured wave data
+          analysisData = null; // Return null instead of empty waves
         }
       } else if (aiAnalysisData.data !== null && typeof aiAnalysisData.data === 'object') {
         // If it's already an object, use it directly

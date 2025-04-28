@@ -39,10 +39,19 @@ function ReversalsLastUpdated() {
       
       if (!error && cacheData && cacheData.length > 0) {
         symbols = cacheData
-          .map(item => item.key.replace('wave_analysis_', ''))
+          .map(item => {
+            // Extract the part after 'wave_analysis_'
+            const keyPart = item.key.replace('wave_analysis_', '');
+            // Remove the timeframe suffix (e.g., '_1d', '_4h')
+            const symbolOnly = keyPart.replace(/_\w+$/, ''); 
+            return symbolOnly;
+          })
           .filter(Boolean); // Remove any empty strings
         
-        console.log(`Loaded ${symbols.length} symbols from Supabase cache`);
+        // Deduplicate symbols
+        symbols = [...new Set(symbols)];
+        
+        console.log(`Loaded ${symbols.length} unique symbols from Supabase cache`);
       } else {
         // Fall back to localStorage or default symbols if Supabase query fails
         symbols = localStorage.getItem('symbols')?.split(',') || ['AAPL', 'MSFT', 'GOOG'];

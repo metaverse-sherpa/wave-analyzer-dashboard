@@ -9,157 +9,96 @@ interface DataInitializerProps {
 
 const DataInitializer: FC<DataInitializerProps> = ({ onDataLoaded, onError }) => {
   const { toast } = useToast();
-  const { loadAllAnalysesFromSupabase, allAnalyses, isDataLoaded, loadCacheTableData } = useWaveAnalysis();
+  // isDataLoaded reflects if the context *thinks* data has been loaded (might be empty)
+  // allAnalyses holds the actual data
+  const { loadCacheTableData, allAnalyses, isDataLoaded } = useWaveAnalysis();
+
+  // Ref to track if onDataLoaded has been called by this instance
   const hasCalledOnDataLoaded = useRef(false);
-  const previousAnalysesCount = useRef(0);
-  const loadAttempts = useRef(0);
-  const maxLoadAttempts = 3;
-  const initStarted = useRef(false);
-  const alreadyRunningInitRef = useRef(false);
-  
-  // Once per page session tracker to prevent multiple initializations across navigation
-  useEffect(() => {
-    // Check if we've already initialized in this session
-    try {
-      const isInitialized = sessionStorage.getItem('data_initializer_ran') === 'true';
-      if (isInitialized && !hasCalledOnDataLoaded.current) {
-        hasCalledOnDataLoaded.current = true;
-        onDataLoaded();
-        console.log("DataInitializer already ran in this session, skipping initialization");
-      }
-    } catch (e) {
-      // Ignore storage errors
-    }
+  // Ref to track if an initialization attempt is currently in progress
+  const isInitializing = useRef(false);
 
-    return () => {
-      // Cleanup - mark as initialized on unmount
-      try {
-        if (hasCalledOnDataLoaded.current) {
-          sessionStorage.setItem('data_initializer_ran', 'true');
-        }
-      } catch (e) {
-        // Ignore storage errors
-      }
-    };
-  }, [onDataLoaded]);
-
+  // Effect 1: React to changes in the actual data (allAnalyses)
   useEffect(() => {
     const analysesCount = Object.keys(allAnalyses).length;
-    
-    // If we have analyses and count has changed, mark as loaded
-    if (analysesCount > 0 && analysesCount !== previousAnalysesCount.current) {
-      previousAnalysesCount.current = analysesCount;
-      console.log("Data loaded successfully", {
-        analysesCount,
-        sampleKeys: Object.keys(allAnalyses).slice(0, 3),
-        sampleData: Object.values(allAnalyses).slice(0, 1)
-      });
+    console.log("DataInitializer: Data listener effect.", { analysesCount, hasCalled: hasCalledOnDataLoaded.current });
 
-      if (!hasCalledOnDataLoaded.current) {
-        hasCalledOnDataLoaded.current = true;
-        console.log("Data successfully loaded from DataInitializer");
-        onDataLoaded();
-        
-        // Mark initialization as complete for this session
-        try {
-          sessionStorage.setItem('data_initializer_ran', 'true');
-        } catch (e) {
-          // Ignore storage errors
-        }
-      }
+    // If we have data AND we haven't called onDataLoaded yet, call it.
+    if (analysesCount > 0 && !hasCalledOnDataLoaded.current) {
+      console.log(`DataInitializer: Detected ${analysesCount} analyses. Calling onDataLoaded.`);
+      hasCalledOnDataLoaded.current = true;
+      onDataLoaded();
     }
-    // Only retry loading if we've never loaded any data before
-    else if (isDataLoaded && analysesCount === 0 && previousAnalysesCount.current === 0) {
-      console.warn("Data marked as loaded but no analyses found", {
-        attempts: loadAttempts.current,
-        maxAttempts: maxLoadAttempts
-      });
+  }, [allAnalyses, onDataLoaded]);
 
-      if (loadAttempts.current < maxLoadAttempts) {
-        // Try loading again
-        loadAttempts.current++;
-        loadCacheTableData(true).catch(error => {
-          console.error('Retry attempt failed:', error);
-        });
-      } else if (!hasCalledOnDataLoaded.current) {
-        console.error("Max load attempts reached with no data");
-        onError("Failed to load analysis data after multiple attempts");
-        hasCalledOnDataLoaded.current = true;
-      }
-    }
-  }, [allAnalyses, isDataLoaded, loadCacheTableData, onDataLoaded, onError]);
-
+  // Effect 2: Trigger the initial load if necessary
   useEffect(() => {
-    // Skip if we've already called onDataLoaded
-    if (hasCalledOnDataLoaded.current) {
-      return;
-    }
-    
-    // If data is already loaded or we're already initializing, skip initialization
-    if (isDataLoaded) {
-      console.log("Skipping DataInitializer init - data already loaded or initialization in progress");
-      // If data is already loaded but we haven't called onDataLoaded yet, do it now
-      if (!hasCalledOnDataLoaded.current) {
-        hasCalledOnDataLoaded.current = true;
-        onDataLoaded();
+    console.log("DataInitializer: Initial load trigger effect.", {
+      isDataLoadedContext: isDataLoaded, // Context flag
+      hasCalled: hasCalledOnDataLoaded.current, // Local flag
+      isInitializing: isInitializing.current // Local flag
+    });
+
+    // Conditions to *skip* initialization:
+    // 1. If onDataLoaded has already been called by this instance.
+    // 2. If the context already indicates data is loaded (isDataLoaded is true).
+    // 3. If an initialization process is already running.
+    if (hasCalledOnDataLoaded.current || isDataLoaded || isInitializing.current) {
+      console.log("DataInitializer: Skipping initialization trigger.", {
+         called: hasCalledOnDataLoaded.current,
+         contextLoaded: isDataLoaded,
+         initializing: isInitializing.current
+      });
+      // If context says loaded but we haven't called onDataLoaded (e.g., race condition), call it now.
+      if (isDataLoaded && !hasCalledOnDataLoaded.current) {
+          console.log("DataInitializer: Context loaded but local flag not set. Calling onDataLoaded.");
+          hasCalledOnDataLoaded.current = true;
+          onDataLoaded();
       }
       return;
     }
-    
-    // If already running, skip
-    if (alreadyRunningInitRef.current) {
-      return;
-    }
-    
-    const initializeData = async () => {
-      // Prevent concurrent initializations
-      if (initStarted.current) return;
-      
-      alreadyRunningInitRef.current = true;
-      initStarted.current = true;
-      
-      try {
-        // Check if analyses are already loaded
-        const analysesCount = Object.keys(allAnalyses).length;
-        if (analysesCount > 0) {
-          console.log(`DataInitializer found ${analysesCount} analyses already loaded, skipping load`);
-          if (!hasCalledOnDataLoaded.current) {
-            hasCalledOnDataLoaded.current = true;
-            onDataLoaded();
-            try {
-              sessionStorage.setItem('data_initializer_ran', 'true');
-            } catch (e) {
-              // Ignore storage errors
-            }
-          }
-          return;
-        }
-        
-        console.log("DataInitializer loading analyses from Supabase");
-        await loadCacheTableData(false); // Use the updated function with forceRefresh=false
-      } catch (error) {
-        console.error('Data initialization error:', {
-          error,
-          message: error instanceof Error ? error.message : 'Unknown error',
-          attempts: loadAttempts.current
-        });
 
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to load analysis data. Please try refreshing the page.",
-          duration: 7000,
-        });
-        
+    // --- Proceed with initialization --- 
+    const initialize = async () => {
+      // Prevent concurrent runs within this instance
+      if (isInitializing.current) return;
+      isInitializing.current = true;
+      console.log("DataInitializer: Starting data initialization...");
+
+      try {
+        // Check data count *again* right before fetching, in case it loaded between effects
+        const currentAnalysesCount = Object.keys(allAnalyses).length;
+        if (currentAnalysesCount > 0) {
+           console.log(`DataInitializer: Found ${currentAnalysesCount} analyses just before fetch. Skipping fetch.`);
+           if (!hasCalledOnDataLoaded.current) {
+               hasCalledOnDataLoaded.current = true;
+               onDataLoaded();
+           }
+        } else {
+            console.log("DataInitializer: Calling loadCacheTableData()...");
+            await loadCacheTableData(false); // forceRefresh = false
+            console.log("DataInitializer: loadCacheTableData() finished.");
+            // Effect 1 will handle calling onDataLoaded when allAnalyses updates
+        }
+      } catch (error) {
+        console.error('DataInitializer: Error during data load:', error);
+        toast({ variant: "destructive", title: "Error", description: "Failed to load initial analysis data.", duration: 7000 });
         onError("Failed to initialize data");
+        // Ensure we don't get stuck waiting if an error occurs
+        if (!hasCalledOnDataLoaded.current) {
+          hasCalledOnDataLoaded.current = true; // Mark as 'done' even on error to prevent loops
+        }
       } finally {
-        alreadyRunningInitRef.current = false;
+        console.log("DataInitializer: Initialization attempt finished.");
+        isInitializing.current = false;
       }
     };
 
-    initializeData();
-  }, [isDataLoaded, loadCacheTableData, onError, toast, allAnalyses, onDataLoaded]);
+    initialize();
 
+  }, [isDataLoaded, allAnalyses, loadCacheTableData, onDataLoaded, onError, toast]); // Dependencies
+
+  // This component manages the loading process but renders nothing
   return null;
 };
 

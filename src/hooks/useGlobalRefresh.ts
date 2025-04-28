@@ -84,7 +84,7 @@ export const useGlobalRefresh = () => {
         const promises = batch.map(async symbol => {
           try {
             // Update to use the correct endpoint that returns stock data
-            const url = apiUrl(`/stocks/${symbol}`);
+            const url = apiUrl(`/stocks/${symbol}`); // Use apiUrl helper
             console.log(`Fetching fresh price for ${symbol} from: ${url}`);
             
             const response = await fetchWithRetry(url);
