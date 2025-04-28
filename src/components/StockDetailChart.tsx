@@ -505,39 +505,77 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
 
   const generateWaveConnectionData = (filteredWaves: Wave[]): CustomChartDataset | null => {
     if (!filteredWaves || filteredWaves.length < 2) {
+      console.log('[WaveConnection] Not enough waves to generate connections');
       return null;
     }
     
+    // Log the waves we're connecting to help debug
+    console.log('[WaveConnection] Generating connection line for waves:', 
+      filteredWaves.map(w => ({ 
+        num: w.number, 
+        start: w.startTimestamp ? new Date(getTimestampValue(w.startTimestamp)).toISOString() : 'unknown', 
+        end: w.endTimestamp ? new Date(getTimestampValue(w.endTimestamp)).toISOString() : 'ongoing',
+        startPrice: w.startPrice,
+        endPrice: w.endPrice || 'unknown'
+      }))
+    );
+    
+    // Sort waves by their sequence 
     const sortedWaves = [...filteredWaves].sort((a, b) => {
+      // First sort by wave numbers properly
       const aNum = typeof a.number === 'string' ? parseInt(a.number) : a.number;
       const bNum = typeof b.number === 'string' ? parseInt(b.number) : b.number;
-      return aNum - bNum;
+      
+      if (aNum !== bNum) return aNum - bNum;
+      
+      // If wave numbers are the same, sort by timestamp
+      return getTimestampValue(a.startTimestamp) - getTimestampValue(b.startTimestamp);
     });
     
-    const waveIndices: Record<string|number, number> = {};
+    console.log('[WaveConnection] Sorted waves:', sortedWaves.map(w => w.number));
     
-    sortedWaves.forEach(wave => {
-      const startIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.startTimestamp));
-      if (startIndex !== -1) {
-        waveIndices[wave.number] = startIndex;
-      }
-    });
-    
+    // Create a data array with null values (no points)
     const dataArray = Array(ohlcData.length).fill(null);
     
-    sortedWaves.forEach(wave => {
-      if (waveIndices[wave.number] !== undefined) {
-        const idx = waveIndices[wave.number];
-        dataArray[idx] = createSafeDataPoint(idx, wave.startPrice).y;
-        
-        if (wave === sortedWaves[sortedWaves.length - 1] && wave.endTimestamp && wave.endPrice) {
-          const endIndex = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.endTimestamp));
-          if (endIndex !== -1) {
-            dataArray[endIndex] = createSafeDataPoint(endIndex, wave.endPrice).y;
+    // For each wave, add both its start and end points (if available)
+    for (let i = 0; i < sortedWaves.length; i++) {
+      const wave = sortedWaves[i];
+      
+      // Find index for wave start time
+      const startTimestamp = getTimestampValue(wave.startTimestamp);
+      let startIndex = -1;
+      for (let j = 0; j < ohlcData.length; j++) {
+        if (ohlcData[j].timestamp >= startTimestamp) {
+          startIndex = j;
+          break;
+        }
+      }
+      
+      // Find index for wave end time (if wave is complete)
+      let endIndex = -1;
+      if (wave.endTimestamp && wave.isComplete) {
+        const endTimestamp = getTimestampValue(wave.endTimestamp);
+        for (let j = 0; j < ohlcData.length; j++) {
+          if (ohlcData[j].timestamp >= endTimestamp) {
+            endIndex = j;
+            break;
           }
         }
       }
-    });
+      
+      // Add start point
+      if (startIndex >= 0 && startIndex < ohlcData.length) {
+        dataArray[startIndex] = wave.startPrice;
+      }
+      
+      // Add end point for completed waves
+      if (wave.isComplete && endIndex >= 0 && endIndex < ohlcData.length && wave.endPrice) {
+        dataArray[endIndex] = wave.endPrice;
+        
+        // Log each connection we're creating
+        console.log(`[WaveConnection] Adding connection for wave ${wave.number}: index ${startIndex} (${wave.startPrice}) -> ${endIndex} (${wave.endPrice})`);
+      }
+    }
     
     return {
       type: 'line',
@@ -550,7 +588,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       fill: false,
       tension: 0,
       z: 5,
-      spanGaps: true,
+      spanGaps: true, // This is important - it connects points across gaps
       datalabels: {
         display: false
       }
@@ -663,71 +701,146 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             console.log(`[WaveChart:Datasets] Skipping current incomplete wave ${wave.number}`);
             return null;
           }
+          
           // --- Robust index finding ---
           const startTimestamp = getTimestampValue(wave.startTimestamp);
-          const endTimestamp = getTimestampValue(wave.endTimestamp || data[data.length - 1].timestamp);
-          // Find closest index for start
-          let startIndex = ohlcData.findIndex(d => d.timestamp >= startTimestamp);
-          if (startIndex === -1) {
-            startIndex = ohlcData.reduce((bestIdx, d, idx) => Math.abs(d.timestamp - startTimestamp) < Math.abs(ohlcData[bestIdx].timestamp - startTimestamp) ? idx : bestIdx, 0);
-            console.warn(`[WaveChart] No exact start index for wave ${wave.number}, snapping to closest:`, startIndex, ohlcData[startIndex]?.timestamp, 'target', startTimestamp);
+          const endTimestamp = wave.endTimestamp ? getTimestampValue(wave.endTimestamp) : getTimestampValue(data[data.length - 1].timestamp);
+          
+          // CRITICAL DEBUG LOGGING FOR WAVE 4
+          if (wave.number === 4) {
+            console.log(`[WAVE-4-DEBUG] Processing Wave 4:`);
+            console.log(`[WAVE-4-DEBUG] startTimestamp: ${new Date(startTimestamp).toISOString()}`);
+            console.log(`[WAVE-4-DEBUG] endTimestamp: ${wave.endTimestamp ? new Date(endTimestamp).toISOString() : 'N/A'}`);
+            console.log(`[WAVE-4-DEBUG] startPrice: ${wave.startPrice}, endPrice: ${wave.endPrice}`);
+            console.log(`[WAVE-4-DEBUG] isComplete: ${wave.isComplete}`);
           }
-          // Find closest index for end
-          let endIndex = ohlcData.findIndex(d => d.timestamp >= endTimestamp);
-          if (endIndex === -1) {
-            endIndex = ohlcData.reduce((bestIdx, d, idx) => Math.abs(d.timestamp - endTimestamp) < Math.abs(ohlcData[bestIdx].timestamp - endTimestamp) ? idx : bestIdx, 0);
-            console.warn(`[WaveChart] No exact end index for wave ${wave.number}, snapping to closest:`, endIndex, ohlcData[endIndex]?.timestamp, 'target', endTimestamp);
-          }
-          // Debug log
-          console.log(`[WaveChart] Plotting wave ${wave.number}: startIdx=${startIndex}, endIdx=${endIndex}, startPrice=${wave.startPrice}, endPrice=${wave.endPrice}`);
-          const dataArray = Array(ohlcData.length).fill(null);
-          if (startIndex < ohlcData.length) {
-            dataArray[startIndex] = createSafeDataPoint(startIndex, wave.startPrice).y;
-            if (endIndex < ohlcData.length && wave.endPrice) {
-              dataArray[endIndex] = createSafeDataPoint(endIndex, wave.endPrice).y;
+          
+          // Find index for start timestamp
+          let startIndex = -1;
+          for (let i = 0; i < ohlcData.length; i++) {
+            if (ohlcData[i].timestamp >= startTimestamp) {
+              startIndex = i;
+              break;
             }
           }
-          if (dataArray.every(d => d === null)) {
-             console.warn(`[WaveChart:Datasets] Wave ${wave.number} resulted in empty data array, skipping dataset.`);
-             return null;
+          
+          // If exact match not found, find closest
+          if (startIndex === -1) {
+            startIndex = ohlcData.reduce((bestIdx, d, idx) => 
+              Math.abs(d.timestamp - startTimestamp) < Math.abs(ohlcData[bestIdx].timestamp - startTimestamp) ? idx : bestIdx, 0);
+            
+            if (wave.number === 4) {
+              console.log(`[WAVE-4-DEBUG] No exact start index, using closest: ${startIndex}`);
+              console.log(`[WAVE-4-DEBUG] Timestamp at start index: ${new Date(ohlcData[startIndex].timestamp).toISOString()}`);
+            }
           }
+          
+          // Find index for end timestamp
+          let endIndex = -1;
+          if (wave.endTimestamp) {
+            // First try direct comparison
+            for (let i = 0; i < ohlcData.length; i++) {
+              if (ohlcData[i].timestamp >= endTimestamp) {
+                endIndex = i;
+                break;
+              }
+            }
+            
+            // If exact match not found, find closest
+            if (endIndex === -1) {
+              endIndex = ohlcData.reduce((bestIdx, d, idx) => 
+                Math.abs(d.timestamp - endTimestamp) < Math.abs(ohlcData[bestIdx].timestamp - endTimestamp) ? idx : bestIdx, 0);
+              
+              if (wave.number === 4) {
+                console.log(`[WAVE-4-DEBUG] No exact end index, using closest: ${endIndex}`);
+                console.log(`[WAVE-4-DEBUG] Timestamp at end index: ${new Date(ohlcData[endIndex].timestamp).toISOString()}`);
+              }
+            }
+          } else {
+            // For incomplete waves, default to last data point
+            endIndex = ohlcData.length - 1 - chartPaddingDays; // Exclude projection days
+          }
+          
+          if (wave.number === 4) {
+            console.log(`[WAVE-4-DEBUG] Final indices - startIndex: ${startIndex}, endIndex: ${endIndex}`);
+            if (startIndex >= 0 && startIndex < ohlcData.length) {
+              console.log(`[WAVE-4-DEBUG] Start data point: ${new Date(ohlcData[startIndex].timestamp).toISOString()} - $${ohlcData[startIndex].close}`);
+            }
+            if (endIndex >= 0 && endIndex < ohlcData.length) {
+              console.log(`[WAVE-4-DEBUG] End data point: ${new Date(ohlcData[endIndex].timestamp).toISOString()} - $${ohlcData[endIndex].close}`);
+            }
+          }
+          
+          // Prepare data array for chart points - enhanced approach
+          const dataArray = Array(ohlcData.length).fill(null);
+          
+          // For completed waves, ensure both start and end points are plotted
+          if (wave.isComplete && wave.endPrice) {
+            if (startIndex >= 0 && startIndex < ohlcData.length) {
+              dataArray[startIndex] = wave.startPrice;
+            }
+            
+            if (endIndex >= 0 && endIndex < ohlcData.length) {
+              dataArray[endIndex] = wave.endPrice;
+            }
+          } 
+          // For incomplete waves, just plot the start point
+          else {
+            if (startIndex >= 0 && startIndex < ohlcData.length) {
+              dataArray[startIndex] = wave.startPrice;
+            }
+          }
+          
+          // Skip empty datasets
+          if (dataArray.every(d => d === null)) {
+            console.warn(`[WaveChart:Datasets] Wave ${wave.number} resulted in empty data array, skipping dataset.`);
+            return null;
+          }
+          
           return {
             type: 'scatter' as const,
             label: `Wave ${wave.number}`,
             data: dataArray,
-            backgroundColor: 'white',
+            backgroundColor: getWaveColor(wave.number, false),
             borderColor: 'rgba(0, 0, 0, 0.5)',
-            borderWidth: 1,
+            borderWidth: 1.5,
             pointRadius: (ctx: any) => {
+              // Start points for all waves
               if (ctx.dataIndex === startIndex) {
-                return wave.number === 5 && wave.isComplete ? 0 : 4;
+                return 5;
+              }
+              // End points for completed waves
+              if (wave.isComplete && wave.endPrice && ctx.dataIndex === endIndex) {
+                return 5;
               }
               return 0;
             },
-            pointHoverRadius: 6,
+            pointHoverRadius: 7,
             pointStyle: 'circle',
             z: 15,
             datalabels: {
               display: (ctx: any) => {
+                // For completed waves, show label at the end point
                 if (wave.isComplete && wave.endPrice) {
                   return ctx.dataIndex === endIndex;
                 }
+                // For incomplete waves, show label at the start point
                 return ctx.dataIndex === startIndex;
               },
               formatter: (value: any, ctx: any) => {
                 return `${wave.number}`;
               },
               color: 'white',
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              backgroundColor: getWaveColor(wave.number, false),
               borderRadius: 4,
               padding: { left: 6, right: 6, top: 2, bottom: 2 },
               font: {
                 weight: 'bold',
-                size: 10,
+                size: 12, // Slightly larger for better visibility
               },
-              anchor: 'end',
+              anchor: 'center',
               align: 'bottom',
-              offset: 5
+              offset: 8
             }
           } as unknown as ChartDataset<keyof ChartTypeRegistry>;
         })
