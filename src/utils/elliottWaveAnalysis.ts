@@ -1141,13 +1141,28 @@ const completeWaveAnalysis = (
   let previousWave: Wave | null = null;
   let skipToIndex = -1;
   let patternInvalidated = false;
+  let forceNewWave1 = false; // Add this flag to force starting a new Wave 1
+  let debugSkipFailures = false; // Add flag to debug skip failures
+  
   for (let i = 0; i < pivotPairs.length; i++) {
-    if (skipToIndex >= 0 && i <= skipToIndex) continue;
-    if (patternInvalidated) {
+    if (skipToIndex >= 0 && i <= skipToIndex) {
+      if (verbose) console.log(`Skipping pivot ${i} (waiting for pivot ${skipToIndex+1})`);
+      continue;
+    }
+    
+    if (skipToIndex >= 0 && i === skipToIndex + 1) {
+      if (verbose) console.log(`*** CRITICAL: Reached restart point at pivot ${i} ***`);
+      debugSkipFailures = true; // Start debug logging for skips
+    }
+    
+    // Reset pattern detection when a pattern was invalidated or we need to force a new Wave 1
+    if (patternInvalidated || forceNewWave1) {
       phase = 'impulse';
       waveCount = 1;
       patternInvalidated = false;
+      forceNewWave1 = false; // Reset the flag
       pendingWaves = [];
+      
       if ((direction === 'bullish' && pivotPairs[i].startPoint.type !== 'trough') ||
           (direction === 'bearish' && pivotPairs[i].startPoint.type !== 'peak')) {
         if (i < pivotPairs.length - 1) continue;
@@ -1267,6 +1282,70 @@ const completeWaveAnalysis = (
               if (verbose) console.log("Wave 3 invalidated - didn't exceed Wave 1 end");
               patternInvalidated = true;
               waveValid = false;
+            } 
+            // ADDED: Wave 3 validation that it doesn't drop below its start (end of Wave 2)
+            else if ((direction === 'bullish' && endPoint.low < wave.startPrice) ||
+                    (direction === 'bearish' && endPoint.high > wave.startPrice)) {
+              if (verbose) console.log(`Wave 3 invalidated - dropped below start price (${wave.startPrice})`);
+              
+              patternInvalidated = true;
+              waveValid = false;
+              
+              // Mark invalidation point with current timestamp and price
+              wave.isValid = false;
+              wave.isTerminated = true;
+              wave.invalidationTimestamp = endPoint.timestamp;
+              wave.invalidationPrice = direction === 'bullish' ? endPoint.low : endPoint.high;
+              wave.invalidationRule = "Wave 3 dropped below its start price";
+              wave.isComplete = true; // Mark as complete since it's invalidated
+              
+              // Store this invalid wave for display purposes
+              invalidWaves.push({...wave});
+              
+              // IMPROVED RESET LOGIC: Find Wave 2 end to restart search from there
+              const wave2 = findMostRecentWave(waves, 2) || findMostRecentWave(pendingWaves, 2);
+              
+              if (wave2 && wave2.endTimestamp) {
+                // Find the pivot where Wave 2 ended
+                const wave2EndTimestamp = wave2.endTimestamp;
+                let newWave1StartIndex = -1;
+                
+                // Find pivot pair that corresponds to end of Wave 2
+                for (let j = 0; j < pivotPairs.length; j++) {
+                  if (pivotPairs[j].endPoint.timestamp >= wave2EndTimestamp) {
+                    newWave1StartIndex = j + 1; // Start from next pivot after Wave 2 end
+                    break;
+                  }
+                }
+                
+                if (newWave1StartIndex >= 0 && newWave1StartIndex < pivotPairs.length) {
+                  if (verbose) console.log(`Looking for new Wave 1 starting at pivot ${newWave1StartIndex} after Wave 3 invalidation`);
+                  
+                  // Skip ahead to this index in next iteration
+                  skipToIndex = newWave1StartIndex - 1;
+                  forceNewWave1 = true;
+                  
+                  // Add flags for debugging
+                  wave.restartFlagForceNewWave1 = true;
+                  wave.restartSkipToIndex = newWave1StartIndex;
+                  
+                  if (verbose) console.log(`[WAVE-RESET] Marked Wave 3 at ${new Date(wave.invalidationTimestamp || 0).toISOString()} for restart, setting skipToIndex=${newWave1StartIndex}`);
+                } else {
+                  // If we can't find a good restart point, restart from current position
+                  if (verbose) console.log(`Could not find valid pivot for new Wave 1 after Wave 2 end - restarting from current position`);
+                  skipToIndex = i;
+                  forceNewWave1 = true;
+                }
+              } else {
+                if (verbose) console.log(`No valid Wave 2 found to restart pattern - restarting from current position`);
+                skipToIndex = i;
+                forceNewWave1 = true;
+              }
+              
+              // Reset pattern recognition
+              phase = 'impulse';
+              waveCount = 1;
+              
             } else {
               // Wave 3 confirms the pattern! Commit pending waves to results
               if (verbose) console.log("✅ Wave 3 confirmed - committing pattern to results");
@@ -1330,6 +1409,7 @@ const completeWaveAnalysis = (
                     let newWave1StartIndex = -1;
                     
                     // Find the pivot pair that corresponds to the end of Wave 2
+                    // First try exact timestamp match
                     for (let j = 0; j < pivotPairs.length; j++) {
                       if (pivotPairs[j].endPoint.timestamp === wave2EndTimestamp) {
                         newWave1StartIndex = j + 1; // Start from the next pivot after Wave 2 end
@@ -1337,26 +1417,45 @@ const completeWaveAnalysis = (
                       }
                     }
                     
+                    // If exact match not found, find the closest timestamp after Wave 2 end
+                    if (newWave1StartIndex === -1) {
+                      for (let j = 0; j < pivotPairs.length; j++) {
+                        if (pivotPairs[j].endPoint.timestamp >= wave2EndTimestamp) {
+                          newWave1StartIndex = j + 1; // Start from the next pivot after Wave 2 end
+                          if (verbose) console.log(`No exact match for Wave 2 end timestamp, using closest pivot at ${new Date(pivotPairs[j].endPoint.timestamp).toISOString()}`);
+                          break;
+                        }
+                      }
+                    }
+                    
                     if (newWave1StartIndex >= 0 && newWave1StartIndex < pivotPairs.length) {
-                      if (verbose) console.log(`Looking for new Wave 1 starting at pivot ${newWave1StartIndex} (timestamp: ${new Date(wave2EndTimestamp).toISOString()})`);
+                      if (verbose) console.log(`Looking for new Wave 1 starting at pivot ${newWave1StartIndex} (timestamp: ${new Date(pivotPairs[newWave1StartIndex].startPoint.timestamp).toISOString()})`);
                       
                       // Skip ahead to this index in the next iteration
                       skipToIndex = newWave1StartIndex - 1; // -1 because the loop will increment
                       
                       // Force a new Wave 1 search immediately after this invalidation point
-                      // This is critical to ensure we don't miss potential new patterns
                       if (verbose) console.log(`Reset to find new Wave 1 pattern after Wave 4 invalidation`);
+                      forceNewWave1 = true; // Set flag to force new Wave 1 detection
+                      
+                      // Add a explicitly named restart flag in the wave object for debugging
+                      wave.restartFlagForceNewWave1 = true;
+                      wave.restartSkipToIndex = newWave1StartIndex;
+                      
+                      if (verbose) console.log(`[WAVE-RESET] Marked Wave 4 at ${new Date(wave.invalidationTimestamp || 0).toISOString()} for restart, setting skipToIndex=${newWave1StartIndex}`);
                     } else {
                       // If we can't find a good restart point, just restart from current position
                       if (verbose) console.log(`Could not find valid pivot for new Wave 1 after Wave 2 end - restarting from current position`);
                       
                       // Begin looking immediately after the invalidation point
                       skipToIndex = i;
+                      forceNewWave1 = true; // Force new Wave 1 detection regardless
                     }
                   } else {
                     if (verbose) console.log(`No valid Wave 2 found to restart pattern - restarting from current position`);
                     // Begin looking immediately after the invalidation point
                     skipToIndex = i;
+                    forceNewWave1 = true; // Force new Wave 1 detection regardless
                   }
                   
                   // Reset pattern recognition
@@ -1713,18 +1812,102 @@ export const analyzeElliottWaves = async (
       // Always attach currentWave and fibTargets for user focus
       const { currentWave, fibTargets } = getCurrentWaveAndTargets(pivots, processData, verbose);
       
+      // CRITICAL FIX: If we have invalidated waves, try a second pass with different starting points
+      if (result.invalidWaves.length > 0) {
+        if (verbose) console.log(`Found ${result.invalidWaves.length} invalidated waves, trying secondary analysis`);
+        
+        // Find the most recent invalid Wave 4
+        const invalidWave4 = result.invalidWaves.filter(w => w.number === 4).pop();
+        
+        if (invalidWave4) {
+          if (verbose) console.log(`Found invalidated Wave 4, attempting to restart pattern search`);
+          
+          // Find a good starting point for a new pattern
+          // Typically this should be after Wave 2's end
+          const wave2 = result.waves.filter(w => w.number === 2).pop();
+          
+          if (wave2 && wave2.endTimestamp) {
+            // Find the pivot that matches Wave 2's end
+            let restartIndex = -1;
+            for (let i = 0; i < pivots.length; i++) {
+              if (pivots[i].timestamp >= wave2.endTimestamp) {
+                restartIndex = i;
+                break;
+              }
+            }
+            
+            if (restartIndex >= 0 && restartIndex < pivots.length - 2) {
+              if (verbose) console.log(`Attempting second pass analysis starting from pivot ${restartIndex}`);
+              
+              // Create a new set of pivots starting from this point
+              const newPivots = pivots.slice(restartIndex);
+              
+              // Try multiple starting positions by shifting our starting point forward
+              // This increases the chance of finding a valid pattern after invalidation
+              let bestSecondPassResult: WaveAnalysisResult | null = null;
+              
+              // Try up to 5 different starting positions within our new pivots
+              for (let shift = 0; shift < Math.min(5, newPivots.length - 3); shift++) {
+                if (verbose) console.log(`Trying second pass with shift of ${shift} pivots`);
+                const shiftedPivots = newPivots.slice(shift);
+                const secondPassAttempt = completeWaveAnalysis(shiftedPivots, processData, undefined, onProgress, verbose);
+                
+                // If this attempt found more waves than our best so far, use it instead
+                if (!bestSecondPassResult || secondPassAttempt.waves.length > bestSecondPassResult.waves.length) {
+                  if (verbose) console.log(`Found better second pass result with ${secondPassAttempt.waves.length} waves`);
+                  bestSecondPassResult = secondPassAttempt;
+                }
+                
+                // If we found a good result (3+ waves), we can stop early
+                if (secondPassAttempt.waves.length >= 3) {
+                  if (verbose) console.log(`Found good second pass with ${secondPassAttempt.waves.length} waves, stopping search`);
+                  break;
+                }
+              }
+              
+              const secondPassResult = bestSecondPassResult || completeWaveAnalysis(newPivots, processData, undefined, onProgress, verbose);
+              
+              // If second pass found valid waves, use it
+              if (secondPassResult.waves.length > 2) {
+                if (verbose) console.log(`Second pass found ${secondPassResult.waves.length} valid waves, using these results`);
+                
+                // Combine the valid waves from first and second pass
+                result.waves = [
+                  ...result.waves.filter(w => w.number < 3), // Keep waves 1-2 from first pass
+                  ...secondPassResult.waves.filter(w => w.number >= 1) // Add all waves from second pass
+                ];
+                
+                // Update currentWave if second pass found one
+                if (secondPassResult.currentWave && secondPassResult.currentWave.number !== 0) {
+                  result.currentWave = secondPassResult.currentWave;
+                }
+                
+                // Add any new invalidated waves
+                result.invalidWaves = [...result.invalidWaves, ...secondPassResult.invalidWaves];
+                
+                // Use fib targets from second pass
+                result.fibTargets = secondPassResult.fibTargets;
+              }
+            }
+          }
+        }
+      }
+      
       // If we found a good pattern (at least 3 waves) and currentWave is 3, 4, 5, B, or C, return it
       if (
         result.waves.length >= 3 &&
-        currentWave &&
-        (currentWave.number === 3 || currentWave.number === 4 || currentWave.number === 5 || currentWave.number === 'B' || currentWave.number === 'C')
+        (currentWave &&
+         (currentWave.number === 3 || currentWave.number === 4 || currentWave.number === 5 || 
+          currentWave.number === 'B' || currentWave.number === 'C') ||
+         result.waves.length >= 4 // Also accept if we have at least 4 waves in total
+        )
       ) {
-        if (verbose) console.log(`Found valid Elliott Wave pattern with ${result.waves.length} waves and currentWave ${currentWave.number}`);
+        if (verbose) console.log(`Found valid Elliott Wave pattern with ${result.waves.length} waves and currentWave ${currentWave?.number || 'none'}`);
         
         // Create final result
         let finalResult = {
           ...result,
-          fibTargets
+          fibTargets: fibTargets.length > 0 ? fibTargets : result.fibTargets
         };
         
         // Clean up the current wave to ensure no endTimestamp/endPrice for incomplete waves

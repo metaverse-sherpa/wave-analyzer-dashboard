@@ -95,7 +95,13 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
 
   // Combine the waves and invalidWaves, sorted by timestamp
   const allWaves = useMemo(() => {
+    // Add unique identifiers to each wave for proper React keying
     return [...waves, ...invalidWaves]
+      .map((wave, index) => ({
+        ...wave,
+        // Add a uniqueId property based on available data or fallback to index
+        uniqueId: `${wave.number}-${wave.startTimestamp}-${wave.startPrice}-${index}`
+      }))
       .sort((a, b) => {
         const aTime = a.startTimestamp || 0;
         const bTime = b.startTimestamp || 0;
@@ -120,7 +126,7 @@ const WaveSequencePagination: React.FC<WaveSequencePaginationProps> = ({
                                wave.startTimestamp === currentWave.startTimestamp;
           
           return (
-            <div key={`wave-${wave.number}-${wave.startTimestamp}`} className="mb-1">
+            <div key={wave.uniqueId} className="mb-1">
               {/* Wave entry */}
               <div 
                 className={`
