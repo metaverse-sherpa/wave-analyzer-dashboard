@@ -616,6 +616,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   const chartData: ChartData<keyof ChartTypeRegistry> = {
     labels: ohlcData.map(d => new Date(d.timestamp).toLocaleDateString()),
     datasets: [
+      // Base price chart dataset
       {
         type: 'line' as const,
         label: symbol,
@@ -633,7 +634,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           display: false
         }
       } as unknown as ChartDataset<keyof ChartTypeRegistry>,
-      // --- Log before wave connection generation ---
+      
+      // Wave connection lines
       ...((() => {
         const filteredWaves = waves.filter(wave => {
           if (!wave || wave.number === 0) return false;
@@ -649,7 +651,8 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         console.log('[WaveChart:Datasets] Generated connection dataset:', connection ? 'Yes' : 'No');
         return connection ? [connection as unknown as ChartDataset<keyof ChartTypeRegistry>] : [];
       })()),
-      // --- Log before invalid wave markers ---
+      
+      // Invalid wave markers
       ...invalidWaves.map(wave => {
         console.log(`[WaveChart:Datasets] Processing invalid wave marker for wave ${wave.number}`);
         const idx = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.invalidationTimestamp || wave.endTimestamp));
@@ -674,14 +677,17 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
             color: 'white',
             backgroundColor: 'rgba(255,0,0,0.8)',
             borderRadius: 4,
-            font: { weight: 'bold', size: 12 },
-            anchor: 'end',
-            align: 'top',
-            offset: 8
+            font: { 
+              weight: 'bold' as const, 
+              size: 11 
+            },
+            anchor: 'center' as const,
+            align: 'center' as const
           }
         } as ChartDataset<keyof ChartTypeRegistry>;
       }).filter(Boolean),
-      // --- Log before individual wave scatter points ---
+      
+      // Individual wave scatter points
       ...waves
         .filter(wave => {
           if (!wave || wave.number === 0) return false;
@@ -834,17 +840,18 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
               backgroundColor: getWaveColor(wave.number, false),
               borderRadius: 4,
               padding: { left: 6, right: 6, top: 2, bottom: 2 },
-              font: {
-                weight: 'bold',
-                size: 12, // Slightly larger for better visibility
+              font: { 
+                weight: 'bold' as const, 
+                size: 11 
               },
-              anchor: 'center',
-              align: 'bottom',
-              offset: 8
+              anchor: 'center' as const,
+              align: 'center' as const
             }
           } as unknown as ChartDataset<keyof ChartTypeRegistry>;
         })
         .filter(Boolean),
+      
+      // Current price line
       ...(effectiveCurrentPrice ? [{
         type: 'line' as const,
         label: 'Current Price',
@@ -861,7 +868,9 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           display: false
         }
       }] : []) as unknown as ChartDataset<keyof ChartTypeRegistry>[],
-      ...(currentWave && !currentWave.isComplete && fibTargets && fibTargets.length > 0 ? 
+      
+      // Fibonacci targets for current wave (modified to always show targets regardless of completion status)
+      ...(currentWave && fibTargets && fibTargets.length > 0 ? 
         fibTargets
           .filter(target => !target.label.includes("Wave 3 High"))
           .map(target => {
@@ -935,16 +944,18 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
                 borderRadius: 4,
                 padding: { left: 4, right: 4, top: 2, bottom: 2 },
                 font: { 
-                  weight: 'bold', 
+                  weight: 'bold' as const, 
                   size: 11 
                 },
-                align: 'right',
-                anchor: 'center',
+                anchor: 'center' as const,
+                align: 'center' as const,
                 offset: 10
               }
             } as unknown as ChartDataset<keyof ChartTypeRegistry>;
           }).filter(Boolean)
       : []),
+      
+      // Current incomplete wave visualization
       ...(currentWave && !currentWave.isComplete ? [{
         type: 'line' as const,
         label: `Current Wave ${currentWave.number} (In Progress)`,
@@ -994,7 +1005,6 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         pointHoverRadius: 4,
         fill: false,
         tension: 0,
-        z: 10,
         datalabels: {
           display: (ctx: any) => {
             const startIndex = ohlcData.findIndex(d => 
@@ -1014,16 +1024,16 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
           backgroundColor: getWaveColor(currentWave.number, true),
           borderRadius: 4,
           padding: { left: 6, right: 6, top: 2, bottom: 2 },
-          font: {
-            weight: 'bold',
-            size: 10,
+          font: { 
+            weight: 'bold' as const, 
+            size: 11 
           },
-          anchor: 'center',
-          align: 'center'
+          anchor: 'center' as const,
+          align: 'center' as const
         }
       }] : [])
     ]
-  } as ChartData<keyof ChartTypeRegistry>;
+  };
 
   // --- Log final dataset count ---
   useEffect(() => {
@@ -1033,9 +1043,13 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   // --- End final dataset count log ---
 
   const wave4 = waves.find(w => w.number === 4 && w.isComplete);
-  const wave5 = waves.find(w => w.number === 5 && w.isComplete);
+  const wave5 = waves.find(w => w.number === 5);
 
-  if (latestWave && latestWave.number === 5 && latestWave.isComplete) {
+  // MODIFIED: Only show Wave A projection if Wave 5 is specifically marked as complete AND has endTimestamp and endPrice
+  // This ensures we still show Wave 5 Fibonacci targets when the wave is programmatically kept as incomplete
+  if (latestWave && latestWave.number === 5 && 
+      latestWave.isComplete && latestWave.endTimestamp && latestWave.endPrice &&
+      !fibTargets.some(target => target.isExtension)) {  // Don't show Wave A targets if we have Wave 5 extension targets
     if (wave4 && wave5 && wave4.endPrice && wave5.endPrice) {
       const impulseRange = Math.abs(wave5.endPrice - wave4.endPrice);
       const isUptrend = wave5.endPrice > wave4.endPrice;
@@ -1105,6 +1119,69 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         
         console.log(`Added Wave A projection zone for ${symbol} after Wave 5 completion`);
         console.log(`Wave A targets: 38.2% at $${targetA382.toFixed(2)}, 61.8% at $${targetA618.toFixed(2)}`);
+      }
+    }
+  } 
+  // ADDED: When we have Wave 5 but no Wave A targets, ensure we add Wave 5 Fibonacci extension targets
+  else if (wave5 && !wave5.isComplete && wave4 && wave4.endPrice && wave5.startPrice) {
+    // Calculate extension targets for Wave 5
+    const wave3 = waves.find(w => w.number === 3 && w.isComplete);
+    const wave1 = waves.find(w => w.number === 1 && w.isComplete);
+    
+    if (wave3 && wave3.startPrice && wave3.endPrice && 
+        wave1 && wave1.startPrice && wave1.endPrice) {
+      
+      // Calculate wave lengths
+      const wave1Length = Math.abs(wave1.endPrice - wave1.startPrice);
+      const wave3Length = Math.abs(wave3.endPrice - wave3.startPrice);
+      const isUptrend = wave3.endPrice > wave3.startPrice;
+      const direction = isUptrend ? 1 : -1;
+      
+      // Find the index corresponding to Wave 5 start
+      const wave5StartIdx = ohlcData.findIndex(d => d.timestamp >= wave5.startTimestamp);
+      if (wave5StartIdx >= 0) {
+        // Target 1: 0.618 of Wave 3 measured from Wave 4 low (Wave 5 start)
+        const target618of3 = wave5.startPrice + (wave3Length * 0.618 * direction);
+        
+        // Target 2: 1.0 of Wave 1 measured from Wave 4 low
+        const target100of1 = wave5.startPrice + (wave1Length * 1.0 * direction);
+        
+        // Target 3: 1.618 of Wave 1 measured from Wave 4 low
+        const target1618of1 = wave5.startPrice + (wave1Length * 1.618 * direction);
+        
+        // Add these targets to the chart as extension lines
+        const labelColor = 'rgba(255, 152, 0, 0.9)';  // Orange for extensions
+        
+        // Helper function to add extension target lines
+        const addExtensionTarget = (targetPrice: number, label: string) => {
+          chartData.datasets.push({
+            type: 'line' as const,
+            label: `Wave 5 ${label}: $${targetPrice.toFixed(2)}`,
+            data: ohlcData.map((_, i) => {
+              if (i >= wave5StartIdx) {
+                return targetPrice;
+              }
+              return null;
+            }),
+            borderColor: labelColor,
+            backgroundColor: 'transparent',
+            borderDash: [5, 5],
+            borderWidth: 1.5,
+            tension: 0,
+            pointRadius: 0,
+            datalabels: {
+              display: false
+            }
+          } as unknown as ChartDataset<keyof ChartTypeRegistry>);
+        };
+        
+        // Add extension targets for Wave 5
+        addExtensionTarget(target618of3, "61.8% of Wave 3");
+        addExtensionTarget(target100of1, "100% of Wave 1");
+        addExtensionTarget(target1618of1, "161.8% of Wave 1");
+        
+        console.log(`Added Wave 5 Fibonacci extension targets for ${symbol}`);
+        console.log(`Wave 5 targets: 61.8% of W3 at $${target618of3.toFixed(2)}, 100% of W1 at $${target100of1.toFixed(2)}, 161.8% of W1 at $${target1618of1.toFixed(2)}`);
       }
     }
   }

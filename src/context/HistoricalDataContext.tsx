@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { fetchHistoricalData } from '@/services/yahooFinanceService';
 import type { StockHistoricalData } from '@/types/shared';
 
 // Helper function for timestamp normalization
@@ -35,6 +34,7 @@ export function HistoricalDataProvider({ children }: { children: React.ReactNode
     }
     
     try {
+      const { fetchHistoricalData } = await import('@/services/yahooFinanceService');
       const data = await fetchHistoricalData(symbol, timeframe);
       
       // Normalize timestamps

@@ -198,8 +198,81 @@ const fetchHistoricalData = async (symbol: string, timeframe: string = '1d') => 
   }
 };
 
+// Replace getAnalysis function with direct Elliott Wave analysis
+const getAnalysis = async (symbol: string): Promise<WaveAnalysis | null> => {
+  try {
+    // Get historical data for the symbol
+    const historicalData = await fetchHistoricalData(symbol);
+    
+    if (!historicalData || historicalData.length < 50) {
+      console.warn(`Insufficient historical data for ${symbol} in getAnalysis`);
+      return null; // Return null if not enough data
+    }
+
+    console.log(`Analyzing Elliott Waves for ${symbol} using built-in analysis module...`);
+    
+    // Import the Elliott Wave analysis function dynamically
+    const { analyzeElliottWaves } = await import('@/utils/elliottWaveAnalysis');
+    
+    // Call the Elliott Wave analysis function directly
+    const analysis = await analyzeElliottWaves(
+      symbol,
+      historicalData,
+      () => false,      // isCancelled function
+      undefined,      // onProgress callback
+      false           // verbose flag
+    );
+    
+    // Apply consistent cleanup logic for the current wave, matching WaveAnalysisContext
+    if (analysis.currentWave) {
+      // Always ensure currentWave is marked as incomplete and has no end properties
+      analysis.currentWave.isComplete = false;
+      console.log(`[Admin:getAnalysis] Ensuring currentWave is marked incomplete for ${symbol}`);
+
+      // Remove endTimestamp and endPrice if they exist on the current wave
+      if ('endTimestamp' in analysis.currentWave) {
+        delete analysis.currentWave.endTimestamp;
+        console.log(`[Admin:getAnalysis] Removed endTimestamp from currentWave for ${symbol}`);
+      }
+      if ('endPrice' in analysis.currentWave) {
+        delete analysis.currentWave.endPrice;
+        console.log(`[Admin:getAnalysis] Removed endPrice from currentWave for ${symbol}`);
+      }
+      
+      // Also update the corresponding wave in the main waves array if it exists and matches
+      const currentWaveIndex = analysis.waves.findIndex(
+        w => w.startTimestamp === analysis.currentWave?.startTimestamp && w.number === analysis.currentWave?.number
+      );
+      if (currentWaveIndex !== -1) {
+         analysis.waves[currentWaveIndex].isComplete = false;
+         if ('endTimestamp' in analysis.waves[currentWaveIndex]) {
+           delete analysis.waves[currentWaveIndex].endTimestamp;
+         }
+         if ('endPrice' in analysis.waves[currentWaveIndex]) {
+           delete analysis.waves[currentWaveIndex].endPrice;
+         }
+         console.log(`[Admin:getAnalysis] Also cleaned up wave in main array at index ${currentWaveIndex} for ${symbol}`);
+      }
+      
+    } else {
+      console.log(`[Admin:getAnalysis] No current wave found for ${symbol}`);
+    }
+    
+    // Return the analysis result with added symbol field and required properties
+    return {
+      ...analysis,
+      symbol: symbol,
+      impulsePattern: analysis.impulsePattern || false,
+      correctivePattern: analysis.correctivePattern || false
+    };
+  } catch (error) {
+    console.error('Error performing Elliott Wave analysis:', error);
+    return null;
+  }
+};
+
 const AdminDashboard: React.FC = () => {
-  const { getAnalysis: getWaveAnalysis, analysisEvents, cancelAllAnalyses, clearCache } = useWaveAnalysis();
+  const { getAnalysis: getWaveAnalysis, analysisEvents, cancelAllAnalyses, clearCache, refreshStockAnalysis } = useWaveAnalysis();
   const { getHistoricalData } = useHistoricalData();
   const [isLoading, setIsLoading] = useState(false);
   const [historicalData, setHistoricalData] = useState<Record<string, HistoricalDataEntry>>({});
@@ -519,44 +592,6 @@ const loadItemDetails = useCallback((key: string, type: 'waves' | 'historical') 
   });
 }, [supabase, toast]);
 
-// Replace getAnalysis function with direct Elliott Wave analysis
-const getAnalysis = async (symbol: string): Promise<WaveAnalysis | null> => {
-  try {
-    // Get historical data for the symbol
-    const historicalData = await fetchHistoricalData(symbol);
-    
-    if (!historicalData || historicalData.length < 50) {
-      console.error(`Insufficient data points for ${symbol}: ${historicalData?.length || 0}`);
-      return null;
-    }
-
-    console.log(`Analyzing Elliott Waves for ${symbol} using built-in analysis module...`);
-    
-    // Import the Elliott Wave analysis function dynamically
-    const { analyzeElliottWaves } = await import('@/utils/elliottWaveAnalysis');
-    
-    // Call the Elliott Wave analysis function directly
-    const analysis = await analyzeElliottWaves(
-      symbol,
-      historicalData,
-      () => false, // isCancelled function that always returns false
-      undefined,   // onProgress handler (not needed here)
-      false        // verbose mode off
-    );
-    
-    // Return the analysis result with added symbol field and required properties
-    return {
-      ...analysis,
-      symbol: symbol,
-      impulsePattern: analysis.impulsePattern || false,
-      correctivePattern: analysis.correctivePattern || false
-    };
-  } catch (error) {
-    console.error('Error performing Elliott Wave analysis:', error);
-    return null;
-  }
-};
-
 const analyzeWaves = useCallback(async () => {
   if (!selectedAnalysisType || !selectedStockList || !selectedStockFilter) {
     toast.error('Please select all required options');
@@ -564,8 +599,11 @@ const analyzeWaves = useCallback(async () => {
   }
 
   // If ignoreCache is selected, clear existing wave analysis cache first
+  // Note: refreshStockAnalysis might handle its own caching logic, 
+  // but clearing here ensures a fresh start if requested.
   if (ignoreCache) {
     try {
+      console.log('[Admin:analyzeWaves] Clearing wave analysis cache due to ignoreCache=true');
       const { error } = await supabase
         .from('cache')
         .delete()
@@ -574,6 +612,9 @@ const analyzeWaves = useCallback(async () => {
       if (error) {
         console.error('Error clearing wave analysis cache:', error);
         toast.error('Failed to clear wave analysis cache');
+      } else {
+        // Clear local state as well
+        setWaveAnalyses({});
       }
     } catch (error) {
       console.error('Error clearing cache:', error);
@@ -590,10 +631,10 @@ const analyzeWaves = useCallback(async () => {
 
   try {
     let waveAnalyzed = 0;
+    let failedAnalyses = 0;
     
-    // Import the Elliott Wave analysis function dynamically
-    const { analyzeElliottWaves } = await import('@/utils/elliottWaveAnalysis');
-    
+    // Use the refreshStockAnalysis function from the context
+
     for (const symbol of selectedStockList) {
       setAnalysisProgress(prev => ({
         ...prev,
@@ -601,62 +642,53 @@ const analyzeWaves = useCallback(async () => {
       }));
 
       try {
-        // Get historical data for the symbol
-        const historicalData = await getHistoricalData(symbol, '1d');
+        console.log(`[Admin:analyzeWaves] Calling refreshStockAnalysis for ${symbol}`);
+        // Call the same refresh function used in StockDetails
+        const success = await refreshStockAnalysis(symbol);
         
-        // Skip if insufficient data
-        if (!historicalData || historicalData.length < 50) {
-          console.warn(`Insufficient data for ${symbol}: only ${historicalData?.length || 0} data points`);
-          continue;
-        }
-        
-        // Analyze waves using the built-in Elliott Wave module
-        const analysisResult = await analyzeElliottWaves(
-          symbol,
-          historicalData,
-          () => false, // isCancelled function
-          undefined, // No progress callback needed
-          false // verbose mode off
-        );
-        
-        if (analysisResult) {
-          // Store in Supabase cache
-          const { error: cacheError } = await supabase
-            .from('cache')
-            .upsert({
-              key: `wave_analysis_${symbol}_1d`,
-              data: { ...analysisResult, symbol },
-              timestamp: Date.now(),
-              duration: cacheExpiryDays * 24 * 60 * 60 * 1000 // Convert days to milliseconds
-            });
-
-          if (cacheError) {
-            console.error(`Error caching analysis for ${symbol}:`, cacheError);
-          }
-
+        if (success) {
           waveAnalyzed++;
-          
-          // Update progress
-          setAnalysisProgress(prev => ({
-            ...prev,
-            current: prev.current + 1
-          }));
+          console.log(`[Admin:analyzeWaves] refreshStockAnalysis succeeded for ${symbol}`);
+        } else {
+          failedAnalyses++;
+          console.warn(`[Admin:analyzeWaves] refreshStockAnalysis failed for ${symbol}`);
+          // Optionally add a specific toast message for failed symbols
+          // toast.warning(`Analysis failed for ${symbol}`); 
         }
 
-        // Small delay between analyses
-        await new Promise(r => setTimeout(r, 100));
+        // Update progress regardless of success/failure for this symbol
+        setAnalysisProgress(prev => ({
+          ...prev,
+          current: prev.current + 1
+        }));
+
       } catch (error) {
-        console.error(`Error analyzing ${symbol}:`, error);
-        toast.error(`Failed to analyze ${symbol}`);
+        failedAnalyses++;
+        console.error(`[Admin:analyzeWaves] Error calling refreshStockAnalysis for ${symbol}:`, error);
+        toast.error(`Error analyzing ${symbol}: ${(error as Error).message}`);
+        // Update progress even on error
+        setAnalysisProgress(prev => ({
+          ...prev,
+          current: prev.current + 1
+        }));
       }
+
+      // Small delay between analyses to avoid overwhelming APIs or context updates
+      await new Promise(r => setTimeout(r, 200)); // Increased delay slightly
     }
 
-    // Update the local state with the new analyses
-    await loadCacheData(true);
-    toast.success(`Wave analysis completed for ${waveAnalyzed} stocks`);
+    // Update the local state with the potentially new analyses from the context/cache
+    await loadCacheData(true); // Force refresh to pull latest data
+    
+    if (failedAnalyses > 0) {
+      toast.warning(`Wave analysis completed for ${waveAnalyzed} stocks, ${failedAnalyses} failed.`);
+    } else {
+      toast.success(`Wave analysis completed successfully for ${waveAnalyzed} stocks`);
+    }
+
   } catch (error) {
-    console.error('Error during wave analysis:', error);
-    toast.error('Failed to complete wave analysis');
+    console.error('Error during bulk wave analysis:', error);
+    toast.error('Failed to complete bulk wave analysis');
   } finally {
     setAnalysisProgress({
       total: 0,
@@ -665,7 +697,7 @@ const analyzeWaves = useCallback(async () => {
       currentSymbol: undefined
     });
   }
-}, [selectedAnalysisType, selectedStockList, selectedStockFilter, ignoreCache, getHistoricalData, supabase, cacheExpiryDays, loadCacheData]);
+}, [selectedAnalysisType, selectedStockList, selectedStockFilter, ignoreCache, supabase, loadCacheData, refreshStockAnalysis]);
 
   // Function to preload historical data for top stocks
   const preloadHistoricalData = useCallback(async () => {
@@ -1471,11 +1503,34 @@ const saveSettings = useCallback(async (settings: {
   }, [supabase, setStockCount, setCacheExpiryDays, setChartPaddingDays]);
 
   useEffect(() => {
-    // Disable API logging during mount
-    console.log = () => {};
-    console.warn = () => {};
-    console.error = () => {};
-    console.info = () => {};
+    // Create a special log function that will always work for important operations
+    window._addApiError = (error: string) => {
+      originalConsole.error(`[API ERROR]: ${error}`);
+    };
+    
+    // Don't disable all console logs to allow seeing important operations
+    // Only suppress non-essential logs for cleaner console output
+    console.log = (...args) => {
+      // Allow logs that contain specific debugging prefixes
+      const message = args[0]?.toString() || '';
+      if (
+        message.includes('DEBUG:') ||
+        message.includes('Analyzing waves') ||
+        message.includes('Elliott Wave') ||
+        message.includes('SCHEDULED REFRESH')
+      ) {
+        originalConsole.log(...args);
+      }
+    };
+    console.warn = originalConsole.warn;  // Keep warnings visible
+    console.error = originalConsole.error; // Keep errors visible
+    console.info = (...args) => {
+      // Allow important info messages
+      const message = args[0]?.toString() || '';
+      if (message.includes('Elliott Wave') || message.includes('analysis')) {
+        originalConsole.info(...args);
+      }
+    };
 
     return () => {
       // Restore original console methods during unmount
@@ -1483,6 +1538,7 @@ const saveSettings = useCallback(async (settings: {
       console.warn = originalConsole.warn;
       console.error = originalConsole.error;
       console.info = originalConsole.info;
+      window._addApiError = undefined;
     };
   }, []);
 
@@ -1960,7 +2016,7 @@ const DataCard = ({
       <div className="flex-1" onClick={onClick}>
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">{itemKey}</span>
+            <span className="fontmedium text-sm">{itemKey}</span>
             {waveNumber !== undefined && (
               <Badge variant="outline" className="text-xs py-0 h-5">
                 Wave {waveNumber}

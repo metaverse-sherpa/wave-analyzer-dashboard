@@ -1,8 +1,0 @@
-name = "wave-analyzer-dashboard"
-compatibility_date = "2023-10-30"
-pages_build_output_dir = "dist"
-workers_dev = true
-
-[env.production.vars]
-VITE_API_BASE_URL = "https://api-backend.metaversesherpa.workers.dev"
-TELEGRAM_BOT_TOKEN = "7615272677:AAHTxMhBRRV7X0My0gmFwVZVv5Lh4c2wTps"

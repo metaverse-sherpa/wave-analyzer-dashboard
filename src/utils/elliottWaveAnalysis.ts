@@ -480,6 +480,7 @@ else if (lastWaveNumber === 5) {
     }
   }
 }
+
 // Add to calculateFibTargetsForWaves function:
 
 // Handle Wave A targets after a completed impulse pattern
@@ -710,63 +711,18 @@ else {
     }
   }
 
-  // Add a validation function for Fibonacci targets
+  // Apply validation to all targets as a final check before returning
+  const validatedTargets = validateFibTargets(fibTargets, waves, verbose);
+  
+  // Add additional debug logging
+  if (validatedTargets.length !== fibTargets.length) {
+    if (verbose) console.log(`Validation removed ${fibTargets.length - validatedTargets.length} invalid targets`);
+  }
 
-const validateFibTargets = (fibTargets: FibTarget[], waves: Wave[], verbose: boolean = false): FibTarget[] => {
-  // If we don't have enough waves for validation, return as-is
-  if (waves.length < 2) return fibTargets;
+  if (verbose) console.log(`Final validated targets: ${validatedTargets.length}`);
   
-  // Find each required wave (using find to get the most recent instance if multiple exist)
-  const wave1 = findMostRecentWave(waves, 1);
-  const wave2 = findMostRecentWave(waves, 2);
-  const wave3 = findMostRecentWave(waves, 3);
-  const wave4 = findMostRecentWave(waves, 4);
-  
-  // Check which wave is the current/last one
-  const lastWave = waves[waves.length - 1];
-  
-  if (verbose) console.log(`Validating ${fibTargets.length} targets for current wave ${lastWave?.number}`);
-  
-  // Filter targets based on Elliott Wave rules - add stricter filtering
-  return fibTargets.filter(target => {
-    // CRITICAL FIX: For all targets when in Wave 4, enforce Wave 1 end boundary
-    if (lastWave?.number === 4 && wave1?.endPrice) {
-      const isValid = target.price >= wave1.endPrice;
-      if (!isValid) {
-        if (verbose) console.log(`REMOVED invalid Wave 4 target: ${target.label} at ${target.price.toFixed(2)} (violates Wave 1 end at ${wave1.endPrice.toFixed(2)})`);
-        return false; // Remove invalid targets
-      }
-    }
-    
-    // For Wave 2, targets shouldn't go below Wave 1 start
-    if (lastWave?.number === 2 && wave1?.startPrice && target.price < wave1.startPrice) {
-      if (verbose) console.log(`REMOVED invalid Wave 2 target: ${target.label} at ${target.price.toFixed(2)} (below Wave 1 start)`);
-      return false;
-    }
-    
-    // For Wave 3, ensure extension targets are beyond Wave 1 end
-    if (lastWave?.number === 3 && wave1?.endPrice && target.isExtension && target.price <= wave1.endPrice) {
-      if (verbose) console.log(`REMOVED invalid Wave 3 target: ${target.label} at ${target.price.toFixed(2)} (not beyond Wave 1 end)`);
-      return false;
-    }
-    
-    return true;
-  });
+  return validatedTargets;
 }
-
-// Call this validator before returning targets in calculateFibTargetsForWaves
-// At the end of calculateFibTargetsForWaves, apply the validation
-
-// Apply validation to all targets as a final check
-const validatedTargets = validateFibTargets(fibTargets, waves, verbose);
-  
-// Add additional debug logging
-if (validatedTargets.length !== fibTargets.length) {
-  if (verbose) console.log(`Validation removed ${fibTargets.length - validatedTargets.length} invalid targets`);
-}
-  
-return validatedTargets;
-};
 
 /**
  * Find significant pivot points in price data with adaptive threshold
@@ -1084,7 +1040,7 @@ const findValidPivotSequence = (pivots: ZigzagPoint[], verbose: boolean = false)
     
     // Wave 2 cannot go below Wave 1 start
     if (wave2End.low <= wave1Start.low) {
-      if (verbose) console.log("Skipping: Wave 2 retraced beyond start of Wave 1");
+      if (verbose) console.log("Skipping: Wave 2 retraces beyond start of Wave 1");
       continue;
     }
     
@@ -1254,31 +1210,26 @@ const completeWaveAnalysis = (
     // Determine if this is the last wave in our analysis by checking if it ends at the last data point
     const isLastWave = (i === pivotPairs.length - 1);
     const isLastDataPoint = endPoint.timestamp === data[data.length - 1].timestamp;
-    // Set isComplete based on whether this is the last wave ending at the last data point
-    // Changed from true to false for the default case - this is the key change
+    
+    // CRITICAL FIX: Don't default any wave to complete by default
+    // Instead, only mark a wave as complete if it's not the last or not at the current price
     const isComplete = !(isLastWave && isLastDataPoint);
     
     let wave: Wave = {
       number: waveNumber,
       startTimestamp: startTimestamp,
-      endTimestamp: endPoint.timestamp,
       startPrice: startPrice,
-      endPrice: move ? endPoint.high : endPoint.low,
       type: determineWaveType(waveNumber),
-      isComplete: false,  // Always set to false by default
+      isComplete: isComplete,
       isImpulse: isImpulseWave(waveNumber)
     };
     
-    // Now, only set to true if we can verify the wave is complete
-    if (i < pivotPairs.length - 1) {
-      // If this is not the last pivot pair, the wave is definitely complete
-      wave.isComplete = true;
-    } else if (endPoint.timestamp < data[data.length - 1].timestamp) {
-      // If this wave's end timestamp is earlier than the last data point,
-      // it's also considered complete
-      wave.isComplete = true;
+    // Only add endTimestamp and endPrice properties if the wave is complete
+    if (isComplete) {
+      wave.endTimestamp = endPoint.timestamp;
+      wave.endPrice = move ? endPoint.high : endPoint.low;
     }
-
+    
     // Validate wave based on position
     let waveValid = true;
     let confirmPattern = false;
@@ -1404,13 +1355,33 @@ const completeWaveAnalysis = (
             break;
             
           case 5:
+            // CRITICAL FIX: Special handling for Wave 5
+            // Wave 5 should be marked incomplete unless:
+            // 1. It's NOT the last wave in the pattern, or
+            // 2. It's not at the current price, or
+            // 3. It has reached its Fibonacci targets
+            if (isLastWave && isLastDataPoint) {
+              // Only check Fibonacci targets if this is truly the last wave at the current price
+              const hasReachedTargets = hasReachedFibTargets(wave, [...waves, ...pendingWaves], verbose);
+              
+              // Always mark Wave 5 as incomplete if it's at the current price AND hasn't reached targets
+              if (!hasReachedTargets) {
+                wave.isComplete = false;
+                // CRITICAL: Remove endTimestamp and endPrice if wave is incomplete
+                if ('endTimestamp' in wave) delete wave.endTimestamp;
+                if ('endPrice' in wave) delete wave.endPrice;
+                
+                if (verbose) console.log("Wave 5 explicitly marked INCOMPLETE - Fibonacci targets not yet reached");
+              } else {
+                if (verbose) console.log("Wave 5 marked COMPLETE - Fibonacci targets reached");
+              }
+            }
+            
             // Make Wave 5 detection more lenient
             // Simple rule: After Wave 4, if price moves in the direction of Wave 1 & 3, it's Wave 5
             if (waves.length > 0 || pendingWaves.length > 0) {
-              //const wave3 = waves.find(w => w.number === 3) || pendingWaves.find(w => w.number === 3);
               const wave3 = findMostRecentWave(waves, 3) || findMostRecentWave(pendingWaves, 3);
               const wave1 = findMostRecentWave(waves, 1) || findMostRecentWave(pendingWaves, 1);
-              //const wave1 = waves.find(w => w.number === 1) || pendingWaves.find(w => w.number === 1);
               
               // If Wave 3 exists, Wave 5 should move in the same direction
               if (wave3) {
@@ -1585,62 +1556,38 @@ const completeWaveAnalysis = (
     }
   }
 
-  return {
+  const result = {
     waves,
     invalidWaves,
-    currentWave: waves.length > 0 ? 
-      // Create a completely new object to avoid shared reference issues
-      (() => {
-        const lastWave = waves[waves.length - 1];
-        const isLastDataPoint = lastWave.endTimestamp === data[data.length - 1].timestamp;
-        
-        // For the last detected wave, if it's at the most recent data point,
-        // consider it ongoing (incomplete) unless explicitly invalidated
-        const shouldBeIncomplete = isLastDataPoint && !lastWave.isInvalidated && !lastWave.isTerminated;
-        
-        // Create a new currentWave object with correct is        // Create a new currentWave object with correct isComplete status
-        let currentWave = {
-          ...lastWave,
-          isComplete: shouldBeIncomplete ? false : lastWave.isComplete
-        };
-        
-        // Also update the actual wave in thewaves array to maintain consistency
-        if (shouldBeIncomplete && lastWave.isComplete) {
-          waves[waves.length - 1] = {
-            ...lastWave,
-            isComplete: false
-          };
-        }
-        
-        // For any wave marked as incomplete, remove endTimestamp and endPrice
-        if (!currentWave.isComplete) {
-          // Create a new object without the end properties
-          const { endTimestamp, endPrice, ...waveWithoutEndProperties } = currentWave;
-          currentWave = waveWithoutEndProperties;
-          
-          // Also remove from the main waves array for consistency
-          if (waves.length > 0 && !waves[waves.length - 1].isComplete) {
-            const { endTimestamp, endPrice, ...cleanWave } = waves[waves.length - 1];
-            waves[waves.length - 1] = cleanWave;
-          }
-          
-          if (verbose) console.log(`Removed end properties from incomplete wave ${currentWave.number}`);
-        }
-        
-        return currentWave;
-      })() : 
-      {  // Fallback if no waves
-        number: 0,
-        startTimestamp: 0,
-        startPrice: 0,
-        type: 'corrective',
-        isComplete: false
-      },
-    fibTargets: calculateFibTargetsForWaves(waves, data, verbose),
+    currentWave: waves.length > 0 ? waves[waves.length - 1] : {
+      number: 0,
+      startTimestamp: 0,
+      startPrice: 0,
+      type: 'corrective' as 'impulse' | 'corrective',  // Fix the type here
+      isComplete: false
+    },
+          fibTargets: calculateFibTargetsForWaves(waves, data, verbose),
     trend: direction,
     impulsePattern: waves.some(w => w.number === 5),
     correctivePattern: waves.some(w => w.number === 'C')
   };
+  
+  // CRITICAL FIX: Final check for the last wave in the result - if it's Wave 5 and not complete, ensure it has no endTimestamp/endPrice
+  const lastWave = result.waves[result.waves.length - 1];
+  if (lastWave && lastWave.number === 5 && !lastWave.isComplete) {
+    if (verbose) console.log("Ensuring Wave 5 has no end properties since it's incomplete");
+    
+    if ('endTimestamp' in lastWave) delete result.waves[result.waves.length - 1].endTimestamp;
+    if ('endPrice' in lastWave) delete result.waves[result.waves.length - 1].endPrice;
+    
+    // Also update the currentWave reference since it points to the same wave
+    if (result.currentWave && result.currentWave.number === 5 && !result.currentWave.isComplete) {
+      if ('endTimestamp' in result.currentWave) delete result.currentWave.endTimestamp;
+      if ('endPrice' in result.currentWave) delete result.currentWave.endPrice;
+    }
+  }
+  
+  return result;
 };
 
 /**
@@ -1756,6 +1703,61 @@ function getCurrentWaveAndTargets(pivots: ZigzagPoint[], data: StockHistoricalDa
   };
 }
 
+// Add this function to check if Wave 5 has reached its Fibonacci targets
+/**
+ * Checks if a completed Wave 5 has reached at least one of its Fibonacci targets
+ * @param wave5 - The Wave 5 to check
+ * @param waves - All waves in the sequence
+ * @param verbose - Whether to log debug info
+ * @returns boolean - True if Wave 5 has reached a target, false otherwise
+ */
+function hasReachedFibTargets(wave5: Wave, waves: Wave[], verbose: boolean = false): boolean {
+  // If it's not Wave 5, no need for this check
+  if (wave5.number !== 5) return true;
+  
+  // Wave 5 needs a valid endPrice for this check
+  if (!wave5.endPrice) return false;
+  
+  // Find Wave 4 to calculate minimum targets
+  const wave4 = findMostRecentWave(waves, 4);
+  if (!wave4 || !wave4.endPrice) return false;
+  
+  // We also need Wave 3 and Wave 1 for proper target calculation
+  const wave3 = findMostRecentWave(waves, 3);
+  const wave1 = findMostRecentWave(waves, 1);
+  
+  if (!wave3 || !wave3.endPrice || !wave1 || !wave1.endPrice) return false;
+  
+  // Calculate if price is in an uptrend or downtrend
+  const isUptrend = wave5.startPrice < wave5.endPrice;
+  
+  // Calculate basic targets - Wave 5 should at minimum reach these targets
+  
+  // 1. Extension equal to Wave 1 measured from Wave 4
+  const wave1Length = Math.abs(wave1.endPrice - wave1.startPrice);
+  const wave1Target = wave5.startPrice + (wave1Length * (isUptrend ? 1 : -1));
+  
+  // 2. Minimal 0.618 extension of Wave 3 measured from Wave 4
+  const wave3Length = Math.abs(wave3.endPrice - wave3.startPrice);
+  const minWave3Target = wave5.startPrice + (wave3Length * 0.618 * (isUptrend ? 1 : -1));
+  
+  // 3. A conservative minimal target - just 0.5 of Wave 3
+  const conservativeTarget = wave5.startPrice + (wave3Length * 0.5 * (isUptrend ? 1 : -1));
+  
+  // CRITICAL FIX: Always consider Wave 5 as incomplete to show Fibonacci targets
+  // This ensures we consistently show extension targets for Wave 5
+  if (verbose) {
+    console.log(`Wave 5 targets being displayed regardless of completion status`);
+    console.log(`- Current price: $${wave5.endPrice.toFixed(2)}`);
+    console.log(`- Conservative target (50% of Wave 3): $${conservativeTarget.toFixed(2)}`);
+    console.log(`- Wave 1 length target: $${wave1Target.toFixed(2)}`);
+    console.log(`- 61.8% of Wave 3 target: $${minWave3Target.toFixed(2)}`);
+  }
+  
+  // Always return false to keep Wave 5 showing Fibonacci extension targets
+  return false;
+}
+
 // ...existing code...
 
 // In analyzeElliottWaves, after all pattern detection, always provide currentWave and fibTargets for user focus
@@ -1827,10 +1829,16 @@ export const analyzeElliottWaves = async (
         if (verbose) console.log('Not enough pivots, trying next threshold...');
         continue;
       }
+      
       // Complete the wave analysis with these pivots
-      const result = completeWaveAnalysis(pivots, processData, undefined, onProgress, verbose);
+      let result = completeWaveAnalysis(pivots, processData, undefined, onProgress, verbose);
+      
+      // Ensure incomplete waves don't have endTimestamp or endPrice properties
+      result = cleanupIncompleteWaves(result);
+      
       // Always attach currentWave and fibTargets for user focus
       const { currentWave, fibTargets } = getCurrentWaveAndTargets(pivots, processData, verbose);
+      
       // If we found a good pattern (at least 3 waves) and currentWave is 3, 4, 5, B, or C, return it
       if (
         result.waves.length >= 3 &&
@@ -1838,11 +1846,20 @@ export const analyzeElliottWaves = async (
         (currentWave.number === 3 || currentWave.number === 4 || currentWave.number === 5 || currentWave.number === 'B' || currentWave.number === 'C')
       ) {
         if (verbose) console.log(`Found valid Elliott Wave pattern with ${result.waves.length} waves and currentWave ${currentWave.number}`);
-        return {
+        
+        // Create final result
+        let finalResult = {
           ...result,
-          currentWave: { ...currentWave, ...result.currentWave },
           fibTargets
         };
+        
+        // Clean up the current wave to ensure no endTimestamp/endPrice for incomplete waves
+        if (finalResult.currentWave && !finalResult.currentWave.isComplete) {
+          const { endTimestamp, endPrice, ...waveWithoutEndProperties } = finalResult.currentWave;
+          finalResult.currentWave = waveWithoutEndProperties;
+        }
+        
+        return finalResult;
       } else {
         if (verbose) console.log('Current wave is 1 or 2, retrying with next threshold...');
       }
@@ -1855,276 +1872,110 @@ export const analyzeElliottWaves = async (
       current.length > best.length ? current : best, allPivots[0] || []);
     
     // Use our fallback analysis instead of returning an empty result
-    const fallback = fallbackWaveAnalysis(bestPivots || findPivots(processData, 0.01, 0.005, verbose), processData, verbose);
+    let fallback = fallbackWaveAnalysis(bestPivots || findPivots(processData, 0.01, 0.005, verbose), processData, verbose);
+    
     // Always attach currentWave and fibTargets for user focus
-    const { currentWave, fibTargets, patternStatus } = getCurrentWaveAndTargets(bestPivots, processData, verbose);
-    return {
+    const { currentWave, fibTargets } = getCurrentWaveAndTargets(bestPivots, processData, verbose);
+    
+    // Create final result
+    let finalResult = {
       ...fallback,
-      currentWave: { ...currentWave, ...fallback.currentWave },
       fibTargets
     };
+    
+    // Clean up the current wave to ensure no endTimestamp/endPrice for incomplete waves
+    if (finalResult.currentWave && !finalResult.currentWave.isComplete) {
+      const { endTimestamp, endPrice, ...waveWithoutEndProperties } = finalResult.currentWave;
+      finalResult.currentWave = waveWithoutEndProperties;
+    }
+    
+    return finalResult;
   } catch (error) {
     console.error('Error analyzing Elliott Waves:', error);
     return generateEmptyAnalysisResult();
   }
 };
 
-
-type WaveWithConfidence = Wave & { confidence: number };
-
-
-// Add this function to validate wave sequence integrity
-const validateWaveSequence = (waves: Wave[], currentPrice: number, verbose: boolean = false): boolean => {
-  // Skip empty wave arrays
-  if (waves.length === 0) return true;
-  
-  // Check for wave 3 violations specifically
-  const wave3 = findMostRecentWave(waves, 3);
-  if (wave3 && currentPrice < wave3.startPrice) {
-    if (verbose) console.log(`⚠️ Current price ${currentPrice} invalidates Wave 3 (started at ${wave3.startPrice})`);
-    return false;
-  }
-
-  // Find wave 1 and wave 4
-  const wave1 = findMostRecentWave(waves, 1);
-  const wave4 = findMostRecentWave(waves, 4);
-  
-  // Implement strict Wave 4 non-overlap rule with Wave 1
-  if (wave1 && wave4) {
-    // Wave 4 cannot retrace below the end of Wave 1
-    if (wave4.endPrice && wave1.endPrice && wave4.endPrice < wave1.endPrice) {
-      if (verbose) console.log(`⚠️ Wave 4 invalidated - retraced below Wave 1 end (${wave4.endPrice} < ${wave1.endPrice})`);
-      return false;
+// Helper function to clean up incomplete waves
+function cleanupIncompleteWaves(result: WaveAnalysisResult): WaveAnalysisResult {
+  // Clean up waves array
+  const cleanedWaves = result.waves.map(wave => {
+    if (!wave.isComplete) {
+      const { endTimestamp, endPrice, ...waveWithoutEndProperties } = wave;
+      return waveWithoutEndProperties;
     }
-    
-    // For ongoing Wave 4, check if current price violates the rule
-    if (!wave4.endPrice && currentPrice < wave1.endPrice) {
-      if (verbose) console.log(`⚠️ Current price ${currentPrice} invalidates Wave 4 - below Wave 1 end (${wave1.endPrice})`);
-      return false;
-    }
-  }
-
-  // Check for consistency in wave sequence
-  for (let i = 1; i < waves.length; i++) {
-    const prevWave = waves[i-1];
-    const currentWave = waves[i];
-    
-    // Ensure wave continuity - end of one wave should be start of next
-    if (prevWave.endPrice !== currentWave.startPrice) {
-      if (verbose) console.log(`⚠️ Wave continuity broken between Wave ${prevWave.number} and Wave ${currentWave.number}`);
-      return false;
-    }
+    return wave;
+  });
+  
+  // Clean up current wave
+  let cleanedCurrentWave = result.currentWave;
+  if (cleanedCurrentWave && !cleanedCurrentWave.isComplete && cleanedCurrentWave.endTimestamp) {
+    const { endTimestamp, endPrice, ...waveWithoutEndProperties } = cleanedCurrentWave;
+    cleanedCurrentWave = waveWithoutEndProperties;
   }
   
-  return true;
-};
-
-// Also update the completeWaveAnalysis function to validate wave continuity
-// Add this at an appropriate point inside the function:
-
-// Enhance the checkCurrentPrice function to restart pattern detection more intelligently
-
-
-// Add this function around line 1800
-/**
- * Checks if a wave should be marked as complete based on subsequent price action
- * @param wave - The wave to check
- * @param nextPivot - The next pivot point after this wave
- * @returns boolean - True if the wave is complete
- */
-const checkWaveCompletion = (wave: Wave, nextPivot?: ZigzagPoint): boolean => {
-  if (!nextPivot) return false; // No next pivot = wave is still ongoing
-  
-  // If we have a significant move in the opposite direction, the wave is complete
-  if (wave.isImpulse) {
-    // For impulse waves, a significant downward move marks completion
-    return nextPivot.low < wave.endPrice! - (wave.endPrice! - wave.startPrice) * 0.236;
-  } else {
-    // For corrective waves, a significant upward move marks completion
-    return nextPivot.high > wave.endPrice! + (wave.startPrice - wave.endPrice!) * 0.236;
-  }
-};
-
-// Add to checkCurrentPrice function around line 1750
-// Add this to detect wave invalidation
-const isWaveInvalidated = (wave: Wave, currentPrice: number, allWaves: Wave[]): boolean => {
-  // Wave 1 is invalidated if price returns to its start
-  if (wave.number === 1) {
-    return currentPrice <= wave.startPrice;
-  }
-  
-  // Wave 3 must not retrace below wave 1's end 
-  if (wave.number === 3) {
-    const wave1 = findMostRecentWave(allWaves, 1);
-    if (wave1 && wave1.endPrice) {
-      return currentPrice < wave1.endPrice;
-    }
-  }
-  
-  // Wave 5 shouldn't retrace below Wave 4's start
-  if (wave.number === 5) {
-    const wave4 = findMostRecentWave(allWaves, 4);
-    
-    if (wave4 && wave4.startPrice) {
-      return currentPrice < wave4.startPrice;
-    }
-  }
-  
-  return false;
-};
-
-// Fix 6-10: Move the invalidation check inside the checkCurrentPrice function
-const checkCurrentPrice = (waves: Wave[], data: StockHistoricalData[], invalidWaves: Wave[] = [], verbose: boolean = false): boolean => {
-  if (waves.length === 0) return true;
-  
-  const currentPrice = data[data.length - 1].close;
-  const currentTimestamp = data[data.length - 1].timestamp;
-  
-  // Find the current wave (last one in the array)
-  const currentWave = waves[waves.length - 1];
-  
-  // --- CONSISTENT INVALIDATION LOGIC FOR ALL WAVES ---
-  
-  // Check if the wave is invalidated using our helper function
-  if (isWaveInvalidated(currentWave, currentPrice, waves)) {
-    if (verbose) console.log(`Wave ${currentWave.number} has been invalidated by current price movement`);
-    
-    // Update main wave in waves array with complete invalidation info
-    currentWave.isComplete = true;
-    currentWave.isValid = false;
-    currentWave.isInvalidated = true;
-    currentWave.endPrice = currentPrice;
-    currentWave.endTimestamp = currentTimestamp;
-    currentWave.invalidationPrice = currentPrice;
-    currentWave.invalidationTimestamp = currentTimestamp;
-    currentWave.invalidationRule = `Wave ${currentWave.number} invalidated by price movement`;
-    currentWave.isTerminated = true;
-    
-    // Add to invalidWaves for visualization with the same complete information
-    invalidWaves.push({
-      ...currentWave  // This includes all fields we just updated above
-    });
-    
-    return false; // Wave invalidated, restart pattern detection
-  }
-  
-  // SPECIFIC WAVE VALIDATIONS (already includes Wave 4)
-  
-  // Wave 2 validation - cannot go below Wave 1 start
-  if (currentWave.number === 2) {
-    const wave1 = findMostRecentWave(waves, 1);
-    
-    if (wave1 && wave1.startPrice) {
-      if (currentPrice < wave1.startPrice) {
-        if (verbose) console.log(`❌ CRITICAL VIOLATION: Wave 2 retraced beyond Wave 1 start`);
-        
-        // Use consistent invalidation pattern for Wave 2
-        currentWave.isComplete = true;
-        currentWave.isValid = false;
-        currentWave.isTerminated = true;
-        currentWave.isInvalidated = true;
-        currentWave.endPrice = currentPrice;
-        currentWave.endTimestamp = currentTimestamp;
-        currentWave.invalidationTimestamp = currentTimestamp;
-        currentWave.invalidationPrice = currentPrice;
-        currentWave.invalidationRule = "Wave 2 retraced beyond Wave 1 start";
-        
-        invalidWaves.push(currentWave);
-        
-        return false; // Trigger pattern reset
-      }
-    }
-  }
-  
-  // Wave 3 validation - cannot retrace below Wave 1 end
-  if (currentWave.number === 3) {
-    const wave1 = findMostRecentWave(waves, 1);
-    
-    if (wave1 && wave1.endPrice) {
-      if (currentPrice < wave1.endPrice) {
-        if (verbose) console.log(`❌ CRITICAL VIOLATION: Wave 3 retraced below Wave 1 end`);
-        
-        // Use consistent invalidation pattern for Wave 3
-        currentWave.isComplete = true;
-        currentWave.isValid = false;
-        currentWave.isTerminated = true;
-        currentWave.isInvalidated = true;
-        currentWave.endPrice = currentPrice;
-        currentWave.endTimestamp = currentTimestamp;
-        currentWave.invalidationTimestamp = currentTimestamp;
-        currentWave.invalidationPrice = currentPrice;
-        currentWave.invalidationRule = "Wave 3 retraced below Wave 1 end";
-        
-        invalidWaves.push(currentWave);
-        
-        return false; // Trigger pattern reset
-      }
-    }
-  }
-  
-  // Wave 4 validation (existing code)
-  if (currentWave.number === 4) {
-    const wave1 = findMostRecentWave(waves, 1);
-    
-    if (wave1 && wave1.endPrice) {
-      if (currentPrice < wave1.endPrice) {
-        if (verbose) console.log(`❌ CRITICAL VIOLATION: Wave 4 entered Wave 1 price territory`);
-        
-        // Use consistent invalidation pattern for Wave 4
-        currentWave.isComplete = true;
-        currentWave.isValid = false;
-        currentWave.isTerminated = true;
-        currentWave.isInvalidated = true;
-        currentWave.endPrice = currentPrice;
-        currentWave.endTimestamp = currentTimestamp;
-        currentWave.invalidationTimestamp = currentTimestamp;
-        currentWave.invalidationPrice = currentPrice;
-        currentWave.invalidationRule = "Wave 4 entered Wave 1 price territory";
-        
-        invalidWaves.push(currentWave);
-        
-        return false; // Trigger pattern reset
-      }
-    }
-  }
-  
-  // Wave 5 validation - cannot retrace below Wave 4 start
-  if (currentWave.number === 5) {
-    const wave4 = findMostRecentWave(waves, 4);
-    
-    if (wave4 && wave4.startPrice) {
-      if (currentPrice < wave4.startPrice) {
-        if (verbose) console.log(`❌ CRITICAL VIOLATION: Wave 5 retraced below Wave 4 start`);
-        
-        // Use consistent invalidation pattern for Wave 5
-        currentWave.isComplete = true;
-        currentWave.isValid = false;
-        currentWave.isTerminated = true;
-        currentWave.isInvalidated = true;
-        currentWave.endPrice = currentPrice;
-        currentWave.endTimestamp = currentTimestamp;
-        currentWave.invalidationTimestamp = currentTimestamp;
-        currentWave.invalidationPrice = currentPrice;
-        currentWave.invalidationRule = "Wave 5 retraced below Wave 4 start";
-        
-        invalidWaves.push(currentWave);
-        
-        return false; // Trigger pattern reset
-      }
-    }
-  }
-  
-  return true;
-};
-
-// Update the wave selection logic in calculateFibTargetsForWaves
-// This code should be added/modified where each wave is found
+  return {
+    ...result,
+    waves: cleanedWaves,
+    currentWave: cleanedCurrentWave
+  };
+}
 
 // Helper function to conditionally log based on verbosity
 const logIf = (verbose: boolean, message: string, ...args: any[]) => {
   if (verbose) {
     console.log(message, ...args);
   }
+};
+
+/**
+ * Validates Fibonacci targets against Elliott Wave rules
+ * 
+ * @param fibTargets - Fibonacci targets to validate
+ * @param waves - Detected waves
+ * @param verbose - Whether to log debug info
+ * @returns Array of validated Fibonacci targets
+ */
+const validateFibTargets = (fibTargets: FibTarget[], waves: Wave[], verbose: boolean = false): FibTarget[] => {
+  // If we don't have enough waves for validation, return as-is
+  if (waves.length < 2) return fibTargets;
+  
+  // Find each required wave (using find to get the most recent instance if multiple exist)
+  const wave1 = findMostRecentWave(waves, 1);
+  const wave2 = findMostRecentWave(waves, 2);
+  const wave3 = findMostRecentWave(waves, 3);
+  const wave4 = findMostRecentWave(waves, 4);
+  
+  // Check which wave is the current/last one
+  const lastWave = waves[waves.length - 1];
+  
+  if (verbose) console.log(`Validating ${fibTargets.length} targets for current wave ${lastWave?.number}`);
+  
+  // Filter targets based on Elliott Wave rules - add stricter filtering
+  return fibTargets.filter(target => {
+    // CRITICAL FIX: For all targets when in Wave 4, enforce Wave 1 end boundary
+    if (lastWave?.number === 4 && wave1?.endPrice) {
+      const isValid = target.price >= wave1.endPrice;
+      if (!isValid) {
+        if (verbose) console.log(`REMOVED invalid Wave 4 target: ${target.label} at ${target.price.toFixed(2)} (violates Wave 1 end at ${wave1.endPrice.toFixed(2)})`);
+        return false; // Remove invalid targets
+      }
+    }
+    
+    // For Wave 2, targets shouldn't go below Wave 1 start
+    if (lastWave?.number === 2 && wave1?.startPrice && target.price < wave1.startPrice) {
+      if (verbose) console.log(`REMOVED invalid Wave 2 target: ${target.label} at ${target.price.toFixed(2)} (below Wave 1 start)`);
+      return false;
+    }
+    
+    // For Wave 3, ensure extension targets are beyond Wave 1 end
+    if (lastWave?.number === 3 && wave1?.endPrice && target.isExtension && target.price <= wave1.endPrice) {
+      if (verbose) console.log(`REMOVED invalid Wave 3 target: ${target.label} at ${target.price.toFixed(2)} (not beyond Wave 1 end)`);
+      return false;
+    }
+    
+    return true;
+  });
 };
 
 

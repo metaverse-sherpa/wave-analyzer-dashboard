@@ -273,7 +273,8 @@ export const fetchHistoricalData = async (
   forceRefresh: boolean = false
 ): Promise<StockHistoricalData[]> => {
   try {
-    const url = buildApiUrl(`/stocks/${symbol}/history`);
+    // Explicitly add timeframe and lookback=365 to match the Admin page's fetch logic
+    const url = buildApiUrl(`/stocks/${symbol}/history?timeframe=${timeframe}&lookback=365`);
     console.log(`Fetching historical data: ${url}`);
     
     const response = await fetch(url, {
@@ -860,8 +861,8 @@ export async function getHistoricalPrices(
   try {
     console.log(`Fetching historical data for ${symbol} with timeframe ${timeframe}`);
     
-    // Use the new URL pattern
-    const url = buildApiUrl(`/stocks/${symbol}/history`);
+    // Use the new URL pattern with explicit timeframe and lookback
+    const url = buildApiUrl(`/stocks/${symbol}/history?timeframe=${timeframe}&lookback=365`);
     const response = await fetch(url, {
       method: 'GET',
       headers: {

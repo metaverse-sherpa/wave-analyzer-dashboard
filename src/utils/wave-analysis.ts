@@ -83,6 +83,10 @@ export const convertDeepSeekToWaveAnalysis = (
         subwaves: []
       };
       
+      // Remove any endTimestamp and endPrice properties if they exist
+      delete formattedCurrentWave.endTimestamp;
+      delete formattedCurrentWave.endPrice;
+      
       // Update the currentWave property with the formatted wave
       deepseekAnalysis.currentWave = formattedCurrentWave;
       
@@ -159,14 +163,35 @@ export const convertDeepSeekToWaveAnalysis = (
 
   // Ensure every wave has all required properties
   waves = waves.map(wave => {
+    const isCurrentWaveItem = deepseekAnalysis.currentWave && 
+                              wave.number === deepseekAnalysis.currentWave.number &&
+                              wave.startTimestamp === deepseekAnalysis.currentWave.startTimestamp;
+    
     return {
       ...wave,
       type: wave.type || determineWaveType(wave.number),
-      isComplete: typeof wave.isComplete === 'boolean' ? wave.isComplete : Boolean(wave.endTimestamp),
+      // Important: If this is the current wave, it's always incomplete regardless of having an endTimestamp
+      isComplete: isCurrentWaveItem ? false : (typeof wave.isComplete === 'boolean' ? wave.isComplete : Boolean(wave.endTimestamp)),
       isInvalid: Boolean(wave.isInvalid),
       isImpulse: typeof wave.isImpulse === 'boolean' ? wave.isImpulse : (wave.type === 'impulse')
     };
   });
+
+  // Ensure the current wave in the waves array is also properly marked as incomplete
+  const currentWaveIndex = waves.findIndex(w => 
+    deepseekAnalysis.currentWave && 
+    w.number === deepseekAnalysis.currentWave.number && 
+    w.startTimestamp === deepseekAnalysis.currentWave.startTimestamp
+  );
+  
+  if (currentWaveIndex !== -1) {
+    waves[currentWaveIndex] = {
+      ...waves[currentWaveIndex],
+      isComplete: false,
+      endTimestamp: undefined,
+      endPrice: undefined
+    };
+  }
 
   // Create and return the final WaveAnalysis object that the chart component expects
   return {

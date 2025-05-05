@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react'; // Add useCallback
 import { useParams, useNavigate, Link } from 'react-router-dom'; // Import useNavigate and Link
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,8 @@ import WaveSequencePagination from '../components/WaveSequencePagination'; // Im
 import { fetchStockQuote } from '@/lib/api'; // Using the correct function name
 import { getWavePatternDescription } from '../components/chart/waveChartUtils'; // Corrected path
 import { getCachedWaveAnalysis } from '../utils/wave-analysis'; // Corrected path
+
+const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 interface StockDetailsProps {
   stock?: StockData;
@@ -78,40 +80,30 @@ const StockDetails: React.FC = () => {
   const navigate = useNavigate(); // Get navigate function
   const { isTelegram } = useTelegram();
   const {
-    getAnalysis,
-    loadCacheTableData, // Get the function from context
-    isDataLoaded,       // Get loading status
-    waveAnalysesCache   // Use the simpler cache
+    loadCacheTableData,
+    isDataLoaded,
+    waveAnalysesCache,
+    refreshStockAnalysis, // <-- Import refresh function
+    allAnalyses         // <-- Import the cache with timestamps
   } = useWaveAnalysis();
   const { user } = useAuth(); // Get user from AuthContext
   const { isPreviewMode } = usePreview(); // Get isPreviewMode from PreviewContext
 
-  // Define handleBackClick
   const handleBackClick = () => {
     navigate(-1); // Go back to the previous page
   };
 
   const [stockData, setStockData] = useState<StockData>(defaultStock);
   const [historicalData, setHistoricalData] = useState<StockHistoricalData[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Keep general loading state
   const [viewMode, setViewMode] = useState<'all' | 'current'>('current');
   const [selectedWave, setSelectedWave] = useState<Wave | null>(null);
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isInitialRefreshDone, setIsInitialRefreshDone] = useState(false); // <-- State to track auto-refresh
 
   const { getHistoricalData } = useHistoricalData();
 
-  // No longer needed - removing debugging code that causes infinite loop
-  /* 
-  useEffect(() => {
-    if (symbol === 'RNMBY') {
-      console.log(`[StockDetails:RNMBY] Forcing data reload via loadCacheTableData(true)`);
-      loadCacheTableData(true); // Pass true to force refresh
-    }
-  }, [symbol, loadCacheTableData]); 
-  */
-
-  // Use waveAnalysesCache which is simpler Record<string, WaveAnalysisResult>
   const analysis = useMemo(() => {
     if (!symbol) return null;
     const cacheKey = `${symbol}:1d`; // Assuming '1d' timeframe for now
@@ -120,7 +112,8 @@ const StockDetails: React.FC = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
+      setLoading(true); // Start loading
+      setIsInitialRefreshDone(false); // Reset refresh flag when symbol changes
       setError(null);
       if (!symbol) {
         setLoading(false);
@@ -128,87 +121,119 @@ const StockDetails: React.FC = () => {
         return;
       }
       try {
-        // Get historical data
-        let historicalData;
+        let histData;
         try {
-          historicalData = await getHistoricalData(symbol, '1d', false);
-        } catch (error) {
-          historicalData = generateMockHistoricalData(symbol);
+          histData = await getHistoricalData(symbol, '1d', false);
+        } catch (histError) {
+          console.warn(`Failed to fetch real historical data for ${symbol}, using mock. Error: ${histError}`);
+          histData = generateMockHistoricalData(symbol); // Use mock as fallback
         }
-        if (!historicalData || historicalData.length < 50) {
-          if (historicalData && historicalData.length > 0) {
-            setHistoricalData(historicalData);
-          } else {
-            setHistoricalData(generateMockHistoricalData(symbol));
-          }
-        } else {
-          setHistoricalData(historicalData);
-        }
+        setHistoricalData(histData || generateMockHistoricalData(symbol)); // Ensure data is set
 
-        // Try to get stock info, but don't fail if it doesn't work
         try {
           const stockInfo = await fetchStockQuote(symbol);
           setStockData({ ...stockInfo, symbol });
           if (stockInfo.price) setLivePrice(stockInfo.price);
-        } catch {
-          setStockData({ ...defaultStock, symbol });
+        } catch (quoteError) {
+          console.warn(`Failed to fetch quote for ${symbol}. Error: ${quoteError}`);
+          setStockData({ ...defaultStock, symbol }); // Use default with symbol
         }
-      } catch (error) {
-        setError(`Failed to fetch data: ${(error as Error).message}`);
+      } catch (err) {
+        setError(`Failed to fetch initial data: ${(err as Error).message}`);
+        setHistoricalData(generateMockHistoricalData(symbol)); // Ensure mock data on error
       } finally {
-        setLoading(false);
+        // Don't set loading false here yet, wait for analysis check
       }
     };
     fetchData();
-  }, [symbol]);
+  }, [symbol, getHistoricalData]);
 
-  // Function to generate mock historical data as a fallback
+  useEffect(() => {
+    const checkAndRefreshAnalysis = async () => {
+      if (!symbol || !isDataLoaded || isInitialRefreshDone) {
+        if (!isDataLoaded) console.log(`[StockDetails:${symbol}] Waiting for context data to load...`);
+        if (isInitialRefreshDone) console.log(`[StockDetails:${symbol}] Initial refresh already attempted.`);
+        if (loading && historicalData.length > 0) setLoading(false);
+        return;
+      }
+
+      console.log(`[StockDetails:${symbol}] Checking analysis cache status.`);
+      const cacheKey = `${symbol}:1d`;
+      const cachedEntry = allAnalyses[cacheKey];
+      let shouldRefresh = false;
+
+      if (!cachedEntry) {
+        console.log(`[StockDetails:${symbol}] No cached analysis found.`);
+        shouldRefresh = true;
+      } else {
+        const cacheAge = Date.now() - cachedEntry.timestamp;
+        if (cacheAge > CACHE_DURATION_MS) {
+          console.log(`[StockDetails:${symbol}] Cached analysis is stale (age: ${getAgeString(cachedEntry.timestamp)}).`);
+          shouldRefresh = true;
+        } else {
+          console.log(`[StockDetails:${symbol}] Using fresh cached analysis (age: ${getAgeString(cachedEntry.timestamp)}).`);
+        }
+      }
+
+      if (shouldRefresh) {
+        console.log(`[StockDetails:${symbol}] Triggering automatic analysis refresh.`);
+        try {
+          await refreshStockAnalysis(symbol); // Await the refresh
+          console.log(`[StockDetails:${symbol}] Automatic refresh completed.`);
+        } catch (refreshError) {
+          console.error(`[StockDetails:${symbol}] Automatic refresh failed:`, refreshError);
+        }
+      }
+
+      setIsInitialRefreshDone(true); // Mark as done after check/attempt
+      setLoading(false); // Final loading state update
+    };
+
+    checkAndRefreshAnalysis();
+  }, [symbol, isDataLoaded, allAnalyses, refreshStockAnalysis, isInitialRefreshDone, historicalData.length, loading]);
+
   const generateMockHistoricalData = (symbol: string): StockHistoricalData[] => {
     console.log(`Generating realistic mock data for ${symbol}`);
     const data: StockHistoricalData[] = [];
     const today = new Date();
-    let price = 100 + (symbol.charCodeAt(0) % 10) * 10; // Base price on first character
-    
-    // Generate a year of data
+    let price = 100 + (symbol.charCodeAt(0) % 10) * 10;
+
     for (let i = 365; i >= 0; i--) {
       const date = new Date();
       date.setDate(today.getDate() - i);
-      
-      // Generate realistic price movements
-      const change = (Math.random() - 0.5) * 2; // Random change between -1 and 1
+
+      const change = (Math.random() - 0.5) * 2;
       price += change;
-      if (price < 10) price = 10; // Prevent negative prices
-      
-      // Add slight trend based on symbol
+      if (price < 10) price = 10;
+
       if (symbol.length % 2 === 0) {
-        price *= 1.0005; // Slight uptrend
+        price *= 1.0005;
       } else {
-        price *= 0.9995; // Slight downtrend
+        price *= 0.9995;
       }
-      
+
       const vol = Math.floor(100000 + Math.random() * 900000);
-      
+
       data.push({
         timestamp: date.getTime(),
-        open: price - change/2,
-        high: Math.max(price, price - change/2) + Math.random(),
-        low: Math.min(price, price - change/2) - Math.random(),
+        open: price - change / 2,
+        high: Math.max(price, price - change / 2) + Math.random(),
+        low: Math.min(price, price - change / 2) - Math.random(),
         close: price,
         volume: vol
       });
     }
-    
+
     console.log(`Generated ${data.length} data points for ${symbol}`);
     return data;
   };
 
-  // Handle case where symbol is missing
   if (!symbol) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Error</AlertTitle>
         <AlertDescription>Stock symbol not provided in URL.</AlertDescription>
-        <Button onClick={() => navigate('/')} className="mt-4">Go to Dashboard</Button> {/* Use navigate here */}
+        <Button onClick={() => navigate('/')} className="mt-4">Go to Dashboard</Button>
       </Alert>
     );
   }
@@ -241,9 +266,9 @@ const StockDetails: React.FC = () => {
             <Button 
               variant="ghost"
               className="flex items-center"
-              onClick={handleBackClick} // Use defined function
+              onClick={handleBackClick}
             >
-              <ArrowLeft className="h-4 w-4 mr-1" /> {/* Use imported icon */}
+              <ArrowLeft className="h-4 w-4 mr-1" />
               Back
             </Button>
           </div>
@@ -255,9 +280,9 @@ const StockDetails: React.FC = () => {
               <Button 
                 variant="ghost"
                 className="flex items-center"
-                onClick={handleBackClick} // Use defined function
+                onClick={handleBackClick}
               >
-                <ArrowLeft className="h-4 w-4 mr-1" /> {/* Use imported icon */}
+                <ArrowLeft className="h-4 w-4 mr-1" />
                 Back
               </Button>
             </div>
@@ -280,155 +305,154 @@ const StockDetails: React.FC = () => {
           <div className="flex items-center">
             <span className="text-lg font-mono">{formattedPrice}</span>
             <span className={`flex items-center ml-2 ${isPositive ? "text-bullish" : "text-bearish"}`}>
-              {isPositive ? <ArrowUpRight className="w-4 h-4 mr-1" /> : <ArrowDownRight className="w-4 h-4 mr-1" />} {/* Use imported icons */}
+              {isPositive ? <ArrowUpRight className="w-4 h-4 mr-1" /> : <ArrowDownRight className="w-4 h-4 mr-1" />}
               <span>{formattedChange} ({formattedPercent})</span>
             </span>
           </div>
           
-          <RadioGroup // Use imported component
+          <RadioGroup
             defaultValue="current" 
             onValueChange={(value) => setViewMode(value as 'all' | 'current')}
             className="flex space-x-4 items-center mt-2 sm:mt-0"
           >
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="current" id="current-wave" /> {/* Use imported component */}
-              <Label htmlFor="current-wave" className="cursor-pointer">Current</Label> {/* Use imported component */}
+              <RadioGroupItem value="current" id="current-wave" />
+              <Label htmlFor="current-wave" className="cursor-pointer">Current</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <RadioGroupItem value="all" id="all-waves" /> {/* Use imported component */}
-              <Label htmlFor="all-waves" className="cursor-pointer">All</Label> {/* Use imported component */}
+              <RadioGroupItem value="all" id="all-waves" />
+              <Label htmlFor="all-waves" className="cursor-pointer">All</Label>
             </div>
-          </RadioGroup> {/* Use imported component */}
+          </RadioGroup>
         </div>
       </div>
 
-      {loading && (
-        <div className="flex flex-col space-y-2 mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Skeleton className="h-9 w-16" />
-              <Skeleton className="h-8 w-48" />
+      {(loading || !isDataLoaded) && (
+        <div className="space-y-6">
+          <div className="flex flex-col space-y-2 mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-9 w-16" />
+                <Skeleton className="h-8 w-48" />
+              </div>
+              <Skeleton className="h-8 w-32" />
             </div>
-            <Skeleton className="h-8 w-32" />
+            <div className="flex items-center pl-14">
+              <Skeleton className="h-6 w-32" />
+            </div>
           </div>
-          <div className="flex items-center pl-14">
-            <Skeleton className="h-6 w-32" />
-          </div>
+          <Skeleton className="w-full h-[500px]" />
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
+              <Skeleton className="h-20 w-full" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium">Elliott Wave Analysis</h3>
+                <Skeleton className="h-8 w-32" />
+              </div>
+              <Skeleton className="h-24 w-full" />
+            </CardContent>
+          </Card>
         </div>
       )}
 
-      <div className="space-y-6">
-        <div className="relative mb-8">
-          {(!user && isPreviewMode) && (
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
-              <div className="text-center p-6 bg-card border rounded-lg shadow-lg">
-                <h3 className="text-lg font-semibold mb-2">Premium Feature</h3>
-                <p className="text-muted-foreground mb-4">Full AI analysis requires login.</p>
-                <Button onClick={() => navigate('/login')}>Login to View</Button>
-              </div>
-            </div>
-          )}
-          <div className={(!user && isPreviewMode) ? "blur-premium" : ""}>
-            {loading ? (
-              <Skeleton className="w-full h-[500px]" />
-            ) : analysis ? (
-              <StockDetailChart
-                symbol={symbol}
-                data={historicalData}
-                waves={analysis.waves}
-                currentWave={analysis.currentWave}
-                fibTargets={analysis.fibTargets}
-                selectedWave={selectedWave}
-                onClearSelection={() => setSelectedWave(null)}
-                livePrice={livePrice}
-                viewMode={viewMode}
-              />
-            ) : null}
-          </div>
-        </div>
-
-        <Card>
-          <CardContent className="pt-6">
-            <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
-            <div className="relative mb-4">
-              {(!user && isPreviewMode) && (
-                <div className="absolute inset-0 backdrop-blur-sm flex flex-col items-center justify-center z-10 bg-background/20">
-                  <div className="bg-background/90 p-6 rounded-lg shadow-lg text-center max-w-md">
-                    <h3 className="text-xl font-semibold mb-2">Premium Feature</h3>
-                    <p className="mb-4">Sign in to access AI-powered Elliott Wave analysis.</p>
-                    <Link to={`/login?redirect=${encodeURIComponent(window.location.pathname)}`}> {/* Use imported Link */}
-                      <Button>Sign In Now</Button>
-                    </Link> {/* Use imported Link */}
-                  </div>
+      {!loading && isDataLoaded && (
+        <div className="space-y-6">
+          <div className="relative mb-8">
+            <div className={(!user && isPreviewMode) ? "blur-premium" : ""}>
+              {historicalData.length > 0 ? (
+                <StockDetailChart
+                  symbol={symbol}
+                  data={historicalData}
+                  waves={analysis?.waves || []}
+                  currentWave={analysis?.currentWave || null}
+                  fibTargets={analysis?.fibTargets || []}
+                  selectedWave={selectedWave}
+                  onClearSelection={() => setSelectedWave(null)}
+                  livePrice={livePrice}
+                  viewMode={viewMode}
+                />
+              ) : (
+                <div className="w-full h-[500px] flex items-center justify-center border rounded-md bg-muted">
+                  <p className="text-muted-foreground">Loading chart data...</p>
                 </div>
               )}
-              
+            </div>
+          </div>
+
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="text-lg font-medium mb-4">AI Analysis</h3>
               <div className={(!user && isPreviewMode) ? "blur-premium" : ""}>
-                {analysis && (
-                  <AIAnalysisSection // Use the renamed local component
+                {analysis ? (
+                  <AIAnalysisSection
                     symbol={symbol}
                     analysis={analysis}
                     historicalData={historicalData}
                   />
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <h3 className="text-lg font-medium mb-4">Elliott Wave Analysis</h3>
-            {loading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : (
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h4 className="text-sm font-medium">Recent Wave Sequence</h4>
-                  <Badge variant="outline"> {/* Use imported Badge */}
-                    {analysis?.waves.length || 0} waves detected (showing most recent 7)
-                  </Badge> {/* Use imported Badge */}
-                </div>
-                
-                {analysis?.waves && analysis.waves.length > 0 ? (
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {getWavePatternDescription(analysis.waves) || // Use imported function
-                        "Analyzing detected wave patterns and market positions."}
-                    </p>
-                    
-                    <div className="mt-4">
-                      <WaveSequencePagination // Use imported component
-                        waves={analysis?.waves || []}
-                        invalidWaves={analysis?.invalidWaves || []}
-                        selectedWave={selectedWave}
-                        currentWave={analysis.currentWave}
-                        fibTargets={analysis.fibTargets}
-                        onWaveSelect={(wave) => {
-                          if (selectedWave && selectedWave.startTimestamp === wave.startTimestamp) {
-                            setSelectedWave(null);
-                          } else {
-                            setSelectedWave(wave);
-                          }
-                        }} 
-                      />
-                    </div>
-                  </div>
                 ) : (
-                  <div className="p-4 border rounded-md text-center">
-                    No wave patterns detected
+                  <div className="p-4 bg-muted rounded-md text-center">
+                    {error ? `Error loading analysis: ${error}` : "Loading analysis..."}
                   </div>
                 )}
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium">Elliott Wave Analysis</h3>
+                <RefreshWaveAnalysisButton symbol={symbol} />
+              </div>
+              {analysis?.waves && analysis.waves.length > 0 ? (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    {getWavePatternDescription(analysis.waves) ||
+                      "Analyzing detected wave patterns and market positions."}
+                  </p>
+                  <div className="mt-4">
+                    <WaveSequencePagination
+                      waves={analysis?.waves || []}
+                      invalidWaves={analysis?.invalidWaves || []}
+                      selectedWave={selectedWave}
+                      currentWave={analysis.currentWave}
+                      fibTargets={analysis.fibTargets}
+                      onWaveSelect={(wave) => {
+                        if (selectedWave && selectedWave.startTimestamp === wave.startTimestamp) {
+                          setSelectedWave(null);
+                        } else {
+                          setSelectedWave(wave);
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 border rounded-md text-center">
+                  {error ? `Error loading waves: ${error}` : "No wave patterns detected or still loading."}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {error && !loading && (
+        <Alert variant="destructive" className="mt-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 };
 
-// Rename the local AIAnalysis component to avoid conflicts
 interface AIAnalysisPropsInternal {
   symbol: string;
   analysis: WaveAnalysisResult;
@@ -454,23 +478,19 @@ const AIAnalysisSection: React.FC<AIAnalysisPropsInternal> = ({ symbol, analysis
       setError(null);
       
       try {
-        // Use the imported function
         const analysisData = await getCachedWaveAnalysis(symbol);
         
         if (analysisData) {
-          // Set the analysis text directly from the response
           if (analysisData.analysis) {
             setAiInsight(analysisData.analysis);
           }
           
-          // Extract wave number and trend
           let currentWaveNumber = null;
           if (analysisData.currentWave && analysisData.currentWave.number) {
             currentWaveNumber = analysisData.currentWave.number;
           }
           setWaveNumber(currentWaveNumber);
           
-          // Set trend if available
           if (analysisData.trend) {
             setTrend(analysisData.trend);
           }
@@ -544,7 +564,7 @@ const WaveInvalidations: React.FC<WaveInvalidationsProps> = ({ invalidWaves }) =
       {invalidWaves.length > 0 ? (
         invalidWaves.map((wave, index) => (
           <div key={index} className="flex items-center space-x-2">
-            <AlertCircle className="text-red-500" /> {/* Use imported icon */}
+            <AlertCircle className="text-red-500" />
             <div>
               <p className="text-sm font-medium">Wave {wave.number} invalidated</p>
               <p className="text-xs text-muted-foreground">
@@ -558,6 +578,85 @@ const WaveInvalidations: React.FC<WaveInvalidationsProps> = ({ invalidWaves }) =
           No invalid waves detected
         </div>
       )}
+    </div>
+  );
+};
+
+interface RefreshWaveAnalysisButtonProps {
+  symbol: string;
+}
+
+const RefreshWaveAnalysisButton: React.FC<RefreshWaveAnalysisButtonProps> = ({ symbol }) => {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const { refreshStockAnalysis } = useWaveAnalysis();
+
+  const handleRefresh = async () => {
+    try {
+      if (isRefreshing) return;
+      
+      setIsRefreshing(true);
+      setStatusMessage({ text: 'Processing...', type: 'info' });
+      console.log(`[RefreshButton] Starting refresh for ${symbol}`);
+      
+      const success = await refreshStockAnalysis(symbol);
+      
+      if (success) {
+        console.log(`[RefreshButton] Refresh successful for ${symbol}`);
+        setStatusMessage({ text: 'Analysis refreshed', type: 'success' });
+        
+        setTimeout(() => {
+          setStatusMessage(null);
+        }, 3000);
+      } else {
+        console.error(`[RefreshButton] Refresh failed for ${symbol}`);
+        setStatusMessage({ text: 'Refresh failed', type: 'error' });
+        
+        setTimeout(() => {
+          setStatusMessage(null);
+        }, 5000);
+      }
+    } catch (error) {
+      console.error(`[RefreshButton] Error during refresh:`, error);
+      setStatusMessage({ text: 'Error: ' + (error.message || 'Unknown error'), type: 'error' });
+      
+      setTimeout(() => {
+        setStatusMessage(null);
+      }, 5000);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center">
+      {statusMessage && (
+        <span className={`text-xs mr-2 ${
+          statusMessage.type === 'success' ? 'text-green-600 dark:text-green-400' : 
+          statusMessage.type === 'error' ? 'text-red-600 dark:text-red-400' :
+          'text-blue-600 dark:text-blue-400'
+        }`}>
+          {statusMessage.text}
+        </span>
+      )}
+      <Button 
+        size="sm" 
+        variant="outline" 
+        onClick={handleRefresh}
+        disabled={isRefreshing}
+      >
+        {isRefreshing ? (
+          <>
+            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-muted-foreground" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Processing
+          </>
+        ) : (
+          'Refresh Analysis'
+        )}
+      </Button>
     </div>
   );
 };

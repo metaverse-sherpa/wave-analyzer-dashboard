@@ -3,7 +3,7 @@ import { WaveAnalysis, WaveAnalysisResult, Wave, DeepSeekWaveAnalysis } from '@/
 import { getDeepSeekWaveAnalysis } from '@/api/deepseekApi';
 import { getCachedWaveAnalysis, convertDeepSeekToWaveAnalysis } from '@/utils/wave-analysis';
 import { supabase } from '@/lib/supabase';
-import { getAllWaveAnalyses } from '@/services/cacheService';
+import { getAllWaveAnalyses, saveToCache } from '@/services/cacheService';
 
 // Global flags to track the loading state across component mounts/unmounts
 let isLoadingCacheData = false;
@@ -36,6 +36,7 @@ interface WaveAnalysisContextType {
   clearCache: () => void;
   loadCacheTableData: (forceRefresh?: boolean) => Promise<void>;
   waveAnalysesCache: Record<string, WaveAnalysisResult>; // Add missing property
+  refreshStockAnalysis: (symbol: string) => Promise<boolean>; // Add new function
 }
 
 const WaveAnalysisContext = createContext<WaveAnalysisContextType | undefined>(undefined);
@@ -137,6 +138,174 @@ export function WaveAnalysisProvider({ children }: { children: React.ReactNode }
     }
   };
 
+  // New function to refresh a single stock analysis using local algorithm
+  const refreshStockAnalysis = async (symbol: string): Promise<boolean> => {
+    try {
+      console.log(`[RefreshStock] Starting refresh for ${symbol}`);
+      
+      // Add event to show analysis has started
+      setAnalysisEvents(prev => [
+        {
+          symbol: symbol,
+          status: 'started',
+          timestamp: Date.now(),
+          message: `Starting fresh Elliott Wave analysis for ${symbol}`
+        },
+        ...prev
+      ]);
+
+      // Create a function to get historical data
+      async function fetchHistoricalData() {
+        try {
+          // Import the fetchHistoricalData function from yahooFinanceService
+          const { fetchHistoricalData } = await import('@/services/yahooFinanceService');
+          
+          console.log(`[RefreshStock] Fetching historical data for ${symbol}`);
+          return await fetchHistoricalData(symbol, '1d');
+        } catch (error) {
+          console.error(`[RefreshStock] Failed to fetch historical data: ${error.message}`);
+          throw new Error(`Failed to get historical data for analysis: ${error.message}`);
+        }
+      }
+      
+      // Get historical data
+      const historicalData = await fetchHistoricalData();
+      
+      if (!historicalData || historicalData.length < 50) {
+        console.error(`[RefreshStock] Insufficient historical data for ${symbol} (${historicalData?.length || 0} data points)`);
+        throw new Error('Insufficient historical data for analysis');
+      }
+
+      // --- START ADDED LOGGING ---
+      console.log(`[RefreshStock] Data for ${symbol}:`);
+      console.log(`  - Points: ${historicalData.length}`);
+      console.log(`  - First Timestamp: ${new Date(historicalData[0].timestamp).toISOString()}`);
+      console.log(`  - Last Timestamp: ${new Date(historicalData[historicalData.length - 1].timestamp).toISOString()}`);
+      // --- END ADDED LOGGING ---
+
+      // Import the local Elliott Wave analysis function
+      console.log(`[RefreshStock] Performing local Elliott Wave analysis for ${symbol}`);
+      const { analyzeElliottWaves } = await import('@/utils/elliottWaveAnalysis');
+      
+      // Run the Elliott Wave analysis on the historical data with the correct parameters
+      const waveAnalysis = await analyzeElliottWaves(symbol, historicalData);
+      
+      console.log(`[RefreshStock] Analysis complete for ${symbol}:`, waveAnalysis);
+      
+      // Debug the Fibonacci targets specifically
+      console.log(`[RefreshStock] Fibonacci targets before processing:`, waveAnalysis?.fibTargets || []);
+      
+      if (waveAnalysis) {
+        // Explicitly cast the wave analysis result to WaveAnalysis to satisfy TypeScript
+        const typedAnalysis = waveAnalysis as WaveAnalysis;
+        
+        // CRITICAL FIX: Ensure the current wave is properly marked as incomplete
+        // both in the currentWave property AND within the waves array.
+        if (typedAnalysis.currentWave) {
+          const currentWaveNumber = typedAnalysis.currentWave.number;
+          const currentWaveStartTimestamp = typedAnalysis.currentWave.startTimestamp;
+
+          // 1. Fix the currentWave property itself
+          typedAnalysis.currentWave.isComplete = false;
+          if ('endTimestamp' in typedAnalysis.currentWave) delete typedAnalysis.currentWave.endTimestamp;
+          if ('endPrice' in typedAnalysis.currentWave) delete typedAnalysis.currentWave.endPrice;
+          console.log(`[RefreshStock] Cleaned up currentWave property for ${symbol} (Wave ${currentWaveNumber})`);
+
+          // 2. Find and fix the corresponding wave object within the waves array
+          const waveIndex = typedAnalysis.waves.findIndex(
+            w => w.startTimestamp === currentWaveStartTimestamp && w.number === currentWaveNumber
+          );
+          if (waveIndex !== -1) {
+            typedAnalysis.waves[waveIndex].isComplete = false;
+            if ('endTimestamp' in typedAnalysis.waves[waveIndex]) delete typedAnalysis.waves[waveIndex].endTimestamp;
+            if ('endPrice' in typedAnalysis.waves[waveIndex]) delete typedAnalysis.waves[waveIndex].endPrice;
+            console.log(`[RefreshStock] Cleaned up corresponding wave in waves array at index ${waveIndex} for ${symbol}`);
+          } else {
+             // This case might happen if currentWave is somehow detached from the main array, log a warning.
+             console.warn(`[RefreshStock] Could not find matching wave in waves array for currentWave ${currentWaveNumber} starting at ${currentWaveStartTimestamp}. The currentWave property was still cleaned.`);
+          }
+        } else {
+           console.log(`[RefreshStock] No currentWave property found for ${symbol}. Assuming analysis is complete or failed.`);
+        }
+        
+        // Make sure fibTargets is defined even if missing from the analysis
+        if (!typedAnalysis.fibTargets || !Array.isArray(typedAnalysis.fibTargets)) {
+          typedAnalysis.fibTargets = [];
+          console.log(`[RefreshStock] Created empty fibTargets array for ${symbol}`);
+        }
+        
+        // Log the final analysis state for debugging
+        console.log(`[RefreshStock] Final analysis state:`, {
+          currentWave: typedAnalysis.currentWave ? {
+            number: typedAnalysis.currentWave.number,
+            isComplete: typedAnalysis.currentWave.isComplete
+          } : null,
+          fibTargetsLength: typedAnalysis.fibTargets.length
+        });
+        
+        // Update analyses state with the new analysis
+        setAnalyses(prev => ({
+          ...prev,
+          [`${symbol}:1d`]: typedAnalysis
+        }));
+        
+        // Update the allAnalyses state too
+        setAllAnalyses(prev => ({
+          ...prev,
+          [`${symbol}:1d`]: {
+            analysis: typedAnalysis,
+            timestamp: Date.now(),
+            isLoaded: true
+          }
+        }));
+        
+        // SAVE TO SUPABASE CACHE - Default cache duration is 7 days
+        const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+        const cacheKey = `wave_analysis_${symbol}_1d`;
+        
+        try {
+          console.log(`[RefreshStock] Saving analysis for ${symbol} to Supabase cache`);
+          await saveToCache(cacheKey, typedAnalysis, CACHE_DURATION);
+          console.log(`[RefreshStock] Successfully saved analysis for ${symbol} to Supabase cache`);
+        } catch (cacheError) {
+          // Just log the error but continue - not critical for the function to succeed
+          console.error(`[RefreshStock] Error saving to Supabase cache: ${cacheError.message}`);
+        }
+        
+        // Add event to show analysis is complete
+        setAnalysisEvents(prev => [
+          {
+            symbol: symbol,
+            status: 'completed',
+            timestamp: Date.now(),
+            message: `Completed Elliott Wave analysis for ${symbol}`
+          },
+          ...prev
+        ]);
+        
+        console.log(`[RefreshStock] Successfully refreshed analysis for ${symbol}`);
+        return true;
+      } else {
+        throw new Error('Wave analysis returned no results');
+      }
+    } catch (error) {
+      console.error(`[RefreshStock] Error refreshing analysis for ${symbol}:`, error);
+      
+      // Add event to show analysis failed
+      setAnalysisEvents(prev => [
+        {
+          symbol: symbol,
+          status: 'error',
+          timestamp: Date.now(),
+          message: `Failed to refresh Elliott Wave analysis for ${symbol}: ${error.message}`
+        },
+        ...prev
+      ]);
+      
+      return false;
+    }
+  };
+
   const loadCacheTableData = useCallback(async (forceRefresh = false) => {
     // Check if data is already loaded or being loaded
     // if (!forceRefresh && hasLoadedCacheData && Object.keys(allAnalyses).length > 0) { // <-- Re-comment out this block for debugging
@@ -182,7 +351,7 @@ export function WaveAnalysisProvider({ children }: { children: React.ReactNode }
         });
       }
 
-      // Process each analysis and format it for the UI
+      // Process each analysis
       const formattedAnalyses: Record<string, {
         analysis: WaveAnalysisResult;
         timestamp: number;
@@ -444,7 +613,8 @@ export function WaveAnalysisProvider({ children }: { children: React.ReactNode }
       cancelAllAnalyses,
       clearCache,
       loadCacheTableData,
-      waveAnalysesCache: analyses // Using the analyses record as the waveAnalysesCache
+      waveAnalysesCache: analyses, // Using the analyses record as the waveAnalysesCache
+      refreshStockAnalysis // Add the new function to the context
     }}>
       {children}
     </WaveAnalysisContext.Provider>
