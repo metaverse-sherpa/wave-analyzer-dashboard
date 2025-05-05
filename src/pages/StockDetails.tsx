@@ -369,6 +369,7 @@ const StockDetails: React.FC = () => {
                   symbol={symbol}
                   data={historicalData}
                   waves={analysis?.waves || []}
+                  invalidWaves={analysis?.invalidWaves || []} // Add this line to pass invalidWaves
                   currentWave={analysis?.currentWave || null}
                   fibTargets={analysis?.fibTargets || []}
                   selectedWave={selectedWave}

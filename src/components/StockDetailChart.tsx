@@ -176,6 +176,7 @@ interface StockDetailChartProps {
   symbol: string;
   data: StockHistoricalData[];
   waves: Wave[];
+  invalidWaves?: Wave[]; // Add this line to include invalidWaves in the props
   currentWave: Wave;
   fibTargets: FibTarget[];
   selectedWave?: Wave | null;
@@ -189,6 +190,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   symbol,
   data,
   waves,
+  invalidWaves = [], // Add this to destructure the prop with a default empty array
   currentWave,
   fibTargets,
   selectedWave,
@@ -611,7 +613,26 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
   }, [currentWave]);
 
   // --- Invalid waves logic ---
-  const invalidWaves = useMemo(() => waves.filter(w => w.isValid === false || w.isInvalidated || w.isTerminated), [waves]);
+  const detectedInvalidWaves = useMemo(() => waves.filter(w => w.isValid === false || w.isInvalidated || w.isTerminated), [waves]);
+  
+  // Combine passed-in invalidWaves with those detected from waves array
+  const allInvalidWaves = useMemo(() => {
+    const combinedWaves = [...invalidWaves];
+    
+    // Add detected invalid waves that aren't already in the passed invalidWaves
+    detectedInvalidWaves.forEach(detectedWave => {
+      const alreadyIncluded = invalidWaves.some(w => 
+        w.number === detectedWave.number && 
+        getTimestampValue(w.startTimestamp) === getTimestampValue(detectedWave.startTimestamp)
+      );
+      
+      if (!alreadyIncluded) {
+        combinedWaves.push(detectedWave);
+      }
+    });
+    
+    return combinedWaves;
+  }, [invalidWaves, detectedInvalidWaves]);
 
   const chartData: ChartData<keyof ChartTypeRegistry> = {
     labels: ohlcData.map(d => new Date(d.timestamp).toLocaleDateString()),
@@ -653,7 +674,7 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
       })()),
       
       // Invalid wave markers
-      ...invalidWaves.map(wave => {
+      ...allInvalidWaves.map(wave => {
         console.log(`[WaveChart:Datasets] Processing invalid wave marker for wave ${wave.number}`);
         const idx = ohlcData.findIndex(d => d.timestamp >= getTimestampValue(wave.invalidationTimestamp || wave.endTimestamp));
         if (idx === -1) {
@@ -1398,10 +1419,10 @@ const StockDetailChart: React.FC<StockDetailChartProps> = ({
         </Badge>
       </div>
       {/* Invalid waves legend */}
-      {invalidWaves.length > 0 && (
+      {allInvalidWaves.length > 0 && (
         <div className="absolute right-4 top-4 z-20 flex items-center space-x-2 bg-background/80 px-3 py-1 rounded shadow">
           <span className="text-xs text-red-600 font-semibold">✖ Invalidated Wave(s):</span>
-          {invalidWaves.map((w, i) => (
+          {allInvalidWaves.map((w, i) => (
             <span key={i} className="text-xs text-red-600">{w.number}</span>
           ))}
         </div>

@@ -192,16 +192,84 @@ export function WaveAnalysisProvider({ children }: { children: React.ReactNode }
       
       console.log(`[RefreshStock] Analysis complete for ${symbol}:`, waveAnalysis);
       
-      // Debug the Fibonacci targets specifically
-      console.log(`[RefreshStock] Fibonacci targets before processing:`, waveAnalysis?.fibTargets || []);
-      
       if (waveAnalysis) {
         // Explicitly cast the wave analysis result to WaveAnalysis to satisfy TypeScript
         const typedAnalysis = waveAnalysis as WaveAnalysis;
         
-        // CRITICAL FIX: Ensure the current wave is properly marked as incomplete
-        // both in the currentWave property AND within the waves array.
-        if (typedAnalysis.currentWave) {
+        // CRITICAL FIX: Check for invalid waves, especially Wave 4
+        let hasInvalidWave = false;
+        const invalidWaves = typedAnalysis.invalidWaves || [];
+        
+        // Process each wave to check for invalidation flags
+        if (typedAnalysis.waves) {
+          for (let i = 0; i < typedAnalysis.waves.length; i++) {
+            const wave = typedAnalysis.waves[i];
+            
+            // Check if this wave is marked as invalid
+            if (wave.isValid === false || wave.isInvalidated || wave.isTerminated) {
+              console.log(`[RefreshStock] Found invalid wave ${wave.number} for ${symbol}`);
+              hasInvalidWave = true;
+              
+              // ALWAYS mark invalidated waves as complete
+              wave.isComplete = true;
+              
+              // If endTimestamp and endPrice are missing, set them to the invalidation timestamp and price
+              if (!wave.endTimestamp && wave.invalidationTimestamp) {
+                wave.endTimestamp = wave.invalidationTimestamp;
+                console.log(`[RefreshStock] Setting endTimestamp for invalid wave ${wave.number} to invalidationTimestamp`);
+              }
+              
+              if (!wave.endPrice && wave.invalidationPrice) {
+                wave.endPrice = wave.invalidationPrice;
+                console.log(`[RefreshStock] Setting endPrice for invalid wave ${wave.number} to invalidationPrice`);
+              }
+              
+              // Add this wave to invalidWaves if not already there
+              if (!invalidWaves.some(invWave => 
+                invWave.number === wave.number && 
+                invWave.startTimestamp === wave.startTimestamp
+              )) {
+                invalidWaves.push({...wave});
+                console.log(`[RefreshStock] Added wave ${wave.number} to invalidWaves array`);
+              }
+              
+              // CRITICAL FIX: If this is an invalid Wave 4 or any wave that terminates a pattern,
+              // clear currentWave and fibTargets
+              if (wave.number === 4 || wave.isTerminated) {
+                console.log(`[RefreshStock] Wave ${wave.number} is invalid for ${symbol}, clearing currentWave and fibTargets`);
+                typedAnalysis.currentWave = null;
+                typedAnalysis.fibTargets = [];
+              }
+            }
+          }
+        }
+        
+        // Update the invalidWaves array in the analysis
+        typedAnalysis.invalidWaves = invalidWaves;
+
+        // ADDITIONAL CHECK: If there's an invalid wave in the invalidWaves array but not in the waves array,
+        // check if it's a Wave 4 and handle accordingly
+        if (typedAnalysis.invalidWaves && typedAnalysis.invalidWaves.length > 0) {
+          const currentWaveNumber = typedAnalysis.currentWave?.number;
+          
+          // If currentWave is a Wave 4 that's marked as invalid in invalidWaves, clear it
+          if (currentWaveNumber === 4) {
+            const invalidWave4 = typedAnalysis.invalidWaves.find(w => 
+              w.number === 4 && 
+              (w.isValid === false || w.isInvalidated || w.isTerminated)
+            );
+            
+            if (invalidWave4) {
+              console.log(`[RefreshStock] Found invalid Wave 4 in invalidWaves array, ensuring currentWave is cleared`);
+              typedAnalysis.currentWave = null;
+              typedAnalysis.fibTargets = [];
+              hasInvalidWave = true;
+            }
+          }
+        }
+
+        // Handle the currentWave only if no invalidation was found
+        if (!hasInvalidWave && typedAnalysis.currentWave) {
           const currentWaveNumber = typedAnalysis.currentWave.number;
           const currentWaveStartTimestamp = typedAnalysis.currentWave.startTimestamp;
 
@@ -224,8 +292,10 @@ export function WaveAnalysisProvider({ children }: { children: React.ReactNode }
              // This case might happen if currentWave is somehow detached from the main array, log a warning.
              console.warn(`[RefreshStock] Could not find matching wave in waves array for currentWave ${currentWaveNumber} starting at ${currentWaveStartTimestamp}. The currentWave property was still cleaned.`);
           }
+        } else if (hasInvalidWave) {
+           console.log(`[RefreshStock] Invalidated waves found for ${symbol}, current wave was cleared.`);
         } else {
-           console.log(`[RefreshStock] No currentWave property found for ${symbol}. Assuming analysis is complete or failed.`);
+           console.log(`[RefreshStock] No currentWave property found for ${symbol}. Assuming analysis is complete.`);
         }
         
         // Make sure fibTargets is defined even if missing from the analysis
@@ -236,6 +306,8 @@ export function WaveAnalysisProvider({ children }: { children: React.ReactNode }
         
         // Log the final analysis state for debugging
         console.log(`[RefreshStock] Final analysis state:`, {
+          hasInvalidWaves: hasInvalidWave,
+          invalidWavesCount: invalidWaves.length,
           currentWave: typedAnalysis.currentWave ? {
             number: typedAnalysis.currentWave.number,
             isComplete: typedAnalysis.currentWave.isComplete
